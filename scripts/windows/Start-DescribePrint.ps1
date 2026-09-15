@@ -59,7 +59,14 @@ Write-Host 'Local AI default: qwen2.5-coder:32b on 127.0.0.1:11434'
 Write-Host 'Do not change the Ollama port. Leave Agent Smith models untouched.'
 Write-Host 'OpenSCAD: install from openscad.org, set OPENSCAD_PATH, or drop openscad.exe in vendor\openscad\'
 Write-Host 'Printer default: Bambu Lab P2S'
+Write-Host 'This PC: http://localhost:3000  |  iPhone: same Wi-Fi LAN URL below (QR).'
+Write-Host 'Optional Tailscale 100.x URL is preferred for the QR when Tailscale is up.'
 Write-Host ''
+
+& node (Join-Path $Root 'scripts\print-lan-access.mjs')
+if ($LASTEXITCODE -ne 0) {
+    Write-Host 'Could not print LAN / Tailscale URL. Opening localhost only.' -ForegroundColor Yellow
+}
 
 $openBrowser = {
     Start-Sleep -Seconds 3

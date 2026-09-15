@@ -52,7 +52,14 @@ echo Local AI default: qwen2.5-coder:32b on 127.0.0.1:11434
 echo Do not change the Ollama port. Leave Agent Smith models untouched.
 echo OpenSCAD: install from openscad.org or set OPENSCAD_PATH
 echo Printer default: Bambu Lab P2S
+echo This PC: http://localhost:3000  ^|  iPhone: LAN URL + QR below.
+echo Optional Tailscale 100.x URL is preferred for the QR when Tailscale is up.
 echo.
+
+call node "%~dp0scripts\print-lan-access.mjs"
+if errorlevel 1 (
+  echo Could not print LAN / Tailscale URL. Opening localhost only.
+)
 
 start "" cmd /c "timeout /t 3 /nobreak >nul & start http://localhost:3000"
 call npm run dev

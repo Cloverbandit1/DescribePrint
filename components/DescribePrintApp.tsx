@@ -259,6 +259,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [keepWear, setKeepWear] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const photoInput = useRef<HTMLInputElement>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [workspace, setWorkspace] = useState<WorkspaceTab>("prepare");
   const [cameraView, setCameraView] = useState<CameraView>("iso");
@@ -829,6 +830,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
     } finally {
       setBusy(false);
       if (fileInput.current) fileInput.current.value = "";
+      if (photoInput.current) photoInput.current.value = "";
       scrollToEnd();
     }
   }
@@ -916,6 +918,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
         setPrompt(value);
       }}
       onImport={() => fileInput.current?.click()}
+      onImportPhoto={() => photoInput.current?.click()}
       optionGroups={pendingOptionGroups}
       onPickOption={pickDesignOption}
     />
@@ -928,6 +931,18 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
         type="file"
         accept=".stl,.3mf,.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp,model/stl,application/vnd.ms-package.3dmanufacturing-3dmodel+xml"
         className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void importMeshFile(file);
+        }}
+      />
+      <input
+        ref={photoInput}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        aria-label="Import photo"
         onChange={(event) => {
           const file = event.target.files?.[0];
           if (file) void importMeshFile(file);
@@ -1324,6 +1339,7 @@ function ChatComposer({
   followUps,
   onFollowUp,
   onImport,
+  onImportPhoto,
   optionGroups,
   onPickOption,
 }: {
@@ -1347,6 +1363,7 @@ function ChatComposer({
   followUps: readonly string[] | null;
   onFollowUp: (value: string) => void;
   onImport: () => void;
+  onImportPhoto: () => void;
   optionGroups: DesignOptionGroup[];
   onPickOption: (group: DesignOptionGroup, option: DesignOption) => void;
 }) {
@@ -1418,6 +1435,15 @@ function ChatComposer({
           className="ml-auto text-[11px] text-muted underline-offset-2 hover:underline disabled:opacity-40"
         >
           Import file
+        </button>
+        <button
+          type="button"
+          onClick={onImportPhoto}
+          disabled={busy}
+          title="Take or choose a photo (PNG / JPG / WebP)"
+          className="text-[11px] text-muted underline-offset-2 hover:underline disabled:opacity-40"
+        >
+          Import photo
         </button>
       </div>
       {showAdvanced ? (

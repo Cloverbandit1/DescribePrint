@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { matchConversationFixture, matchFixture, shouldUseFixture } from "@/lib/fixtures";
+import { HINGE_FIXTURE_PROMPT, PIN_FIXTURE_PROMPT } from "@/lib/joints";
 import { sanitizeOpenScad } from "@/lib/sanitize";
 import { toMillimeters } from "@/lib/units";
 
@@ -12,6 +13,20 @@ describe("fixtures + units", () => {
     expect(fixture?.code).toMatch(/module region_body/);
     expect(fixture?.code).toMatch(/module region_letters/);
     expect(fixture?.code).toMatch(/color\("red"\)/);
+  });
+
+  it("matches hinge and pin print-in-place fixtures with sanitizable OpenSCAD", () => {
+    const hinge = matchFixture(HINGE_FIXTURE_PROMPT);
+    expect(hinge?.id).toBe("hinged-box-lid");
+    expect(sanitizeOpenScad(hinge!.code).ok).toBe(true);
+    expect(hinge?.code).toMatch(/radial_mm = 0\.4/);
+    expect(hinge?.code).toContain("module hinge_pin()");
+
+    const pin = matchFixture(PIN_FIXTURE_PROMPT);
+    expect(pin?.id).toBe("pin-joint");
+    expect(sanitizeOpenScad(pin!.code).ok).toBe(true);
+    expect(pin?.code).toContain("module rotor_and_pin()");
+    expect(matchFixture("20mm cube with 5mm hole")?.id).toBe("cube-with-hole");
   });
 
   it("matches the three example prompts with sanitizable OpenSCAD", () => {

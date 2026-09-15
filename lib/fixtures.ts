@@ -1,4 +1,12 @@
 import { colorRegionsFromPrompt } from "./color-regions";
+import {
+  HINGE_FIXTURE_PROMPT,
+  PIN_FIXTURE_PROMPT,
+  hingeFixtureScad,
+  isHingeFixturePrompt,
+  isPinFixturePrompt,
+  pinFixtureScad,
+} from "./joints";
 import { toMillimeters } from "./units";
 import type { Unit } from "./types";
 
@@ -109,6 +117,14 @@ export function matchFixture(
     return { id: "two-color-plaque", title: "Two-color plaque", code: TWO_COLOR_PLAQUE };
   }
 
+  if (isHingeFixturePrompt(text)) {
+    return { id: "hinged-box-lid", title: "Print-in-place hinged lid", code: hingeFixtureScad() };
+  }
+
+  if (isPinFixturePrompt(text)) {
+    return { id: "pin-joint", title: "Print-in-place pin joint", code: pinFixtureScad() };
+  }
+
   if ((text.includes("cube") && (text.includes("hole") || text.includes("bore"))) || text.includes("cube with")) {
     const size = hinted ?? numberAt(text, /(\d+(?:\.\d+)?)\s*mm\s+cube/, 20);
     const hole = numberAt(text, /(\d+(?:\.\d+)?)\s*mm\s+(?:hole|bore)/, 5);
@@ -195,7 +211,23 @@ export function matchConversationFixture(
   const fromCode = paramsFromCode(previousCode);
   const hinted = sizeHint && sizeHint > 0 ? toMillimeters(sizeHint, units) : null;
   const text = prompt.toLowerCase();
-  const baseId = prev?.id ?? (/module\s+region_letters\s*\(/.test(previousCode ?? "") ? "two-color-plaque" : Number.isFinite(fromCode.hole) ? "cube-with-hole" : Number.isFinite(fromCode.tilt) ? "phone-stand" : Number.isFinite(fromCode.diameter) ? "drawer-knob" : Number.isFinite(fromCode.size) ? "plain-cube" : null);
+  const baseId =
+    prev?.id ??
+    (/module\s+box_body\s*\(/.test(previousCode ?? "")
+      ? "hinged-box-lid"
+      : /module\s+rotor_and_pin\s*\(/.test(previousCode ?? "")
+        ? "pin-joint"
+        : /module\s+region_letters\s*\(/.test(previousCode ?? "")
+          ? "two-color-plaque"
+          : Number.isFinite(fromCode.hole)
+            ? "cube-with-hole"
+            : Number.isFinite(fromCode.tilt)
+              ? "phone-stand"
+              : Number.isFinite(fromCode.diameter)
+                ? "drawer-knob"
+                : Number.isFinite(fromCode.size)
+                  ? "plain-cube"
+                  : null);
 
   const hole = numberFrom(
     prompt,
@@ -242,6 +274,14 @@ export function matchConversationFixture(
     return { id: "two-color-plaque", title: "Two-color plaque", code: TWO_COLOR_PLAQUE };
   }
 
+  if (baseId === "hinged-box-lid") {
+    return { id: "hinged-box-lid", title: "Print-in-place hinged lid", code: hingeFixtureScad() };
+  }
+
+  if (baseId === "pin-joint") {
+    return { id: "pin-joint", title: "Print-in-place pin joint", code: pinFixtureScad() };
+  }
+
   if (baseId === "phone-stand") {
     const nextTilt = Number.isFinite(tilt)
       ? tilt
@@ -286,4 +326,6 @@ export const EXAMPLE_PROMPTS = [
   "phone stand for iPhone 15, 60 degree tilt",
   "parametric drawer knob diameter 40mm",
   "red 40mm plaque with black letters",
+  HINGE_FIXTURE_PROMPT,
+  PIN_FIXTURE_PROMPT,
 ] as const;

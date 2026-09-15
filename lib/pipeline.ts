@@ -49,6 +49,7 @@ import {
   sitMeshesOnBed,
 } from "./mesh-transform";
 import { extractOpenScadColorBodies, mergeScadBodiesWithRegions, scadWithOnlyBody } from "./openscad-colors";
+import { hasPrintInPlaceJoints } from "./joints";
 import { formatPrintabilityFeedback, shouldRetryPrintability, wantsNewDesign } from "./printability";
 import { IMPORTED_MESH_FILENAME, sanitizeOpenScad } from "./sanitize";
 import { parseStl, writeBinaryStl } from "./stl";
@@ -697,7 +698,9 @@ async function runOpenscadGenerate(
       if (
         !useFixture &&
         attemptNo < MAX_COMPILE_ATTEMPTS &&
-        shouldRetryPrintability(artifacts.report)
+        shouldRetryPrintability(artifacts.report, undefined, {
+          allowDisconnected: hasPrintInPlaceJoints(plan),
+        })
       ) {
         retried = true;
         const feedback = formatPrintabilityFeedback(artifacts.report);

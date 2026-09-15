@@ -25,6 +25,8 @@ describe("printability rules (P2S)", () => {
     expect(rules.minHoleMm).toBe(2.5);
     expect(formatPrinterConstraints()).toMatch(/256 × 256 × 256 mm/);
     expect(formatPrinterConstraints()).toMatch(/0\.4 mm/);
+    expect(formatPrinterConstraints()).toMatch(/print-in-place/);
+    expect(formatPrinterConstraints()).toMatch(/0\.4 mm\/side/);
   });
 
   it("detects assembly vs one-piece and new-design follow-ups", () => {
@@ -83,5 +85,12 @@ cube(size);
 
     const floating = checkMesh(makeAxisAlignedBoxMesh([20, 20, 20], [0, 0, 12]));
     expect(shouldRetryPrintability(floating, undefined, { importedWrap: true })).toBe(true);
+
+    const a = makeAxisAlignedBoxMesh([10, 10, 10], [0, 0, 0]);
+    const b = makeAxisAlignedBoxMesh([10, 10, 10], [40, 0, 0]);
+    const pip = checkMesh({ triangles: [...a.triangles, ...b.triangles] });
+    expect(pip.issues.some((i) => i.code === "disconnected")).toBe(true);
+    expect(shouldRetryPrintability(pip)).toBe(true);
+    expect(shouldRetryPrintability(pip, undefined, { allowDisconnected: true })).toBe(false);
   });
 });

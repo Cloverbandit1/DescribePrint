@@ -108,7 +108,16 @@ export const REPAIR_INSTRUCTIONS = `Fix instructions:
 5. Prefer the smallest change that compiles and stays printable. Preserve the user's design intent and any plan dimensions.
 6. If the old design cannot be repaired cleanly, rewrite a simpler one-piece solid that still matches the request.`;
 
-export function classifyCompileIssue(error: string): string[] {
+export const IMPORTED_MESH_REPAIR_INSTRUCTIONS = `Fix instructions (imported-mesh wrapper — do not start over):
+1. Keep import("imported.stl", convexity = 10) as the host solid. It MUST remain the FIRST child of difference().
+2. Do not rebuild a cube/sphere/cylinder-only part. Do not drop or replace the import.
+3. Through-holes: cutter overshoots both faces by 0.2–1 mm. Blind holes stop short of the far face (leave ≥ 1.6 mm).
+4. Never union a cutter onto the import (that makes a floating cylinder / blind nub).
+5. Never invert difference() (cutter first, import second).
+6. Sit the result on z=0. One connected solid. Walls ≥ 1.6 mm.
+7. Prefer the smallest change that compiles. Feed compiler / mesh / printability errors back into this same wrap.`;
+
+export function classifyCompileIssue(error: string, opts: { importedMesh?: boolean } = {}): string[] {
   const hints: string[] = [];
   const text = error ?? "";
   if (/syntax|parser|unexpected|missing ;|WARNING: Ignoring unknown|ERROR:/i.test(text)) {
@@ -117,19 +126,35 @@ export function classifyCompileIssue(error: string): string[] {
   if (/undefined|not defined|unknown variable|unknown module/i.test(text)) {
     hints.push("Define every variable and module before use.");
   }
-  if (/\bimport\b|\binclude\b|\buse\b|surface\(/i.test(text)) {
+  if (opts.importedMesh) {
+    if (/from-scratch|must keep import|host solid|inverted|floating cylinder/i.test(text)) {
+      hints.push(
+        'Keep import("imported.stl", convexity = 10) as the first difference() child; put the hole cutter second.',
+      );
+    }
+  } else if (/\bimport\b|\binclude\b|\buse\b|surface\(/i.test(text)) {
     hints.push("Remove filesystem calls; rebuild with cube/cylinder/sphere primitives.");
   }
   if (/manifold|mesh check|non-manifold|zero.volume|empty mesh|no-triangles/i.test(text)) {
     hints.push(
-      "Ensure a single closed solid: union overlapping parts, extend subtractors through faces, avoid zero-thickness shells.",
+      opts.importedMesh
+        ? "Keep the imported host. Extend hole cutters through the solid (overshoot 0.2–1 mm). Do not replace the import with a new primitive part."
+        : "Ensure a single closed solid: union overlapping parts, extend subtractors through faces, avoid zero-thickness shells.",
     );
   }
   if (/disconnected|floating island/i.test(text)) {
-    hints.push("Union every body into one connected solid; add a 1.6+ mm bridge if pieces must stay attached.");
+    hints.push(
+      opts.importedMesh
+        ? "A second solid is usually a unioned cutter. difference() the hole; keep one connected imported part."
+        : "Union every body into one connected solid; add a 1.6+ mm bridge if pieces must stay attached.",
+    );
   }
   if (/off-bed|sit on z|lowest z/i.test(text)) {
-    hints.push("Translate the part so the base sits on z=0.");
+    hints.push(
+      opts.importedMesh
+        ? "Translate the wrap so the imported solid still sits on z=0. Do not rebuild a new part."
+        : "Translate the part so the base sits on z=0.",
+    );
   }
   if (/thin.wall|undersized|thinner than/i.test(text)) {
     hints.push("Thicken walls to at least 1.6 mm (4× 0.4 mm nozzle). Avoid knife edges.");
@@ -147,9 +172,13 @@ export function buildRepairPrompt(input: {
   error: string;
   previousCode?: string;
   plan?: CadPlan | null;
+  importedMesh?: boolean;
 }): string {
-  const parts = [REPAIR_HEADER, REPAIR_INSTRUCTIONS];
-  const hints = classifyCompileIssue(input.error);
+  const parts = [
+    REPAIR_HEADER,
+    input.importedMesh ? IMPORTED_MESH_REPAIR_INSTRUCTIONS : REPAIR_INSTRUCTIONS,
+  ];
+  const hints = classifyCompileIssue(input.error, { importedMesh: input.importedMesh });
   if (hints.length) {
     parts.push(`Error-specific hints:\n- ${hints.join("\n- ")}`);
   }
@@ -189,11 +218,14 @@ Do not import any other file. Do not use include, use <>, or surface().
 Units and output
 - Millimeters. 1 unit = 1 mm.
 - Keep a single printable solid. Sit the result on z=0.
-- Difference() cutters must fully pierce (overshoot 0.2–1 mm). Walls >= 1.6 mm. Through-holes >= 2.5 mm unless the user asks smaller.
+- Through-holes by default: difference() the imported solid and fully pierce (overshoot 0.2–1 mm) unless the user asks for a blind hole.
+- difference() children: FIRST import("imported.stl"), SECOND the cutter. Inverting this subtracts the part from a cylinder (blind nub / empty / inverted failure).
+- Never union a cylinder onto the import — that leaves a floating solid, not a hole.
+- Walls >= 1.6 mm. Through-holes >= 2.5 mm unless the user asks smaller. Sit the result on z=0. One connected piece.
 
 Edits
 - Scale, rotate, and translate the imported mesh to apply size / orientation requests.
-- Add holes, slots, or tabs with cube()/cylinder() unioned or differenced against the import.
+- Add holes, slots, or tabs with cube()/cylinder() differenced (holes) or unioned (tabs that share a face) against the import.
 - Name parameters at the top (hole_d, scale_f, …).
 - Prefer the smallest change that matches the request. Do not replace the imported part with a new primitive-only model unless the user asked to start over.
 
@@ -211,6 +243,8 @@ export function buildImportedMeshPrompt(input: {
   previousError?: string;
   previousCode?: string;
   previousPrompt?: string;
+  holeSpecNote?: string;
+  suggestedWrap?: string;
 }): string {
   const [sx, sy, sz] = input.mesh.sizeMm;
   const [minx, miny, minz] = input.mesh.minMm;
@@ -230,11 +264,16 @@ export function buildImportedMeshPrompt(input: {
       buildRepairPrompt({
         error: input.previousError,
         previousCode: input.previousCode,
+        importedMesh: true,
       }),
-      "Keep import(\"imported.stl\", convexity = 10) as the host solid.",
+      "Keep import(\"imported.stl\", convexity = 10) as the host solid. Repair this wrap — do not generate an unrelated part.",
       `User request:\n${input.prompt.trim()}`,
       meta,
     ];
+    if (input.holeSpecNote) parts.push(input.holeSpecNote);
+    if (input.suggestedWrap) {
+      parts.push(`Suggested engineering wrap (revise this; do not replace the import):\n${input.suggestedWrap.slice(0, 4000)}`);
+    }
     if (input.sizeNote) parts.push(input.sizeNote);
     if (input.previousPrompt) parts.push(`Earlier description:\n${input.previousPrompt.slice(0, 2000)}`);
     return parts.join("\n\n");
@@ -245,6 +284,10 @@ export function buildImportedMeshPrompt(input: {
     `User request:\n${input.prompt.trim()}`,
     meta,
   ];
+  if (input.holeSpecNote) parts.push(input.holeSpecNote);
+  if (input.suggestedWrap) {
+    parts.push(`Suggested engineering wrap (prefer this difference() structure):\n${input.suggestedWrap.slice(0, 4000)}`);
+  }
   if (input.sizeNote) parts.push(input.sizeNote);
   if (input.previousPrompt) {
     parts.push(`Earlier description:\n${input.previousPrompt.slice(0, 2000)}`);
@@ -263,6 +306,8 @@ export function buildUserPrompt(input: {
   previousPrompt?: string;
   plan?: CadPlan | null;
   importedMesh?: ImportedMeshContext;
+  holeSpecNote?: string;
+  suggestedWrap?: string;
 }): string {
   if (input.importedMesh) {
     return buildImportedMeshPrompt({
@@ -272,6 +317,8 @@ export function buildUserPrompt(input: {
       previousError: input.previousError,
       previousCode: input.previousCode,
       previousPrompt: input.previousPrompt,
+      holeSpecNote: input.holeSpecNote,
+      suggestedWrap: input.suggestedWrap,
     });
   }
   if (input.previousError) {

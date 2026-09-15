@@ -4,9 +4,11 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { compileOpenScad, withTempDir } from "@/lib/compile";
 import { defaultFixture } from "@/lib/fixtures";
-import { checkMesh, hasHardMeshFailure } from "@/lib/mesh-check";
+import { buildImportedMeshWrapper, parseImportHoleSpec } from "@/lib/import-hole";
+import { boundingBoxMm, checkMesh, countSolidComponents, hasHardMeshFailure } from "@/lib/mesh-check";
 import { resolveOpenscad } from "@/lib/openscad";
 import { IMPORTED_MESH_FILENAME, sanitizeOpenScad } from "@/lib/sanitize";
+import { sitMeshOnBed } from "@/lib/mesh-transform";
 import { makeAxisAlignedBoxMesh, parseStl, writeBinaryStl } from "@/lib/stl";
 
 function hasOpenscad(): boolean {
@@ -53,6 +55,27 @@ describe("OpenSCAD compile path", () => {
       const report = checkMesh(parseStl(compiled.stl));
       expect(hasHardMeshFailure(report)).toBe(false);
       expect(report.triangleCount).toBeGreaterThan(0);
+    });
+  });
+
+  it.skipIf(!hasOpenscad())("differences an 8 mm through-hole from a 20 mm cube STL", async () => {
+    const mesh = sitMeshOnBed(makeAxisAlignedBoxMesh([20, 20, 20]));
+    const spec = parseImportHoleSpec("add an 8 mm hole through the center", boundingBoxMm(mesh));
+    expect(spec?.through).toBe(true);
+    const wrapper = sanitizeOpenScad(buildImportedMeshWrapper({ mesh, hole: spec }), { allowImportedMesh: true });
+    expect(wrapper.ok).toBe(true);
+    if (!wrapper.ok) return;
+
+    await withTempDir(async (dir) => {
+      await writeFile(path.join(dir, IMPORTED_MESH_FILENAME), writeBinaryStl(mesh));
+      const compiled = await compileOpenScad(wrapper.code, dir);
+      const result = sitMeshOnBed(parseStl(compiled.stl));
+      const report = checkMesh(result);
+      expect(hasHardMeshFailure(report)).toBe(false);
+      expect(countSolidComponents(result)).toBe(1);
+      expect(report.boundingBoxMm.min[2]).toBeCloseTo(0, 1);
+      expect(report.volumeMm3).toBeGreaterThan(5500);
+      expect(report.volumeMm3).toBeLessThan(7800);
     });
   });
 });

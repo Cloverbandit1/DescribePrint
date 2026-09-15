@@ -164,7 +164,27 @@ describe("LLM prompt", () => {
     expect(prompt).toContain("8mm hole");
     expect(importedMeshSystemPrompt()).toMatch(/imported triangle mesh/i);
     expect(importedMeshSystemPrompt()).toMatch(/256 × 256 × 256 mm/);
+    expect(importedMeshSystemPrompt()).toMatch(/FIRST import/i);
     expect(importedMeshSystemPrompt()).not.toMatch(/minicpm5|smith-/i);
+
+    const repair = buildUserPrompt({
+      prompt: "add an 8mm hole",
+      sizeNote: "",
+      previousError: "difference() is inverted: import(\"imported.stl\") must be the first child",
+      previousCode: 'difference() { cylinder(h=12, d=8); import("imported.stl"); }',
+      importedMesh: {
+        fileName: "mask.stl",
+        sizeMm: [40, 20, 10],
+        minMm: [0, 0, 0],
+        maxMm: [40, 20, 10],
+        triangleCount: 12,
+        volumeMm3: 8000,
+      },
+    });
+    expect(repair).toMatch(/do not start over/i);
+    expect(repair).toMatch(/import\("imported\.stl"/);
+    expect(repair).not.toMatch(/rebuild with cube\/cylinder\/sphere/i);
+    expect(repair).not.toMatch(/rewrite a simpler one-piece solid that still matches/i);
   });
 
   it("builds a short planning prompt for follow-up edits", () => {

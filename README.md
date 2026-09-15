@@ -227,7 +227,7 @@ Shipped as an in-app stub trio on top of the OpenSCAD create path. No Blender / 
 | Path | What works | What is stubbed |
 | --- | --- | --- |
 | **STL/3MF import** | Upload onto the plate, preview, mesh-check, sit on z=0, re-export STL/3MF | No repair sculpt, no multi-body 3MF transforms |
-| **Describe-to-edit (imported)** | Scale / rotate / sit-on-bed and S–XL edit the real triangles. “Add an 8 mm hole” (and similar) wraps `import("imported.stl")` in OpenSCAD CSG | Full triangle sculpt / Style2Fab / organic remesh is **not** ready |
+| **Describe-to-edit (imported)** | Scale / rotate / sit-on-bed and S–XL edit the real triangles. “Add an 8 mm hole” (and similar) **differences** `import("imported.stl")` — through-holes by default, axis/offset inferred from the prompt, sit-on-bed + one-piece checks kept. Repair retries stay on the wrap (no from-scratch rewrite) | Full triangle sculpt / Style2Fab / organic remesh is **not** ready. Blind holes and multi-feature wraps are still CSG, not mesh sculpt |
 | **Wearable size** | Category + S/M/L/XL picker and chat (“helmet size L”) scale the current mesh from documented mm charts and show the assumed size + key measurements | Not a custom-fit / saved-body grade; scale is **uniform** from the category primary measurement (preserves walls and holes) |
 
 **Wearable charts (mm)** — pick a category (or say “helmet”, “cuirass”, “gauntlet”, “bracer” in chat) then S–XL:
@@ -258,7 +258,7 @@ Run as a Node process (`next dev` / `next start`). V0 is not aimed at serverless
 npm test
 ```
 
-Covers local LLM config defaults, OpenSCAD path resolution, launch health (Ollama + MODEL + OpenSCAD), Start preflight exit codes (0 = pass, 2 = warn/soft fail and continue), code sanitization, mesh-check / STL / 3MF, import, wearable measurement charts + size application, imported-mesh describe-edit, the P2S profile, Print doctor, and machine adapters (mock + flagged LAN MQTT, no physical printer). If OpenSCAD is installed, an integration test compiles the default fixture (and an imported-mesh wrapper when present).
+Covers local LLM config defaults, OpenSCAD path resolution, launch health (Ollama + MODEL + OpenSCAD), Start preflight exit codes (0 = pass, 2 = warn/soft fail and continue), code sanitization, mesh-check / STL / 3MF, import, wearable measurement charts + size application, imported-mesh describe-edit (hole difference / placement / wrap repair), the P2S profile, Print doctor, and machine adapters (mock + flagged LAN MQTT, no physical printer). If OpenSCAD is installed, an integration test compiles the default fixture and an imported-mesh hole wrap (skipped if the binary is missing).
 
 `GET /api/health` returns the same Local AI / OpenSCAD / P2S status the header chip shows. `npm run health:preflight` is the same check Start runs before `npm run dev`.
 

@@ -70,4 +70,18 @@ cube(size);
     expect(sheet.issues.some((i) => i.code === "thin-wall")).toBe(true);
     expect(shouldRetryPrintability(sheet)).toBe(false);
   });
+
+  it("does not retry imported STL CSG solely for non-manifold noise", () => {
+    const importedCsg = checkMesh(makeAxisAlignedBoxMesh([20, 20, 20]));
+    importedCsg.issues.push({
+      code: "non-manifold",
+      severity: "warning",
+      message: "Mesh is not edge-manifold (may not be watertight)",
+    });
+    expect(shouldRetryPrintability(importedCsg)).toBe(true);
+    expect(shouldRetryPrintability(importedCsg, undefined, { importedWrap: true })).toBe(false);
+
+    const floating = checkMesh(makeAxisAlignedBoxMesh([20, 20, 20], [0, 0, 12]));
+    expect(shouldRetryPrintability(floating, undefined, { importedWrap: true })).toBe(true);
+  });
 });

@@ -130,12 +130,16 @@ export function formatPrinterConstraints(rules: PrintRules = printRules()): stri
 }
 
 const RETRY_CODES = new Set(["disconnected", "off-bed", "non-manifold"]);
+/** STL CSG wrappers are often not edge-manifold; that alone must not trigger a from-scratch rewrite. */
+const IMPORTED_WRAP_RETRY_CODES = new Set(["disconnected", "off-bed"]);
 
 export function shouldRetryPrintability(
   report: PrintabilityReport,
   rules: PrintRules = printRules(),
+  opts: { importedWrap?: boolean } = {},
 ): boolean {
-  if (report.issues.some((issue) => RETRY_CODES.has(issue.code))) return true;
+  const retryCodes = opts.importedWrap ? IMPORTED_WRAP_RETRY_CODES : RETRY_CODES;
+  if (report.issues.some((issue) => retryCodes.has(issue.code))) return true;
   if (!report.issues.some((issue) => issue.code === "thin-wall" || issue.code === "undersized")) {
     return false;
   }

@@ -63,8 +63,8 @@ export function parseMeshEditIntent(
 
   const wearableSize = requestedSize ?? parseWearableSizeFromPrompt(text);
   const holeMm =
-    numberAt(text, /(?:hole|bore)[^\d]{0,20}(\d+(?:\.\d+)?)/i) ??
-    numberAt(text, /(\d+(?:\.\d+)?)\s*mm\s+(?:hole|bore)/i);
+    numberAt(text, /(\d+(?:\.\d+)?)\s*mm\s+(?:hole|bore)/i) ??
+    numberAt(text, /(?:hole|bore)\s+(?:of\s+)?(\d+(?:\.\d+)?)/i);
   const addTab = /\btab\b|\bmount(?:ing)?\b/i.test(text);
   const generative = isGenerativeMeshEdit(text) || holeMm !== null || addTab;
 

@@ -114,6 +114,16 @@ describe("fork stubs (do not ask on every prompt)", () => {
     expect(resolveDesignOptions({ prompt: HINGE_FIXTURE_PROMPT }).needs_user_choice).toBe(false);
   });
 
+  it("asks fit kind or grade only on a fit fork", () => {
+    expect(resolveDesignOptions({ prompt: "which fit should I use for this 8mm pin?" }).options.map((g) => g.id)).toEqual([
+      "fit_kind",
+    ]);
+    expect(resolveDesignOptions({ prompt: "20mm cube with press-fit 8mm pin hole" }).options.map((g) => g.id)).toEqual([
+      "fit_grade",
+    ]);
+    expect(resolveDesignOptions({ prompt: CUBE }).options.some((group) => group.id.startsWith("fit_"))).toBe(false);
+  });
+
   it("asks emboss face when relief has no named face", () => {
     expect(resolveDesignOptions({ prompt: "helmet with embossed crest" }).options.map((g) => g.id)).toEqual([
       "emboss_face",

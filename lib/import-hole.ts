@@ -1,3 +1,4 @@
+import { inferCadFit, parseShaftMm, finishedHoleMm } from "./fits";
 import { boundingBoxMm } from "./mesh-check";
 import { printRules } from "./printability";
 import {
@@ -206,11 +207,23 @@ export function parseImportHoleSpec(
 
   const rules = printRules();
   const notes: string[] = [];
-  let diameterMm = stated ?? DEFAULT_HOLE_MM;
-  if (stated === null) {
+  const fit = inferCadFit({ prompt: text, sizeMm: box.size });
+  const shaftMm = parseShaftMm(text);
+  let diameterMm = stated ?? shaftMm ?? DEFAULT_HOLE_MM;
+  if (stated === null && shaftMm === undefined) {
     notes.push(`No hole size given — using ${DEFAULT_HOLE_MM} mm.`);
   }
-  if (diameterMm < rules.minHoleMm && !stated) {
+  if (fit && (shaftMm !== undefined || stated !== null)) {
+    const nominal = shaftMm ?? stated ?? diameterMm;
+    const finished = finishedHoleMm(nominal, fit);
+    if (finished !== diameterMm) {
+      notes.push(
+        `Fit wizard ${fit.kind} ${fit.grade}: ${nominal} mm shaft → ${finished} mm hole (${fit.radial_mm} mm/side).`,
+      );
+    }
+    diameterMm = finished;
+  }
+  if (diameterMm < rules.minHoleMm && !stated && shaftMm === undefined) {
     diameterMm = rules.minHoleMm;
   }
 

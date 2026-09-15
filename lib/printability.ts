@@ -2,6 +2,7 @@
  * Printer-aware printability rules for the describe → OpenSCAD path.
  * Defaults come from the V0 P2S stub in printers.ts (256³ mm, 0.4 mm nozzle).
  */
+import { formatFitConstraints } from "./fits";
 import { formatJointConstraints } from "./joints";
 import { formatLatticeConstraints } from "./lattice";
 import { formatPrettyUpConstraints } from "./pretty-up";
@@ -131,6 +132,7 @@ export function formatPrinterConstraints(rules: PrintRules = printRules()): stri
     `- Minimum wall ${rules.minWallMm} mm (4× nozzle). Minimum through-hole ${rules.minHoleMm} mm unless they ask smaller.`,
     `- Clearance ~${rules.clearanceMm} mm per side on fits. One connected solid on z=0 unless the user asked for a joint / moving assembly.`,
     formatJointConstraints(),
+    formatFitConstraints(),
     formatReliefConstraints(),
     formatPrettyUpConstraints(),
     formatLatticeConstraints(),

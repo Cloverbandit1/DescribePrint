@@ -17,6 +17,7 @@ Cross-links (do not copy stale numbers into the JSON when a live module already 
 
 - Printer volume / nozzle / material auto-best → [`lib/printers.ts`](../lib/printers.ts)
 - Joint radial/axial tables → [`lib/joints.ts`](../lib/joints.ts)
+- Fit wizard S/M/L + explicit mm → [`lib/fits.ts`](../lib/fits.ts) (reuses joints.ts; do not fork those numbers)
 - Wearable S–XL charts → [`lib/wearable-sizes.ts`](../lib/wearable-sizes.ts)
 - Oversize designation → [`lib/alternate-machines.ts`](../lib/alternate-machines.ts)
 

@@ -72,6 +72,7 @@ import {
 } from "./import-hole";
 import { formatPrettyUpNote, inferCadPrettyUp } from "./pretty-up";
 import { formatLatticeNote, inferCadLattice } from "./lattice";
+import { formatFitNote, inferCadFit } from "./fits";
 import { attachImageMotif, formatReliefNote, inferCadReliefs, standaloneImageReliefScad } from "./relief";
 import { cadKnowledgeFromPrompt, formatKnowledgeNote } from "./knowledge";
 import {
@@ -343,6 +344,7 @@ async function planFromLlm(request: GenerateRequest): Promise<CadPlan | null> {
       ? normalizeCadPlan(parsed, {
           prompt: request.prompt,
           previousCode: request.previousCode,
+          filament: request.filament,
         })
       : null;
   } catch (err) {
@@ -921,6 +923,14 @@ async function runImportedMeshEdit(
   if (prettyNote) notes.push(prettyNote);
   const latticeNote = formatLatticeNote(lattice);
   if (latticeNote) notes.push(latticeNote);
+  const importFitNote = formatFitNote(inferCadFit({
+    prompt,
+    previousPrompt: request.previousPrompt,
+    filament: request.filament,
+    holes: hole ? [{ d: hole.diameterMm, through: hole.through }] : undefined,
+    sizeMm: box.sizeMm,
+  }));
+  if (importFitNote) notes.push(importFitNote);
   if ((previous.colorRegions?.length ?? 0) > 1) {
     notes.push(
       "Hole wrap compiles one OpenSCAD solid, so previous 3MF color objects were flattened. Describe colors again to re-split filaments.",
@@ -1281,6 +1291,15 @@ async function runOpenscadGenerate(
   });
   const latticeNote = formatLatticeNote(lattice);
   if (latticeNote) notes.push(latticeNote);
+  const fit = plan?.fit ?? inferCadFit({
+    prompt,
+    previousPrompt: request.previousPrompt,
+    filament: request.filament,
+    holes: plan?.holes,
+    joints: plan?.joints,
+  });
+  const fitNote = formatFitNote(fit);
+  if (fitNote) notes.push(fitNote);
   const knowledge = plan?.knowledge ?? cadKnowledgeFromPrompt(prompt);
   const knowledgeNote = formatKnowledgeNote(knowledge);
   if (knowledgeNote) notes.push(knowledgeNote);

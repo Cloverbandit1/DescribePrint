@@ -44,6 +44,15 @@ import {
   type CadLattice,
 } from "./lattice";
 import {
+  applyFitToHoles,
+  applyFitToJoints,
+  applyFitToMatingFeatures,
+  formatFitPromptHint,
+  normalizeCadFit,
+  parseCadFit,
+  type CadFit,
+} from "./fits";
+import {
   formatReliefPromptHint,
   normalizeCadReliefs,
   parseCadReliefs,
@@ -107,6 +116,8 @@ export type CadPlan = {
   pretty_up?: CadPrettyUp;
   /** Present only when the user asked to lighten / lattice / honeycomb / gyroid. */
   lattice?: CadLattice;
+  /** Present only when the user named a snap/press/sliding/wearable/hinge fit, grade, or mm. */
+  fit?: CadFit;
   /** Present only when the prompt names a curated character or tech keyword. */
   knowledge?: CadKnowledge;
   /** True only for a known ambiguous fork — never a settings wall. */
@@ -129,7 +140,7 @@ Units and output
 Printable engineering
 - Minimum wall thickness 1.6 mm (1.2 mm only if the user insists and the feature is short).
 - Through-holes diameter >= 2.5 mm unless the user asks smaller; add 0.3–0.4 mm clearance on holes meant to fit a real fastener or shaft.
-- Snap / press / sliding fits: leave 0.2–0.4 mm clearance per side. Do not design interference that cannot print.
+- Snap / press / sliding / wearable / hinge fits: use the documented S/M/L radial/axial table (or the user's explicit mm). Finished hole = shaft + 2×radial. Do not design interference that cannot print. Walls stay ≥ 1.6 mm.
 - Joints only when the user asks for a hinge, pin, ball, snap, or other moving assembly. Prefer print-in-place: emit SEPARATE solids with named radial_mm / axial_mm gaps — never union the pin, lid, rotor, ball, or snap hook into a fused blob. Removable multi-part kits use the larger documented clearances. Hinge and pin must be real CSG (knuckles + captured pin, or cheeks + rotor/pin). Ball must be real CSG: a sphere in a spherical socket, captive by default (neck diameter < ball_d, cavity = ball + 2×radial_mm). Snap must be real CSG: a cantilever hook + catch lip (beam ≥ 1.6 mm, flex in XY) or an annular bead + groove, with the documented gap — never fuse hook and catch.
 - Avoid zero-thickness faces, knife edges, and non-manifold boolean leftovers. Difference() cutters should fully pierce the host solid (overshoot by 0.2–1 mm).
 - Prefer fillets/chamfers only when they stay printable (no tiny unsupported overhangs).
@@ -144,7 +155,7 @@ OpenSCAD best practices
 - Pretty-up / restyle only when asked (pretty-up, restyle, fillet, chamfer, decorative ribs/panels, steampunk). Stylistic CSG only — primitive fillets (hull of cylinders), chamfers (inset-cube hull), ribs/panels/rivets. Keep planned holes, PIP joint gaps, mating faces, and ≥ 1.6 mm walls. Refuse pretty-up that would fuse print-in-place joints or close through-holes. Not neural Style2Fab.
 - Lattice / lightweighting only when asked (lighten, lattice, honeycomb, gyroid, cubic grid, diagonal lattice). Heuristic infill-as-geometry: difference hex/cube/cylinder voids from the inset interior and keep a ≥ 1.6 mm outer shell (4× nozzle). Do not lattice through functional holes, PIP joints, or mating faces. Re-cut bores after the lattice. One piece first. Not FEA / MechStyle.
 - Knowledge pack: only when the user names a curated character/prop (stormtrooper / vader / iron man / master chief / saber hilt) or tech keyword (PLA/PETG/PA/ABS/TPU, 0.4 mm nozzle, 0.2 mm layer, joint clearance, P2S volume, print-in-place, split-for-bed). Use pack millimeters. Unknown names: ignore and design from the description. Curated stub — not a live web crawl.
-- Mid-design options: if the user already picked a chip (1:1 wearable, size L, PETG, print-in-place, a named face), honor that choice. Do not re-ask.
+- Mid-design options: if the user already picked a chip (1:1 wearable, size L, PETG, print-in-place, a named face, a fit kind/grade), honor that choice. Do not re-ask.
 - Never use import(), include, use <>, surface(), or any file/network access.
 - Do not add echo() debug spam. Do not generate animation or $t.
 - Valid syntax only: every statement ends with ';'. Balance braces and parentheses. Define modules before calling them.
@@ -157,7 +168,7 @@ Safety
 const PLAN_SYSTEM_PROMPT = `You are a CAD planner for FDM 3D printing. Reply with ONLY compact JSON (no markdown, no prose).
 
 Schema:
-{"object":string,"one_piece":true,"units":"mm","overall_mm":{"x":n,"y":n,"z":n},"features":[{"name":string,"kind":string,"dims_mm":{"…":n},"notes":string}],"holes":[{"d":n,"purpose":string,"through":true}],"min_wall_mm":n,"clearance_mm":n,"sit_on_z0":true,"safety_notes":string,"joints":[{"type":"hinge|pin|ball|snap","intent":"print-in-place|multi-part","radial_mm":n,"axial_mm":n,"notes":string}],"clearance_intent":"print-in-place","color_regions":[{"name":string,"color":string,"hex":"#RRGGBB","filament":"pla","ams_slot":1}],"reliefs":[{"kind":"emboss|etch","motif":"text|crest|disc|bar|chevron|shield|star|cross|ring|stripe|grid|diamond|image","text":"DP","region":"front|back|left|right|top|bottom","target":"chest plate","height_mm":0.8,"depth_mm":0.6}],"pretty_up":{"applied":true,"refused":false,"style":"fillet|chamfer|ribs|panels|steampunk|motif","ops":[{"kind":"fillet","mm":2}],"functional_regions":[{"kind":"functional","role":"hole","note":"keep through-hole"}],"decorative_regions":[{"kind":"decorative","role":"fillet","note":"2 mm rounds"}]},"lattice":{"applied":true,"refused":false,"pattern":"honeycomb|cubic|gyroid|diagonal","shell_mm":1.6,"cell_mm":8,"strut_mm":1.6,"keep_holes":true,"keep_joints":true,"keep_mating":true,"one_piece":true,"fea":false},"knowledge":{"pack_version":"1.0.0","curated":true,"live_web_crawl":false,"characters":[{"id":"stormtrooper-helmet","name":"stormtrooper helmet"}],"tech":[{"id":"petg","name":"PETG"}],"notes":["curated stub"]},"needs_user_choice":false,"options":[{"id":"scale_mode","label":"Scale","prompt":"Fit P2S or 1:1?","options":[{"id":"scale_mode:display","label":"Fit P2S","value":"display"}]}]}
+{"object":string,"one_piece":true,"units":"mm","overall_mm":{"x":n,"y":n,"z":n},"features":[{"name":string,"kind":string,"dims_mm":{"…":n},"notes":string}],"holes":[{"d":n,"purpose":string,"through":true}],"min_wall_mm":n,"clearance_mm":n,"sit_on_z0":true,"safety_notes":string,"joints":[{"type":"hinge|pin|ball|snap","intent":"print-in-place|multi-part","radial_mm":n,"axial_mm":n,"notes":string}],"clearance_intent":"print-in-place","fit":{"kind":"snap|press|sliding|wearable|hinge","grade":"S|M|L","radial_mm":n,"axial_mm":n},"color_regions":[{"name":string,"color":string,"hex":"#RRGGBB","filament":"pla","ams_slot":1}],"reliefs":[{"kind":"emboss|etch","motif":"text|crest|disc|bar|chevron|shield|star|cross|ring|stripe|grid|diamond|image","text":"DP","region":"front|back|left|right|top|bottom","target":"chest plate","height_mm":0.8,"depth_mm":0.6}],"pretty_up":{"applied":true,"refused":false,"style":"fillet|chamfer|ribs|panels|steampunk|motif","ops":[{"kind":"fillet","mm":2}],"functional_regions":[{"kind":"functional","role":"hole","note":"keep through-hole"}],"decorative_regions":[{"kind":"decorative","role":"fillet","note":"2 mm rounds"}]},"lattice":{"applied":true,"refused":false,"pattern":"honeycomb|cubic|gyroid|diagonal","shell_mm":1.6,"cell_mm":8,"strut_mm":1.6,"keep_holes":true,"keep_joints":true,"keep_mating":true,"one_piece":true,"fea":false},"knowledge":{"pack_version":"1.0.0","curated":true,"live_web_crawl":false,"characters":[{"id":"stormtrooper-helmet","name":"stormtrooper helmet"}],"tech":[{"id":"petg","name":"PETG"}],"notes":["curated stub"]},"needs_user_choice":false,"options":[{"id":"scale_mode","label":"Scale","prompt":"Fit P2S or 1:1?","options":[{"id":"scale_mode:display","label":"Fit P2S","value":"display"}]}]}
 
 Rules:
 - Millimeters only. Real-world dimensions. One piece first unless the user clearly asks for an assembly / multi-part kit or a moving joint.
@@ -167,9 +178,10 @@ Rules:
 - Pretty-up: omit pretty_up unless the user asks to pretty-up, restyle, fillet, chamfer, add decorative ribs/panels, or make it look steampunk. Separate from structural edits. Mark functional vs decorative regions. Refuse (applied=false, refused=true) if pretty-up would fuse PIP joints or close through-holes. Heuristic CSG only — not neural Style2Fab.
 - Lattice: omit lattice unless the user asks to lighten, lattice, honeycomb, gyroid, cubic grid, or diagonal lattice. pattern is honeycomb / cubic / gyroid / diagonal. shell_mm and strut_mm ≥ 1.6 (4× nozzle). Apply to the internal volume only. Keep holes, PIP joints, and mating faces. Refuse if they ask to lattice through those. Heuristic infill-as-geometry — not FEA / MechStyle. One piece first.
 - Knowledge: omit the knowledge object unless the user names a curated character/prop or tech keyword. Use pack millimeters when present. Unknown names: omit knowledge and plan from the description alone. Curated in-repo stub — not a live web crawl.
-- Options: omit needs_user_choice and options unless a known fork is still open (character scale P2S vs 1:1, wearable S–XL, material, PIP vs multi-part, emboss face, vague color regions, incomplete region paint). Never set needs_user_choice for an ordinary sized part. Do not dump advanced settings.
+- Options: omit needs_user_choice and options unless a known fork is still open (character scale P2S vs 1:1, wearable S–XL, material, PIP vs multi-part, fit kind/grade, emboss face, vague color regions, incomplete region paint). Never set needs_user_choice for an ordinary sized part. Do not dump advanced settings.
+- Fit wizard: omit fit unless the user names a snap/press/sliding/loose/wearable/hinge fit, a grade (S/M/L), or an explicit mm clearance. Use documented P2S radial/axial. Explicit mm overrides the grade. Apply to holes (bore = shaft + 2×radial), pins, snaps, and mating faces. Walls stay ≥ 1.6 mm. Do not invent a fit for an ordinary sized hole.
 - Every feature must attach to the main solid unless it is a planned joint member. Through-holes fully pierce (overshoot 0.2–1 mm).
-- min_wall_mm >= 1.6 unless the user insists thinner. clearance_mm ~ 0.3 for ordinary fits; for joints use the documented radial_mm. Sit the part on z=0.
+- min_wall_mm >= 1.6 unless the user insists thinner. clearance_mm ~ 0.3 for ordinary fits; when fit is present use that radial_mm. For joints use the documented radial_mm. Sit the part on z=0.
 - Fit overall_mm on the target printer bed unless they asked for a larger object.
 - If the request is unsafe or nonsense, plan a safe printable alternative and note it in safety_notes. Do not refuse in words — plan the safe part.
 - Keep the JSON short. No OpenSCAD in this pass.
@@ -443,6 +455,9 @@ export function buildUserPrompt(input: {
     if (input.plan.lattice) {
       parts.push(formatLatticePromptHint(input.plan.lattice));
     }
+    if (input.plan.fit) {
+      parts.push(formatFitPromptHint(input.plan.fit));
+    }
     if (input.plan.knowledge) {
       parts.push(formatKnowledgeCodegenHint(input.plan.knowledge));
     }
@@ -487,7 +502,7 @@ export function buildPlanPrompt(input: {
       parts.push(`The user wants a new object. Plan from scratch.`);
     } else {
       parts.push(
-        `This is a follow-up edit. Update only the requested dimensions/features. Keep one_piece true unless they asked for an assembly or a moving joint. Keep joints only if they still want motion. Keep reliefs only if they still want emboss/etch. Keep pretty_up only if they still want restyle. Keep lattice only if they still want lightweighting. Keep knowledge only if they still name a curated character or tech keyword. Do not start over.`,
+        `This is a follow-up edit. Update only the requested dimensions/features. Keep one_piece true unless they asked for an assembly or a moving joint. Keep joints only if they still want motion. Keep reliefs only if they still want emboss/etch. Keep pretty_up only if they still want restyle. Keep lattice only if they still want lightweighting. Keep fit only if they still name a snap/press/sliding/wearable/hinge fit, grade, or mm clearance. Keep knowledge only if they still name a curated character or tech keyword. Do not start over.`,
       );
     }
     if (input.previousPrompt) {
@@ -635,6 +650,7 @@ export function parseCadPlan(raw: string): CadPlan | null {
     })(),
     pretty_up: parseCadPrettyUp(rec.pretty_up ?? rec.prettyup ?? rec.style),
     lattice: parseCadLattice(rec.lattice ?? rec.lightweight ?? rec.honeycomb),
+    fit: parseCadFit(rec.fit ?? rec.tolerance ?? rec.fit_wizard),
     needs_user_choice: rec.needs_user_choice === true,
     options: (() => {
       const parsed = parseDesignOptionGroups(rec.options);
@@ -782,7 +798,7 @@ function round1(n: number): number {
  */
 export function normalizeCadPlan(
   plan: CadPlan,
-  input: { prompt: string; previousCode?: string | null },
+  input: { prompt: string; previousCode?: string | null; filament?: string | null },
 ): CadPlan {
   const rules = printRules();
   const multi = wantsMultiPart(input.prompt);
@@ -797,9 +813,18 @@ export function normalizeCadPlan(
 
   const intent = inferClearanceIntent(input.prompt);
   const normalizedJoints = normalizeCadJoints(plan.joints ?? [], input.prompt);
-  const joints = normalizedJoints.joints;
+  let joints = normalizedJoints.joints;
   const clearance_intent = normalizedJoints.clearance_intent;
+  const fit = normalizeCadFit(plan.fit, {
+    prompt: input.prompt,
+    filament: input.filament,
+    joints,
+    holes: plan.holes,
+    sizeMm: plan.overall_mm ? [plan.overall_mm.x, plan.overall_mm.y, plan.overall_mm.z] : undefined,
+  });
+  joints = applyFitToJoints(joints, fit);
   const clearance_mm =
+    fit?.radial_mm ??
     joints[0]?.radial_mm ??
     (plan.clearance_mm > 0 ? plan.clearance_mm : rules.clearanceMm);
   const bed = bedMaxMm(rules);
@@ -816,7 +841,14 @@ export function normalizeCadPlan(
     }
   }
 
-  const holes = plan.holes.map((h) => {
+  const fittedHoles = applyFitToHoles(plan.holes, fit, {
+    prompt: input.prompt,
+    filament: input.filament,
+    joints,
+    holes: plan.holes,
+    sizeMm: overall_mm ? [overall_mm.x, overall_mm.y, overall_mm.z] : undefined,
+  });
+  const holes = fittedHoles.map((h) => {
     let d = h.d;
     if (d < rules.minHoleMm && !promptAllowsSmallHole(input.prompt, d)) {
       d = rules.minHoleMm;
@@ -824,7 +856,10 @@ export function normalizeCadPlan(
     return { ...h, d, through: h.through !== false };
   });
 
-  const features = mergeKnowledgeFeatures(input.prompt, plan.features).map((f) => {
+  const features = applyFitToMatingFeatures(
+    mergeKnowledgeFeatures(input.prompt, plan.features),
+    fit,
+  ).map((f) => {
     if (!f.dims_mm) return f;
     const dims_mm = { ...f.dims_mm };
     for (const [key, value] of Object.entries(dims_mm)) {
@@ -918,6 +953,7 @@ export function normalizeCadPlan(
     reliefs: reliefs.length ? reliefs : undefined,
     pretty_up,
     lattice,
+    fit,
     knowledge,
     needs_user_choice: designOptions.needs_user_choice,
     options: designOptions.options.length ? designOptions.options : undefined,

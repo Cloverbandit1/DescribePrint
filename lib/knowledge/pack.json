@@ -997,12 +997,16 @@
       "aliases": [
         "fit clearance",
         "press fit",
+        "sliding fit",
+        "loose fit",
+        "wearable fit",
+        "fit wizard",
         "0.3 mm clearance",
         "0.3mm clearance"
       ],
       "planHints": { "clearance_mm": 0.3 },
       "notes": [
-        "Ordinary press/snap fits stay 0.3 mm/side (printRules.clearanceMm). Joints that move use joints.ts, not this 0.3 mm band."
+        "Fit wizard (lib/fits.ts) S/M/L grades plus explicit mm. Press L / snap M stay 0.3 mm/side (printRules.clearanceMm). Moving joints still use joints.ts."
       ]
     },
     {

@@ -60,6 +60,14 @@ import {
   isHelmetEmbossPrompt,
   isHelmetMultiReliefPrompt,
 } from "./relief";
+import {
+  PRESS_FIT_CUBE_PROMPT,
+  inferCadFit,
+  isPressFitCubePrompt,
+  parseHoleNominalMm,
+  parseShaftMm,
+  finishedHoleMm,
+} from "./fits";
 import { toMillimeters } from "./units";
 import type { Unit } from "./types";
 
@@ -240,10 +248,20 @@ export function matchFixture(
   const pretty = matchPrettyUpFixture(prompt, hinted);
   if (pretty) return pretty;
 
-  if ((text.includes("cube") && (text.includes("hole") || text.includes("bore"))) || text.includes("cube with")) {
+  if ((text.includes("cube") && (text.includes("hole") || text.includes("bore") || text.includes("pin"))) || text.includes("cube with")) {
     const size = hinted ?? numberAt(text, /(\d+(?:\.\d+)?)\s*mm\s+cube/, 20);
-    const hole = numberAt(text, /(\d+(?:\.\d+)?)\s*mm\s+(?:hole|bore)/, 5);
-    return { id: "cube-with-hole", title: "Cube with hole", code: CUBE_WITH_HOLE(size, hole) };
+    const fit = inferCadFit({ prompt });
+    const shaft = parseShaftMm(prompt);
+    const statedHole = parseHoleNominalMm(prompt);
+    const nominal = shaft ?? statedHole ?? numberAt(text, /(\d+(?:\.\d+)?)\s*mm\s+(?:hole|bore)/, 5);
+    const hole = fit && (shaft !== undefined || isPressFitCubePrompt(prompt) || statedHole !== undefined)
+      ? finishedHoleMm(nominal, fit)
+      : nominal;
+    return {
+      id: isPressFitCubePrompt(prompt) ? "cube-press-fit-hole" : "cube-with-hole",
+      title: isPressFitCubePrompt(prompt) ? "Cube with press-fit hole" : "Cube with hole",
+      code: CUBE_WITH_HOLE(size, hole),
+    };
   }
 
   if (text.includes("phone stand") || text.includes("iphone") || (text.includes("phone") && text.includes("stand"))) {
@@ -278,7 +296,7 @@ export function defaultFixture(): FixtureMatch {
 const NEW_DESIGN =
   /\b(new part|start over|something else|different part|instead make|forget that|scratch)\b/i;
 const EDIT_CUE =
-  /\b(make|change|update|add|remove|delete|bigger|smaller|wider|taller|shorter|without|more|less|hole|tilt|diameter|emboss|etch|engrave|recess|raised|initials|crest|pretty|restyle|steampunk|fillet|chamfer|rib|panel|round|paint|recolor|re-colou?r|tint|dye|colou?r|lattice|honeycomb|gyroid|lightweight|lighten|lighter)\b/i;
+  /\b(make|change|update|add|remove|delete|bigger|smaller|wider|taller|shorter|without|more|less|hole|tilt|diameter|emboss|etch|engrave|recess|raised|initials|crest|pretty|restyle|steampunk|fillet|chamfer|rib|panel|round|paint|recolor|re-colou?r|tint|dye|colou?r|lattice|honeycomb|gyroid|lightweight|lighten|lighter|press[-\s]?fit|sliding|fit grade|clearance)\b/i;
 
 function prettyUpFixtureId(style: PrettyUpStyle): string {
   if (style === "chamfer") return "cube-pretty-chamfer";
@@ -794,5 +812,6 @@ export const EXAMPLE_PROMPTS = [
   PHONE_HONEYCOMB_PROMPT,
   CUBE_HONEYCOMB_PROMPT,
   CUBE_GYROID_PROMPT,
+  PRESS_FIT_CUBE_PROMPT,
   "stormtrooper helmet",
 ] as const;

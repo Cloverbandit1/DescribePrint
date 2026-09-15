@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { compileOpenScad, withTempDir } from "@/lib/compile";
-import { defaultFixture } from "@/lib/fixtures";
+import { defaultFixture, matchFixture } from "@/lib/fixtures";
 import { buildImportedMeshWrapper, parseImportHoleSpec } from "@/lib/import-hole";
 import { boundingBoxMm, checkMesh, countSolidComponents, hasHardMeshFailure } from "@/lib/mesh-check";
 import { resolveOpenscad } from "@/lib/openscad";
@@ -55,6 +55,23 @@ describe("OpenSCAD compile path", () => {
       const report = checkMesh(parseStl(compiled.stl));
       expect(hasHardMeshFailure(report)).toBe(false);
       expect(report.triangleCount).toBeGreaterThan(0);
+    });
+  });
+
+  it.skipIf(!hasOpenscad())("compiles each two-color fixture region as its own mesh", async () => {
+    const fixture = matchFixture("red 40mm plaque with black letters");
+    expect(fixture).not.toBeNull();
+    const sanitized = sanitizeOpenScad(fixture!.code);
+    expect(sanitized.ok).toBe(true);
+    if (!sanitized.ok) return;
+
+    await withTempDir(async (dir) => {
+      const full = await compileOpenScad(sanitized.code, dir);
+      const body = await compileOpenScad(`${sanitized.code}\n!region_body();\n`, dir);
+      const letters = await compileOpenScad(`${sanitized.code}\n!region_letters();\n`, dir);
+      expect(parseStl(full.stl).triangles.length).toBeGreaterThan(parseStl(body.stl).triangles.length);
+      expect(parseStl(letters.stl).triangles.length).toBeGreaterThan(0);
+      expect(checkMesh(parseStl(body.stl)).volumeMm3).toBeGreaterThan(checkMesh(parseStl(letters.stl)).volumeMm3);
     });
   });
 

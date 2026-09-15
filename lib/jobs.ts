@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { defaultColorRegion, type ColorRegion } from "./color-regions";
 import type {
   GenerateResult,
   PartSource,
@@ -24,6 +25,7 @@ export type StoredJob = {
   nativeSizeMm: [number, number, number];
   editMode: PlateEditMode;
   notes: string[];
+  colorRegions: ColorRegion[];
 };
 
 export type CreateJobInput = Omit<StoredJob, "id" | "createdAt"> & {
@@ -34,6 +36,7 @@ export type CreateJobInput = Omit<StoredJob, "id" | "createdAt"> & {
   nativeSizeMm?: [number, number, number];
   editMode?: PlateEditMode;
   notes?: string[];
+  colorRegions?: ColorRegion[];
 };
 
 const TTL_MS = 60 * 60 * 1000;
@@ -64,6 +67,7 @@ export function createJob(input: CreateJobInput): StoredJob {
     nativeSizeMm: input.nativeSizeMm ?? input.report.boundingBoxMm.size,
     editMode: input.editMode ?? "create",
     notes: input.notes ?? [],
+    colorRegions: input.colorRegions?.length ? input.colorRegions : [defaultColorRegion()],
     id: randomUUID(),
     createdAt: Date.now(),
   };
@@ -93,5 +97,6 @@ export function toGenerateResult(job: StoredJob): GenerateResult {
     wearableCategory: job.wearableCategory,
     editMode: job.editMode,
     notes: job.notes,
+    colorRegions: job.colorRegions,
   };
 }

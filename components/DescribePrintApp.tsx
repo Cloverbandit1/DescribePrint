@@ -1025,12 +1025,14 @@ function ResultPanel({
   const { report } = result;
   const issues = report.issues;
   const imported = result.source === "imported-mesh";
+  const colorRegions = result.colorRegions ?? [];
+  const showColors = colorRegions.length > 1 || (colorRegions.length === 1 && colorRegions[0]?.colorName !== "default");
 
   return (
     <div className="space-y-3 border-t border-line pt-3">
       {result.notes.length > 0 ? (
         <div className="rounded-md border border-line bg-panel-2 p-2.5 text-[11px] leading-relaxed text-muted">
-          <div className="studio-label mb-1">{imported ? "Imported mesh" : "Size"}</div>
+          <div className="studio-label mb-1">{imported ? "Imported mesh" : showColors ? "Colors / size" : "Size"}</div>
           {result.notes.map((note) => (
             <p key={note} className="mt-1">
               {note}
@@ -1055,6 +1057,23 @@ function ResultPanel({
         {formatMm(report.boundingBoxMm.size[2])} mm
         {issues.length === 0 ? " · looks good" : ""}
       </p>
+      {showColors ? (
+        <div className="flex flex-wrap gap-1.5">
+          {colorRegions.map((region) => (
+            <span
+              key={`${region.id}-${region.amsSlot}`}
+              className="inline-flex items-center gap-1.5 rounded-full border border-line bg-panel-2 px-2 py-0.5 text-[11px] text-ink"
+              title={`AMS ${region.amsSlot} metadata — not a live printer slot`}
+            >
+              <span
+                className="inline-block h-2.5 w-2.5 rounded-full border border-line"
+                style={{ background: region.colorHex }}
+              />
+              {region.name} · {region.colorName} · AMS {region.amsSlot}
+            </span>
+          ))}
+        </div>
+      ) : null}
       {issues.length > 0 ? (
         <ul className="space-y-1 text-xs">
           {issues.map((issue) => (

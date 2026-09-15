@@ -1,10 +1,30 @@
 import JSZip from "jszip";
+import {
+  DEFAULT_COLOR_HEX,
+  DEFAULT_COLOR_NAME,
+  displayColorHex,
+  normalizeColorHex,
+  slugifyRegionName,
+  type ColorRegion,
+} from "./color-regions";
+import { normalizeFilamentId } from "./printers";
 import type { Mesh, Triangle } from "./types";
+
+export type ThreeMfObject = {
+  id?: number;
+  name: string;
+  mesh: Mesh;
+  colorHex: string;
+  colorName?: string;
+  filament?: string;
+  extruder?: number;
+};
 
 const CONTENT_TYPES = `<?xml version="1.0" encoding="UTF-8"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
   <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>
+  <Default Extension="config" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
 </Types>
 `;
 
@@ -44,24 +64,115 @@ function weldVertices(mesh: Mesh): { vertices: [number, number, number][]; trian
   return { vertices, triangles };
 }
 
-export async function meshTo3mf(mesh: Mesh, name = "DescribePrint"): Promise<Buffer> {
+function objectMeshXml(mesh: Mesh): { vertexXml: string; triangleXml: string } {
   const { vertices, triangles } = weldVertices(mesh);
-  const vertexXml = vertices
-    .map(([x, y, z]) => `          <vertex x="${x}" y="${y}" z="${z}"/>`)
+  return {
+    vertexXml: vertices.map(([x, y, z]) => `          <vertex x="${x}" y="${y}" z="${z}"/>`).join("\n"),
+    triangleXml: triangles
+      .map(([v1, v2, v3]) => `          <triangle v1="${v1}" v2="${v2}" v3="${v3}"/>`)
+      .join("\n"),
+  };
+}
+
+function defaultObject(mesh: Mesh, name: string): ThreeMfObject {
+  return {
+    name,
+    mesh,
+    colorHex: DEFAULT_COLOR_HEX,
+    colorName: DEFAULT_COLOR_NAME,
+    filament: "pla",
+    extruder: 1,
+  };
+}
+
+export function objectsFromRegions(meshes: Mesh[], regions: ColorRegion[], fallbackName = "part"): ThreeMfObject[] {
+  if (meshes.length === 0) return [];
+  if (meshes.length === 1 && regions.length <= 1) {
+    const region = regions[0];
+    return [
+      {
+        name: region?.name ?? fallbackName,
+        mesh: meshes[0],
+        colorHex: region?.colorHex ?? DEFAULT_COLOR_HEX,
+        colorName: region?.colorName ?? DEFAULT_COLOR_NAME,
+        filament: region?.filament ?? "pla",
+        extruder: region?.amsSlot ?? 1,
+      },
+    ];
+  }
+  return meshes.map((mesh, index) => {
+    const region = regions[index] ?? regions[0];
+    return {
+      name: region?.name ?? `${fallbackName}-${index + 1}`,
+      mesh,
+      colorHex: region?.colorHex ?? DEFAULT_COLOR_HEX,
+      colorName: region?.colorName ?? DEFAULT_COLOR_NAME,
+      filament: region?.filament ?? "pla",
+      extruder: region?.amsSlot ?? Math.min(index + 1, 4),
+    };
+  });
+}
+
+export function colorRegionsFromObjects(objects: ThreeMfObject[]): ColorRegion[] {
+  if (objects.length === 0) return [];
+  return objects.map((object, index) => ({
+    id: slugifyRegionName(object.name || `region_${index + 1}`),
+    name: object.name || `region_${index + 1}`,
+    colorName: object.colorName ?? DEFAULT_COLOR_NAME,
+    colorHex: normalizeColorHex(object.colorHex) ?? DEFAULT_COLOR_HEX,
+    filament: normalizeFilamentId(object.filament) ?? "pla",
+    amsSlot: object.extruder && object.extruder >= 1 ? object.extruder : index + 1,
+  }));
+}
+
+function modelSettingsXml(objects: Array<ThreeMfObject & { id: number }>): string {
+  const blocks = objects
+    .map((object) => {
+      const extruder = object.extruder ?? 1;
+      const name = xmlEscape(object.name);
+      return `  <object id="${object.id}">
+    <metadata key="name" value="${name}"/>
+    <metadata key="extruder" value="${extruder}"/>
+    <part id="1" subtype="normal_part">
+      <metadata key="name" value="${name}"/>
+      <metadata key="extruder" value="${extruder}"/>
+      <metadata key="filament" value="${xmlEscape(object.filament ?? "pla")}"/>
+      <metadata key="filament_colour" value="${normalizeColorHex(object.colorHex) ?? DEFAULT_COLOR_HEX}"/>
+    </part>
+  </object>`;
+    })
     .join("\n");
-  const triangleXml = triangles
-    .map(([v1, v2, v3]) => `          <triangle v1="${v1}" v2="${v2}" v3="${v3}"/>`)
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<config>
+${blocks}
+</config>
+`;
+}
+
+export async function meshesTo3mf(objects: ThreeMfObject[], name = "DescribePrint"): Promise<Buffer> {
+  const list = (objects.length ? objects : [defaultObject({ triangles: [] }, name)]).map((object, index) => ({
+    ...object,
+    id: object.id ?? index + 2,
+  }));
+
+  const materials = list
+    .map((object, index) => {
+      const label = object.colorName && object.colorName !== DEFAULT_COLOR_NAME
+        ? `${object.name} (${object.colorName} ${(object.filament ?? "pla").toUpperCase()})`
+        : object.name;
+      return `      <base name="${xmlEscape(label)}" displaycolor="${displayColorHex(object.colorHex)}"/>`;
+    })
     .join("\n");
 
-  const model = `<?xml version="1.0" encoding="UTF-8"?>
-<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
-  <metadata name="Application">DescribePrint</metadata>
-  <metadata name="Title">${xmlEscape(name)}</metadata>
-  <resources>
-    <basematerials id="1">
-      <base name="Default" displaycolor="#C4C4C8FF"/>
-    </basematerials>
-    <object id="2" type="model" pid="1" pindex="0">
+  const objectXml = list
+    .map((object, index) => {
+      const { vertexXml, triangleXml } = objectMeshXml(object.mesh);
+      const extruder = object.extruder ?? 1;
+      return `    <object id="${object.id}" name="${xmlEscape(object.name)}" type="model" pid="1" pindex="${index}">
+      <metadata name="Title">${xmlEscape(object.name)}</metadata>
+      <metadata name="slic3rpe:extruder">${extruder}</metadata>
+      <metadata name="DescribePrint:ams_slot">${extruder}</metadata>
+      <metadata name="DescribePrint:filament">${xmlEscape(object.filament ?? "pla")}</metadata>
       <mesh>
         <vertices>
 ${vertexXml}
@@ -70,10 +181,24 @@ ${vertexXml}
 ${triangleXml}
         </triangles>
       </mesh>
-    </object>
+    </object>`;
+    })
+    .join("\n");
+
+  const buildItems = list.map((object) => `    <item objectid="${object.id}"/>`).join("\n");
+
+  const model = `<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:slic3rpe="http://schemas.slic3r.org/3mf/2017/06">
+  <metadata name="Application">DescribePrint</metadata>
+  <metadata name="Title">${xmlEscape(name)}</metadata>
+  <resources>
+    <basematerials id="1">
+${materials}
+    </basematerials>
+${objectXml}
   </resources>
   <build>
-    <item objectid="2"/>
+${buildItems}
   </build>
 </model>
 `;
@@ -82,12 +207,17 @@ ${triangleXml}
   zip.file("[Content_Types].xml", CONTENT_TYPES);
   zip.folder("_rels")?.file(".rels", RELS);
   zip.folder("3D")?.file("3dmodel.model", model);
+  zip.folder("Metadata")?.file("model_settings.config", modelSettingsXml(list));
   const bytes = await zip.generateAsync({
     type: "uint8array",
     compression: "DEFLATE",
     compressionOptions: { level: 6 },
   });
   return Buffer.from(bytes);
+}
+
+export async function meshTo3mf(mesh: Mesh, name = "DescribePrint"): Promise<Buffer> {
+  return meshesTo3mf([defaultObject(mesh, name)], name);
 }
 
 const UNIT_TO_MM: Record<string, number> = {
@@ -117,12 +247,112 @@ function parseNumber(value: string | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function parseMeshBlock(block: string, scale: number): Mesh {
+  const vertices: [number, number, number][] = [];
+  for (const v of block.matchAll(/<[\w.:]*vertex\b([^>]*)\/?>/gi)) {
+    const x = parseNumber(attr(v[1] ?? "", "x"));
+    const y = parseNumber(attr(v[1] ?? "", "y"));
+    const z = parseNumber(attr(v[1] ?? "", "z"));
+    if (x === null || y === null || z === null) {
+      throw new Error("3MF vertex is missing x/y/z");
+    }
+    vertices.push([x * scale, y * scale, z * scale]);
+  }
+  const triangles: Triangle[] = [];
+  for (const t of block.matchAll(/<[\w.:]*triangle\b([^>]*)\/?>/gi)) {
+    const i0 = parseNumber(attr(t[1] ?? "", "v1"));
+    const i1 = parseNumber(attr(t[1] ?? "", "v2"));
+    const i2 = parseNumber(attr(t[1] ?? "", "v3"));
+    if (i0 === null || i1 === null || i2 === null) {
+      throw new Error("3MF triangle is missing v1/v2/v3");
+    }
+    const a = vertices[i0];
+    const b = vertices[i1];
+    const c = vertices[i2];
+    if (!a || !b || !c) {
+      throw new Error("3MF triangle references a missing vertex");
+    }
+    triangles.push({
+      normal: [0, 0, 0],
+      vertices: [a, b, c],
+    });
+  }
+  return { triangles };
+}
+
+function parseBaseMaterials(xml: string): Map<string, { name: string; colorHex: string }> {
+  const materials = new Map<string, { name: string; colorHex: string }>();
+  for (const group of xml.matchAll(/<[\w.:]*basematerials\b([^>]*)>([\s\S]*?)<\/[\w.:]*basematerials>/gi)) {
+    const groupId = attr(group[1] ?? "", "id") ?? "1";
+    let index = 0;
+    for (const base of (group[2] ?? "").matchAll(/<[\w.:]*base\b([^>]*)\/?>/gi)) {
+      const name = attr(base[1] ?? "", "name") ?? `material-${index}`;
+      const colorHex = normalizeColorHex(attr(base[1] ?? "", "displaycolor")) ?? DEFAULT_COLOR_HEX;
+      materials.set(`${groupId}:${index}`, { name, colorHex });
+      index += 1;
+    }
+  }
+  for (const group of xml.matchAll(/<[\w.:]*colorgroup\b([^>]*)>([\s\S]*?)<\/[\w.:]*colorgroup>/gi)) {
+    const groupId = attr(group[1] ?? "", "id") ?? "color";
+    let index = 0;
+    for (const color of (group[2] ?? "").matchAll(/<[\w.:]*color\b([^>]*)\/?>/gi)) {
+      const colorHex = normalizeColorHex(attr(color[1] ?? "", "color")) ?? DEFAULT_COLOR_HEX;
+      materials.set(`${groupId}:${index}`, { name: `color-${index}`, colorHex });
+      index += 1;
+    }
+  }
+  return materials;
+}
+
+function parseObjectMetadata(body: string): { extruder?: number; filament?: string; title?: string } {
+  let extruder: number | undefined;
+  let filament: string | undefined;
+  let title: string | undefined;
+  for (const meta of body.matchAll(/<[\w.:]*metadata\b([^>]*)>([\s\S]*?)<\/[\w.:]*metadata>/gi)) {
+    const key = (attr(meta[1] ?? "", "name") ?? "").toLowerCase();
+    const value = (meta[2] ?? "").trim();
+    if (/extruder|ams_slot/.test(key)) {
+      const n = Number(value);
+      if (Number.isFinite(n) && n >= 1) extruder = n;
+    }
+    if (/filament$/.test(key) && value) filament = value;
+    if (key === "title" && value) title = value;
+  }
+  return { extruder, filament, title };
+}
+
+function parseModelSettings(xml: string): Map<number, { extruder?: number; name?: string; filament?: string; colorHex?: string }> {
+  const map = new Map<number, { extruder?: number; name?: string; filament?: string; colorHex?: string }>();
+  for (const object of xml.matchAll(/<object\b([^>]*)>([\s\S]*?)<\/object>/gi)) {
+    const id = parseNumber(attr(object[1] ?? "", "id"));
+    if (id === null) continue;
+    const info: { extruder?: number; name?: string; filament?: string; colorHex?: string } = {};
+    for (const meta of (object[2] ?? "").matchAll(/<metadata\b([^>]*)\/?>/gi)) {
+      const key = (attr(meta[1] ?? "", "key") ?? "").toLowerCase();
+      const value = attr(meta[1] ?? "", "value") ?? "";
+      if (key === "name") info.name = value;
+      if (key === "extruder") {
+        const n = Number(value);
+        if (Number.isFinite(n) && n >= 1) info.extruder = n;
+      }
+      if (key === "filament") info.filament = value;
+      if (key === "filament_colour" || key === "filament_color") info.colorHex = normalizeColorHex(value);
+    }
+    map.set(id, info);
+  }
+  return map;
+}
+
+export type Parsed3mf = {
+  mesh: Mesh;
+  objects: ThreeMfObject[];
+};
+
 /**
- * Read a 3MF package into a single triangle mesh in millimeters.
- * Concatenates every <mesh> in the package. Build-item transforms are ignored
- * (M2 stub — typical single-body exports still land correctly).
+ * Read a 3MF package into objects (colors preserved when present) plus a
+ * concatenated preview mesh in millimeters. Build-item transforms are ignored.
  */
-export async function parse3mf(buffer: Buffer): Promise<Mesh> {
+export async function parse3mfDocument(buffer: Buffer): Promise<Parsed3mf> {
   if (buffer.length < 4 || buffer.subarray(0, 2).toString("utf8") !== "PK") {
     throw new Error("File is not a 3MF package");
   }
@@ -133,39 +363,57 @@ export async function parse3mf(buffer: Buffer): Promise<Mesh> {
     throw new Error("3MF package has no .model mesh");
   }
 
+  let settings = new Map<number, { extruder?: number; name?: string; filament?: string; colorHex?: string }>();
+  const settingsFile = Object.keys(zip.files).find((name) => /model_settings\.config$/i.test(name));
+  if (settingsFile) {
+    settings = parseModelSettings(await zip.files[settingsFile]!.async("string"));
+  }
+
+  const objects: ThreeMfObject[] = [];
   const triangles: Triangle[] = [];
+
   for (const name of modelFiles) {
     const xml = await zip.files[name]!.async("string");
     const scale = unitScale(xml);
-    const meshBlocks = xml.match(/<[\w.:]*mesh\b[\s\S]*?<\/[\w.:]*mesh>/gi) ?? [];
-    for (const block of meshBlocks) {
-      const vertices: [number, number, number][] = [];
-      for (const v of block.matchAll(/<[\w.:]*vertex\b([^>]*)\/?>/gi)) {
-        const x = parseNumber(attr(v[1] ?? "", "x"));
-        const y = parseNumber(attr(v[1] ?? "", "y"));
-        const z = parseNumber(attr(v[1] ?? "", "z"));
-        if (x === null || y === null || z === null) {
-          throw new Error("3MF vertex is missing x/y/z");
-        }
-        vertices.push([x * scale, y * scale, z * scale]);
-      }
-      for (const t of block.matchAll(/<[\w.:]*triangle\b([^>]*)\/?>/gi)) {
-        const i0 = parseNumber(attr(t[1] ?? "", "v1"));
-        const i1 = parseNumber(attr(t[1] ?? "", "v2"));
-        const i2 = parseNumber(attr(t[1] ?? "", "v3"));
-        if (i0 === null || i1 === null || i2 === null) {
-          throw new Error("3MF triangle is missing v1/v2/v3");
-        }
-        const a = vertices[i0];
-        const b = vertices[i1];
-        const c = vertices[i2];
-        if (!a || !b || !c) {
-          throw new Error("3MF triangle references a missing vertex");
-        }
-        triangles.push({
-          normal: [0, 0, 0],
-          vertices: [a, b, c],
-        });
+    const materials = parseBaseMaterials(xml);
+    const objectBlocks = xml.match(/<[\w.:]*object\b[\s\S]*?<\/[\w.:]*object>/gi) ?? [];
+    for (const block of objectBlocks) {
+      const header = block.match(/<[\w.:]*object\b([^>]*)>/i)?.[1] ?? "";
+      const objectId = parseNumber(attr(header, "id")) ?? undefined;
+      const pid = attr(header, "pid");
+      const pindex = parseNumber(attr(header, "pindex"));
+      const meshBlocks = block.match(/<[\w.:]*mesh\b[\s\S]*?<\/[\w.:]*mesh>/gi) ?? [];
+      if (meshBlocks.length === 0) continue;
+      const mesh = {
+        triangles: meshBlocks.flatMap((meshBlock) => parseMeshBlock(meshBlock, scale).triangles),
+      };
+      if (mesh.triangles.length === 0) continue;
+      const meta = parseObjectMetadata(block);
+      const extra = objectId !== undefined ? settings.get(objectId) : undefined;
+      const material = pid !== undefined && pindex !== null ? materials.get(`${pid}:${pindex}`) : undefined;
+      const colorHex =
+        extra?.colorHex ??
+        material?.colorHex ??
+        normalizeColorHex(attr(header, "displaycolor")) ??
+        DEFAULT_COLOR_HEX;
+      const objectName = extra?.name ?? attr(header, "name") ?? meta.title ?? material?.name ?? `object-${objectId ?? objects.length + 1}`;
+      objects.push({
+        id: objectId,
+        name: objectName,
+        mesh,
+        colorHex,
+        colorName: material?.name,
+        filament: extra?.filament ?? meta.filament,
+        extruder: extra?.extruder ?? meta.extruder,
+      });
+      triangles.push(...mesh.triangles);
+    }
+
+    if (objects.length === 0) {
+      const meshBlocks = xml.match(/<[\w.:]*mesh\b[\s\S]*?<\/[\w.:]*mesh>/gi) ?? [];
+      for (const block of meshBlocks) {
+        const mesh = parseMeshBlock(block, scale);
+        triangles.push(...mesh.triangles);
       }
     }
   }
@@ -173,7 +421,17 @@ export async function parse3mf(buffer: Buffer): Promise<Mesh> {
   if (triangles.length === 0) {
     throw new Error("3MF mesh has no triangles");
   }
-  return { triangles };
+  return { mesh: { triangles }, objects };
+}
+
+/**
+ * Read a 3MF package into a single triangle mesh in millimeters.
+ * Concatenates every <mesh> in the package. Build-item transforms are ignored
+ * (M2 stub — typical single-body exports still land correctly).
+ */
+export async function parse3mf(buffer: Buffer): Promise<Mesh> {
+  const parsed = await parse3mfDocument(buffer);
+  return parsed.mesh;
 }
 
 export function looksLike3mf(buffer: Buffer, fileName?: string): boolean {

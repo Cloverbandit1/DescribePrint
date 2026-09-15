@@ -1,4 +1,5 @@
-import { looksLike3mf, parse3mf } from "./threemf";
+import { defaultColorRegion, type ColorRegion } from "./color-regions";
+import { colorRegionsFromObjects, looksLike3mf, parse3mfDocument, type ThreeMfObject } from "./threemf";
 import { parseStl } from "./stl";
 import type { Mesh } from "./types";
 
@@ -10,6 +11,8 @@ export type ImportedMesh = {
   mesh: Mesh;
   format: ImportedMeshFormat;
   fileName: string;
+  objects: ThreeMfObject[];
+  colorRegions: ColorRegion[];
 };
 
 export function safeImportFileName(fileName: string | undefined): string {
@@ -36,11 +39,35 @@ export async function parseImportedMesh(buffer: Buffer, fileName?: string): Prom
 
   const safeName = safeImportFileName(fileName);
   const format = detectImportFormat(buffer, fileName ?? safeName);
-  const mesh = format === "3mf" ? await parse3mf(buffer) : parseStl(buffer);
+  if (format === "3mf") {
+    const parsed = await parse3mfDocument(buffer);
+    if (parsed.mesh.triangles.length === 0) {
+      throw new Error("Imported mesh has no triangles.");
+    }
+    const objects = parsed.objects.length
+      ? parsed.objects
+      : [{ name: safeName, mesh: parsed.mesh, colorHex: "#C4C4C8", colorName: "default", filament: "pla", extruder: 1 }];
+    return {
+      mesh: parsed.mesh,
+      format,
+      fileName: safeName,
+      objects,
+      colorRegions: colorRegionsFromObjects(objects),
+    };
+  }
+
+  const mesh = parseStl(buffer);
   if (mesh.triangles.length === 0) {
     throw new Error("Imported mesh has no triangles.");
   }
-  return { mesh, format, fileName: safeName };
+  const region = defaultColorRegion();
+  return {
+    mesh,
+    format,
+    fileName: safeName,
+    objects: [{ name: safeName, mesh, colorHex: region.colorHex, colorName: region.colorName, filament: region.filament, extruder: region.amsSlot }],
+    colorRegions: [region],
+  };
 }
 
 export function importedMeshStubScad(input: {

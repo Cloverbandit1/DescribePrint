@@ -79,3 +79,69 @@ export function cloneMesh(mesh: Mesh): Mesh {
     })),
   };
 }
+
+export function combineMeshes(meshes: Mesh[]): Mesh {
+  return { triangles: meshes.flatMap((mesh) => mesh.triangles) };
+}
+
+function mapMeshesAbout(
+  meshes: Mesh[],
+  origin: [number, number, number],
+  map: (v: [number, number, number], origin: [number, number, number]) => [number, number, number],
+): Mesh[] {
+  return meshes.map((mesh) => mapVertices(mesh, (v) => map(v, origin)));
+}
+
+/** Sit every object using the combined lowest Z so color bodies stay registered. */
+export function sitMeshesOnBed(meshes: Mesh[]): Mesh[] {
+  if (meshes.length === 0) return meshes;
+  if (meshes.length === 1) return [sitMeshOnBed(meshes[0])];
+  const box = boundingBoxMm(combineMeshes(meshes));
+  if (!Number.isFinite(box.min[2]) || Math.abs(box.min[2]) < 1e-6) return meshes;
+  return meshes.map((mesh) => translateMesh(mesh, [0, 0, -box.min[2]]));
+}
+
+/** Uniform scale about the combined base-center. */
+export function scaleMeshesUniform(meshes: Mesh[], factor: number): Mesh[] {
+  if (!Number.isFinite(factor) || factor <= 0) {
+    throw new Error("Scale factor must be a positive number");
+  }
+  if (meshes.length === 0 || Math.abs(factor - 1) < 1e-9) return meshes;
+  const box = boundingBoxMm(combineMeshes(meshes));
+  const origin: [number, number, number] = [(box.min[0] + box.max[0]) / 2, (box.min[1] + box.max[1]) / 2, box.min[2]];
+  return mapMeshesAbout(meshes, origin, ([x, y, z], [cx, cy, cz]) => [
+    cx + (x - cx) * factor,
+    cy + (y - cy) * factor,
+    cz + (z - cz) * factor,
+  ]);
+}
+
+export function rotateMeshesZ(meshes: Mesh[], degrees: number): Mesh[] {
+  const turn = ((degrees % 360) + 360) % 360;
+  if (meshes.length === 0 || Math.abs(turn) < 1e-9) return meshes;
+  const rad = (turn * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const box = boundingBoxMm(combineMeshes(meshes));
+  const cx = (box.min[0] + box.max[0]) / 2;
+  const cy = (box.min[1] + box.max[1]) / 2;
+  const rotated = meshes.map((mesh) =>
+    mapVertices(mesh, ([x, y, z]) => {
+      const dx = x - cx;
+      const dy = y - cy;
+      return [cx + dx * cos - dy * sin, cy + dx * sin + dy * cos, z];
+    }),
+  );
+  return sitMeshesOnBed(rotated);
+}
+
+export function scaleMeshesToMaxMm(meshes: Mesh[], targetMaxMm: number): Mesh[] {
+  if (!Number.isFinite(targetMaxMm) || targetMaxMm <= 0) {
+    throw new Error("Target size must be a positive number of millimeters");
+  }
+  if (meshes.length === 0) return meshes;
+  const box = boundingBoxMm(combineMeshes(meshes));
+  const maxDim = Math.max(...box.size);
+  if (!Number.isFinite(maxDim) || maxDim <= 0) return meshes;
+  return scaleMeshesUniform(meshes, targetMaxMm / maxDim);
+}

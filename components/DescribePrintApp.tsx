@@ -2106,7 +2106,7 @@ function MachinePanel({
         >
           <div>
             camera: {cameraDetect?.line ?? "ok"}
-            {cameraDetect ? ` · ${cameraSeverity}` : ""}
+            {cameraSeverity === "suspected" ? ` · ${cameraSeverity}` : ""}
           </div>
           {cameraSeverity === "suspected" && cameraDetect?.cue ? <div>{cameraDetect.cue}</div> : null}
         </div>

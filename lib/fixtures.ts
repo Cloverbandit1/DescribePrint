@@ -115,6 +115,121 @@ export function defaultFixture(): FixtureMatch {
   return { id: "cube-with-hole", title: "Cube with hole", code: CUBE_WITH_HOLE(20, 5) };
 }
 
+const NEW_DESIGN =
+  /\b(new part|start over|something else|different part|instead make|forget that|scratch)\b/i;
+const EDIT_CUE =
+  /\b(make|change|update|add|remove|delete|bigger|smaller|wider|taller|shorter|without|more|less|hole|tilt|diameter)\b/i;
+
+export function isLikelyEdit(prompt: string): boolean {
+  const text = prompt.trim();
+  if (!text) return false;
+  if (NEW_DESIGN.test(text)) return false;
+  if (EXAMPLE_PROMPTS.some((example) => example.toLowerCase() === text.toLowerCase())) return false;
+  return EDIT_CUE.test(text) && text.length < 120;
+}
+
+function numberFrom(source: string, patterns: RegExp[], fallback: number): number {
+  for (const pattern of patterns) {
+    const n = numberAt(source, pattern, Number.NaN);
+    if (Number.isFinite(n)) return n;
+  }
+  return fallback;
+}
+
+function paramsFromCode(code: string | null | undefined) {
+  const source = code ?? "";
+  return {
+    size: numberAt(source, /size\s*=\s*(\d+(?:\.\d+)?)/, Number.NaN),
+    hole: numberAt(source, /hole_d\s*=\s*(\d+(?:\.\d+)?)/, Number.NaN),
+    tilt: numberAt(source, /tilt\s*=\s*(\d+(?:\.\d+)?)/, Number.NaN),
+    diameter: numberAt(source, /^d\s*=\s*(\d+(?:\.\d+)?)/m, Number.NaN),
+  };
+}
+
+/**
+ * Continue a describe/chat thread: follow-ups edit the last fixture instead of
+ * throwing away the plate. Fresh descriptions still match as new designs.
+ */
+export function matchConversationFixture(
+  prompt: string,
+  previousPrompt?: string | null,
+  previousCode?: string | null,
+  sizeHint?: number | null,
+  units: Unit = "mm",
+): FixtureMatch | null {
+  const fresh = matchFixture(prompt, sizeHint, units);
+  if (!previousPrompt?.trim() && !previousCode?.trim()) return fresh;
+  if (NEW_DESIGN.test(prompt)) return fresh;
+  if (fresh && !isLikelyEdit(prompt)) return fresh;
+
+  const prev = previousPrompt?.trim() ? matchFixture(previousPrompt, sizeHint, units) : null;
+  const fromCode = paramsFromCode(previousCode);
+  const hinted = sizeHint && sizeHint > 0 ? toMillimeters(sizeHint, units) : null;
+  const text = prompt.toLowerCase();
+  const baseId = prev?.id ?? (Number.isFinite(fromCode.hole) ? "cube-with-hole" : Number.isFinite(fromCode.tilt) ? "phone-stand" : Number.isFinite(fromCode.diameter) ? "drawer-knob" : Number.isFinite(fromCode.size) ? "plain-cube" : null);
+
+  const hole = numberFrom(
+    prompt,
+    [/hole[^\d]{0,20}(\d+(?:\.\d+)?)/i, /(\d+(?:\.\d+)?)\s*mm\s+(?:hole|bore)/i],
+    Number.NaN,
+  );
+  const size = hinted ?? numberFrom(prompt, [/(\d+(?:\.\d+)?)\s*mm\s+cube/i, /(?:cube|size|it)\s+[^\d]{0,12}(\d+(?:\.\d+)?)/i], Number.NaN);
+  const tilt = numberFrom(prompt, [/(\d+(?:\.\d+)?)\s*degree/i, /tilt[^\d]{0,12}(\d+(?:\.\d+)?)/i], Number.NaN);
+  const diameter = hinted ?? numberFrom(prompt, [/diameter\s+(\d+(?:\.\d+)?)/i, /(\d+(?:\.\d+)?)\s*mm/i], Number.NaN);
+
+  if (baseId === "cube-with-hole" || baseId === "plain-cube") {
+    const nextSize = Number.isFinite(size)
+      ? size
+      : Number.isFinite(fromCode.size)
+        ? fromCode.size
+        : prev
+          ? numberAt(previousPrompt ?? "", /(\d+(?:\.\d+)?)\s*mm/, 20)
+          : 20;
+    if (/\bremove\b/.test(text) && /\bhole\b/.test(text)) {
+      return {
+        id: "plain-cube",
+        title: "Cube",
+        code: `$fn = 16;\ncube(${nextSize}, center = false);\n`,
+      };
+    }
+    const nextHole = Number.isFinite(hole)
+      ? hole
+      : Number.isFinite(fromCode.hole)
+        ? fromCode.hole
+        : 5;
+    if (baseId === "cube-with-hole" || (/\badd\b/.test(text) && /\bhole\b/.test(text)) || Number.isFinite(hole)) {
+      return { id: "cube-with-hole", title: "Cube with hole", code: CUBE_WITH_HOLE(nextSize, nextHole) };
+    }
+    if (baseId === "plain-cube") {
+      return {
+        id: "plain-cube",
+        title: "Cube",
+        code: `$fn = 16;\ncube(${nextSize}, center = false);\n`,
+      };
+    }
+  }
+
+  if (baseId === "phone-stand") {
+    const nextTilt = Number.isFinite(tilt)
+      ? tilt
+      : Number.isFinite(fromCode.tilt)
+        ? fromCode.tilt
+        : numberAt(previousPrompt ?? "", /(\d+(?:\.\d+)?)\s*degree/, 60);
+    return { id: "phone-stand", title: "Phone stand", code: PHONE_STAND(nextTilt) };
+  }
+
+  if (baseId === "drawer-knob") {
+    const nextDiameter = Number.isFinite(diameter) && /diameter|mm|bigger|smaller|knob/.test(text)
+      ? diameter
+      : Number.isFinite(fromCode.diameter)
+        ? fromCode.diameter
+        : 40;
+    return { id: "drawer-knob", title: "Drawer knob", code: DRAWER_KNOB(nextDiameter) };
+  }
+
+  return matchFixture(`${previousPrompt ?? ""} ${prompt}`, sizeHint, units) ?? fresh ?? prev;
+}
+
 export function shouldUseFixture(requestFixture?: boolean): boolean {
   if (requestFixture) return true;
   const flag = process.env.USE_FIXTURE?.trim().toLowerCase();

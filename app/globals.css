@@ -3,17 +3,60 @@
 @theme {
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
-  --color-ink: #f3efe6;
-  --color-muted: #9c9588;
-  --color-bg: #0b0c0f;
-  --color-panel: #12141a;
-  --color-panel-2: #181b23;
-  --color-line: #2a2d37;
-  --color-accent: #f0a33a;
-  --color-accent-2: #6ec8d4;
-  --color-ok: #3dcea5;
-  --color-warn: #e7c15b;
-  --color-danger: #ef7b6a;
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-panel-2: var(--panel-2);
+  --color-canvas: var(--canvas);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-2: var(--accent-2);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+}
+
+:root,
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --ink: #f0f0f0;
+  --muted: #9a9a9a;
+  --bg: #2b2b2b;
+  --panel: #323232;
+  --panel-2: #3c3c3c;
+  --canvas: #242424;
+  --line: #4a4a4a;
+  --line-strong: #5c5c5c;
+  --accent: #00b347;
+  --accent-hover: #12c457;
+  --accent-ink: #06210f;
+  --accent-2: #4c8dff;
+  --ok: #00b347;
+  --warn: #e0b000;
+  --danger: #e05555;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  --ink: #2a2a2a;
+  --muted: #6b6b6b;
+  --bg: #e6e6e6;
+  --panel: #f3f3f3;
+  --panel-2: #ffffff;
+  --canvas: #d4d4d4;
+  --line: #c8c8c8;
+  --line-strong: #b0b0b0;
+  --accent: #00a33f;
+  --accent-hover: #069646;
+  --accent-ink: #ffffff;
+  --accent-2: #2f74e0;
+  --ok: #008a36;
+  --warn: #b88600;
+  --danger: #c43b3b;
 }
 
 html,
@@ -22,23 +65,71 @@ body {
 }
 
 body {
-  background: var(--color-bg);
-  color: var(--color-ink);
+  background: var(--bg);
+  color: var(--ink);
   font-family: var(--font-sans);
-}
-
-.grain {
-  pointer-events: none;
-  position: fixed;
-  inset: 0;
-  opacity: 0.045;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  z-index: 50;
 }
 
 .scrollbar-thin {
   scrollbar-width: thin;
-  scrollbar-color: #2a2d37 transparent;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.studio-label {
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.studio-field {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--ink);
+  border-radius: 6px;
+  outline: none;
+}
+
+.studio-field:focus {
+  border-color: color-mix(in srgb, var(--accent) 65%, var(--line));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.studio-btn {
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.studio-btn-primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.studio-btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.studio-btn-primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.studio-btn-ghost {
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--ink);
+}
+
+.studio-btn-ghost:hover {
+  border-color: var(--line-strong);
+  background: color-mix(in srgb, var(--panel-2) 70%, var(--panel));
 }
 
 @keyframes pulse-dot {

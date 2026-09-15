@@ -32,6 +32,7 @@ export function buildUserPrompt(input: {
   sizeNote: string;
   previousError?: string;
   previousCode?: string;
+  previousPrompt?: string;
 }): string {
   const parts = [
     `Describe this object as OpenSCAD:`,
@@ -48,6 +49,14 @@ export function buildUserPrompt(input: {
     if (input.previousCode) {
       parts.push(`Previous code:\n${input.previousCode.slice(0, 6000)}`);
     }
+  } else if (input.previousCode) {
+    parts.push(
+      `This is a follow-up in an ongoing design conversation. Edit the existing printable part to match the user's latest request. Add, remove, or change features as asked. Start from scratch only if they clearly want a new object.`,
+    );
+    if (input.previousPrompt) {
+      parts.push(`Earlier description:\n${input.previousPrompt.slice(0, 2000)}`);
+    }
+    parts.push(`Current OpenSCAD:\n${input.previousCode.slice(0, 6000)}`);
   }
   return parts.join("\n\n");
 }

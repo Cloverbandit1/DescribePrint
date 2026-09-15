@@ -140,7 +140,7 @@ describe("failure-photo stays on Print Control", () => {
       .filter((line) => /^\s*import\b/.test(line))
       .join("\n");
     expect(imports).not.toMatch(
-      /fits|fit-wizard|fitWizard|part-library|partLibrary|remix|cad-reshape|lattice|openscad|assembly|etch|ollama|plate-pack|project-pack/i,
+      /fits|fit-wizard|fitWizard|part-library|partLibrary|remix|cad-reshape|lattice|openscad|assembly|etch|ollama|plate-pack|project-pack|pwa|manifest|service-worker|safari|iphone/i,
     );
     expect(src).toMatch(/later classifier|no pixel|not invent/i);
   });

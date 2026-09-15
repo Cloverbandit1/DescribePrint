@@ -39,6 +39,10 @@ describe("mid-print chat phrases", () => {
       command: { type: "set-speed", percent: 100 },
       speedLevel: 2,
     });
+    expect(parseMidPrintCommandPhrase("cool nozzle", { material: "pla" })).toEqual({
+      command: { type: "set-nozzle-temp", celsius: 210 },
+      label: "nozzle-temp",
+    });
     expect(parseMidPrintCommandPhrase("nozzle 220")).toEqual({
       command: { type: "set-nozzle-temp", celsius: 220 },
       label: "nozzle-temp",
@@ -68,6 +72,7 @@ describe("mid-print chat phrases", () => {
       "pause the hinge clearance",
       "continue the fillet on the lid",
       "slow the taper to 20mm",
+      "cool the taper to 20mm",
       "20mm cube with 5mm hole",
       "reshape this cube to 20mm",
       "bed 60mm tray",

@@ -872,7 +872,7 @@ export function diagnosePrintComplaint(request: PrintDoctorRequest): PrintDoctor
     : normalizeFilamentId(request.material);
   const fallback = sessionMaterial ?? printer.defaultFilament;
   const material = inferMaterial(`${request.material ?? ""} ${complaint}`, fallback);
-  const midPrint = parseMidPrintCommandPhrase(complaint);
+  const midPrint = parseMidPrintCommandPhrase(complaint, { material });
   if (midPrint) {
     return midPrintDiagnosis(printerId, material, midPrint);
   }

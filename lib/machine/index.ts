@@ -123,16 +123,21 @@ export {
 export {
   CAMERA_HELP_GUIDE_IDS,
   buildCameraHelpGuide,
+  cameraHelpMidPrintActions,
   cameraHelpPhysicalSteps,
   isCameraHelpGuideId,
   selectCameraHelpGuide,
   selectCameraHelpGuideId,
   type CameraHelpGuide,
   type CameraHelpGuideId,
+  type CameraHelpMidPrintAction,
 } from "./camera-help";
 export {
+  CAMERA_COOL_NOZZLE_PHRASE,
   CAMERA_PAUSE_NOW_PHRASE,
+  CAMERA_SLOW_DOWN_PHRASE,
   cameraDoctorBridgeOwnsPrintControlOnly,
+  cameraDoctorMidPrintChips,
   cameraFailureKind,
   cameraPauseNowIntent,
   dismissCameraDoctor,
@@ -142,6 +147,7 @@ export {
   takeCameraDoctorAnnouncement,
   type CameraDoctorAnnouncement,
   type CameraDoctorHeld,
+  type CameraDoctorMidPrintChip,
 } from "./camera-doctor-bridge";
 export {
   bambuTopics,
@@ -153,7 +159,10 @@ export {
 } from "./bambu-protocol";
 export {
   CONNECT_LAN_FIRST,
+  COOL_NOZZLE_DELTA_C,
   MID_PRINT_CONTROL_ID,
+  coolNozzleSafeMinC,
+  coolNozzleTargetC,
   describeMidPrintIntent,
   disconnectedMidPrintResult,
   looksLikeMidPrintCommand,
@@ -162,6 +171,7 @@ export {
   parseMidPrintCommandPhrase,
   sendMidPrintIfConnected,
   type MidPrintIntent,
+  type MidPrintParseOptions,
 } from "./mid-print-commands";
 export { redactSecrets, safeErrorMessage } from "./redact";
 export { getSharedMachine, isLiveMachineSelected, resetSharedMachine } from "./runtime";

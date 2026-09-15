@@ -51,8 +51,31 @@ describe("STL/3MF import", () => {
     expect(scaled.source).toBe("imported-mesh");
     expect(scaled.editMode).toBe("transform");
     expect(scaled.wearableSize).toBe("L");
-    expect(scaled.report.boundingBoxMm.size[0]).toBeCloseTo(44.8);
+    expect(scaled.wearableCategory).toBe("helmet_mask");
+    expect(scaled.report.boundingBoxMm.size[0]).toBeCloseTo(40 * (595 / 575));
     expect(scaled.report.boundingBoxMm.min[2]).toBeCloseTo(0);
     expect(scaled.notes.join(" ")).toMatch(/Assumed size: L/);
+    expect(scaled.notes.join(" ")).toMatch(/595/);
+  });
+
+  it("uses the torso chart when category + size are applied", async () => {
+    const imported = await runImportPipeline({
+      buffer: writeBinaryStl(makeAxisAlignedBoxMesh([40, 20, 10])),
+      fileName: "cuirass.stl",
+    });
+    expect(imported.wearableCategory).toBe("torso_armor");
+    const scaled = await runGeneratePipeline({
+      prompt: "Apply wearable size L",
+      previousJobId: imported.jobId,
+      previousSource: "imported-mesh",
+      wearableSize: "L",
+      wearableCategory: "torso_armor",
+      fixture: true,
+    });
+    expect(scaled.wearableSize).toBe("L");
+    expect(scaled.wearableCategory).toBe("torso_armor");
+    expect(scaled.report.boundingBoxMm.size[0]).toBeCloseTo(44);
+    expect(scaled.notes.join(" ")).toMatch(/Torso armor/);
+    expect(scaled.notes.join(" ")).toMatch(/1100/);
   });
 });

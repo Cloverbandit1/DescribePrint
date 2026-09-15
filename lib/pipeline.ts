@@ -32,7 +32,15 @@ import { IMPORTED_MESH_FILENAME, sanitizeOpenScad } from "./sanitize";
 import { parseStl, writeBinaryStl } from "./stl";
 import { meshTo3mf } from "./threemf";
 import { describeSizeHint } from "./units";
-import { describeWearableSize, wearableChartNote, wearableScaleFactor } from "./wearable-sizes";
+import {
+  DEFAULT_WEARABLE_CATEGORY,
+  describeWearableSize,
+  inferWearableCategory,
+  isWearableCategoryId,
+  parseWearableCategoryFromPrompt,
+  wearableChartNote,
+  wearableScaleFactor,
+} from "./wearable-sizes";
 import type {
   GenerateRequest,
   GenerateResult,
@@ -40,6 +48,7 @@ import type {
   PartSource,
   PlateEditMode,
   StatusEvent,
+  WearableCategoryId,
   WearableSizeId,
 } from "./types";
 
@@ -233,15 +242,30 @@ async function compileAndCheck(
   });
 }
 
+function resolveWearableCategory(request: GenerateRequest, previous?: StoredJob): WearableCategoryId {
+  if (isWearableCategoryId(request.wearableCategory)) return request.wearableCategory;
+  return (
+    parseWearableCategoryFromPrompt(request.prompt ?? "") ??
+    (previous?.fileName ? parseWearableCategoryFromPrompt(previous.fileName) : null) ??
+    previous?.wearableCategory ??
+    DEFAULT_WEARABLE_CATEGORY
+  );
+}
+
 function applyIntentTransforms(
   mesh: Mesh,
   intent: MeshEditIntent,
   currentSize: WearableSizeId | null,
-): { mesh: Mesh; wearableSize: WearableSizeId | null } {
+  currentCategory: WearableCategoryId | null,
+): { mesh: Mesh; wearableSize: WearableSizeId | null; wearableCategory: WearableCategoryId } {
   let next = mesh;
   let wearableSize = currentSize;
+  const wearableCategory = intent.wearableCategory ?? currentCategory ?? DEFAULT_WEARABLE_CATEGORY;
   if (intent.wearableSize) {
-    next = scaleMeshUniform(next, wearableScaleFactor(currentSize, intent.wearableSize));
+    next = scaleMeshUniform(
+      next,
+      wearableScaleFactor(currentSize, intent.wearableSize, currentCategory, wearableCategory),
+    );
     wearableSize = intent.wearableSize;
   }
   if (Math.abs(intent.scale - 1) > 1e-9) {
@@ -256,16 +280,17 @@ function applyIntentTransforms(
   if (intent.sitOnBed) {
     next = sitMeshOnBed(next);
   }
-  return { mesh: next, wearableSize };
+  return { mesh: next, wearableSize, wearableCategory };
 }
 
 function applyWearableToCompiled(
   stl: Buffer,
   wearableSize: WearableSizeId | null | undefined,
+  wearableCategory: WearableCategoryId = DEFAULT_WEARABLE_CATEGORY,
 ): Mesh {
   let mesh = parseStl(stl);
   if (wearableSize && wearableSize !== "M") {
-    mesh = scaleMeshUniform(mesh, wearableScaleFactor("M", wearableSize));
+    mesh = scaleMeshUniform(mesh, wearableScaleFactor("M", wearableSize, wearableCategory, wearableCategory));
   }
   return sitMeshOnBed(mesh);
 }
@@ -296,7 +321,8 @@ export async function runImportPipeline(
     triangleCount: seated.triangles.length,
   });
   const artifacts = await artifactsFromMesh(seated, code, imported.fileName);
-  const notes = [IMPORT_LIMITS_NOTE, wearableChartNote(), describeWearableSize(null)];
+  const wearableCategory = inferWearableCategory(imported.fileName);
+  const notes = [IMPORT_LIMITS_NOTE, wearableChartNote(), describeWearableSize(null, wearableCategory)];
   const job = createJob({
     stl: artifacts.stl,
     threemf: artifacts.threemf,
@@ -307,6 +333,7 @@ export async function runImportPipeline(
     source: "imported-mesh",
     fileName: imported.fileName,
     wearableSize: null,
+    wearableCategory,
     nativeSizeMm: artifacts.report.boundingBoxMm.size,
     editMode: "import",
     notes,
@@ -325,21 +352,22 @@ async function runImportedMeshEdit(
     throw new Error("Describe an edit, or pick a wearable size.");
   }
 
-  const intent = parseMeshEditIntent(prompt, request.wearableSize);
+  const wearableCategory = resolveWearableCategory(request, previous);
+  const intent = parseMeshEditIntent(prompt, request.wearableSize, wearableCategory);
   if (intent.kind === "new-design") {
     return runOpenscadGenerate({ ...request, previousCode: null, previousPrompt: null, previousJobId: null, previousSource: null }, sink);
   }
 
   emit(sink, { step: "import", message: "Loading the imported mesh…" });
   let mesh = parseStl(previous.stl);
-  const transformed = applyIntentTransforms(mesh, intent, previous.wearableSize);
+  const transformed = applyIntentTransforms(mesh, intent, previous.wearableSize, previous.wearableCategory);
   mesh = transformed.mesh;
   const wearableSize = transformed.wearableSize;
   const fileName = previous.fileName ?? "imported.stl";
   const notes = [
     IMPORT_LIMITS_NOTE,
     wearableChartNote(),
-    describeWearableSize(wearableSize),
+    describeWearableSize(wearableSize, transformed.wearableCategory),
     ...intent.notes,
   ];
 
@@ -350,6 +378,7 @@ async function runImportedMeshEdit(
       sizeMm: checkMesh(mesh).boundingBoxMm.size,
       triangleCount: mesh.triangles.length,
       wearableSize,
+      wearableCategory: transformed.wearableCategory,
     });
     const artifacts = await artifactsFromMesh(mesh, code, fileName);
     const job = createJob({
@@ -362,6 +391,7 @@ async function runImportedMeshEdit(
       source: "imported-mesh",
       fileName,
       wearableSize,
+      wearableCategory: transformed.wearableCategory,
       nativeSizeMm: previous.nativeSizeMm,
       editMode: "transform",
       notes,
@@ -446,6 +476,7 @@ async function runImportedMeshEdit(
     source: "imported-mesh",
     fileName,
     wearableSize,
+    wearableCategory: transformed.wearableCategory,
     nativeSizeMm: previous.nativeSizeMm,
     editMode: "describe-wrapper",
     notes,
@@ -469,6 +500,7 @@ async function runOpenscadGenerate(
   let code = "";
   let plan: CadPlan | null = null;
   const wearableSize = request.wearableSize ?? null;
+  const wearableCategory = resolveWearableCategory(request);
 
   emit(sink, { step: "planning", message: "Understanding your description…" });
 
@@ -511,7 +543,7 @@ async function runOpenscadGenerate(
     const compiled = await compileAndCheck(sanitized.code);
     if (wearableSize && wearableSize !== "M") {
       emit(sink, { step: "transform", message: `Applying wearable size ${wearableSize}…` });
-      const scaled = applyWearableToCompiled(compiled.stl, wearableSize);
+      const scaled = applyWearableToCompiled(compiled.stl, wearableSize, wearableCategory);
       const rebuilt = await artifactsFromMesh(scaled, sanitized.code);
       return { ...rebuilt, nativeSizeMm: compiled.report.boundingBoxMm.size };
     }
@@ -558,7 +590,7 @@ async function runOpenscadGenerate(
     throw new Error("Generation failed");
   }
 
-  const notes = wearableSize ? [wearableChartNote(), describeWearableSize(wearableSize)] : [];
+  const notes = wearableSize ? [wearableChartNote(), describeWearableSize(wearableSize, wearableCategory)] : [];
   const job = createJob({
     stl: artifacts.stl,
     threemf: artifacts.threemf,
@@ -569,6 +601,7 @@ async function runOpenscadGenerate(
     source: "openscad",
     fileName: null,
     wearableSize,
+    wearableCategory,
     nativeSizeMm: artifacts.nativeSizeMm ?? artifacts.report.boundingBoxMm.size,
     editMode: wearableSize && wearableSize !== "M" ? "transform" : "create",
     notes,
@@ -613,9 +646,19 @@ export async function runGeneratePipeline(
 
   if (previous && request.wearableSize && (!prompt || /^apply wearable size\b/i.test(prompt))) {
     emit(sink, { step: "transform", message: `Applying wearable size ${request.wearableSize}…` });
-    const intent = parseMeshEditIntent(prompt || `Apply wearable size ${request.wearableSize}`, request.wearableSize);
-    const transformed = applyIntentTransforms(parseStl(previous.stl), intent, previous.wearableSize);
-    const notes = [wearableChartNote(), describeWearableSize(transformed.wearableSize)];
+    const wearableCategory = resolveWearableCategory(request, previous);
+    const intent = parseMeshEditIntent(
+      prompt || `Apply wearable size ${request.wearableSize}`,
+      request.wearableSize,
+      wearableCategory,
+    );
+    const transformed = applyIntentTransforms(
+      parseStl(previous.stl),
+      intent,
+      previous.wearableSize,
+      previous.wearableCategory,
+    );
+    const notes = [wearableChartNote(), describeWearableSize(transformed.wearableSize, transformed.wearableCategory)];
     const source: PartSource = previous.source;
     const code =
       source === "imported-mesh"
@@ -624,6 +667,7 @@ export async function runGeneratePipeline(
             sizeMm: checkMesh(transformed.mesh).boundingBoxMm.size,
             triangleCount: transformed.mesh.triangles.length,
             wearableSize: transformed.wearableSize,
+            wearableCategory: transformed.wearableCategory,
           })
         : previous.scad;
     const artifacts = await artifactsFromMesh(transformed.mesh, code, previous.fileName ?? "DescribePrint");
@@ -637,6 +681,7 @@ export async function runGeneratePipeline(
       source,
       fileName: previous.fileName,
       wearableSize: transformed.wearableSize,
+      wearableCategory: transformed.wearableCategory,
       nativeSizeMm: previous.nativeSizeMm,
       editMode: "transform",
       notes,

@@ -1,12 +1,13 @@
 import { wantsNewDesign } from "./printability";
-import { parseWearableSizeFromPrompt } from "./wearable-sizes";
-import type { WearableSizeId } from "./types";
+import { parseWearableCategoryFromPrompt, parseWearableSizeFromPrompt } from "./wearable-sizes";
+import type { WearableCategoryId, WearableSizeId } from "./types";
 
 export type MeshEditKind = "transform" | "describe-wrapper" | "new-design";
 
 export type MeshEditIntent = {
   kind: MeshEditKind;
   wearableSize: WearableSizeId | null;
+  wearableCategory: WearableCategoryId | null;
   /** Uniform scale to apply (1 = none). Combined with wearable if both present. */
   scale: number;
   targetMaxMm: number | null;
@@ -39,14 +40,17 @@ export function isGenerativeMeshEdit(prompt: string): boolean {
 export function parseMeshEditIntent(
   prompt: string,
   requestedSize?: WearableSizeId | null,
+  requestedCategory?: WearableCategoryId | null,
 ): MeshEditIntent {
   const text = prompt.trim();
   const notes: string[] = [];
+  const wearableCategory = requestedCategory ?? parseWearableCategoryFromPrompt(text);
 
   if (wantsNewDesign(text)) {
     return {
       kind: "new-design",
       wearableSize: requestedSize ?? parseWearableSizeFromPrompt(text),
+      wearableCategory,
       scale: 1,
       targetMaxMm: null,
       rotateZDeg: null,
@@ -108,6 +112,7 @@ export function parseMeshEditIntent(
     return {
       kind: "transform",
       wearableSize,
+      wearableCategory,
       scale: 1,
       targetMaxMm: null,
       rotateZDeg: null,
@@ -125,6 +130,7 @@ export function parseMeshEditIntent(
     return {
       kind: "describe-wrapper",
       wearableSize,
+      wearableCategory,
       scale,
       targetMaxMm,
       rotateZDeg,
@@ -139,6 +145,7 @@ export function parseMeshEditIntent(
     return {
       kind: "transform",
       wearableSize,
+      wearableCategory,
       scale,
       targetMaxMm,
       rotateZDeg,
@@ -155,6 +162,7 @@ export function parseMeshEditIntent(
   return {
     kind: "describe-wrapper",
     wearableSize,
+    wearableCategory,
     scale: 1,
     targetMaxMm: null,
     rotateZDeg: null,

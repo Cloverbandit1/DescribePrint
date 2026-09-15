@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import type { GenerateResult, PartSource, PlateEditMode, PrintabilityReport, WearableSizeId } from "./types";
+import type {
+  GenerateResult,
+  PartSource,
+  PlateEditMode,
+  PrintabilityReport,
+  WearableCategoryId,
+  WearableSizeId,
+} from "./types";
 
 export type StoredJob = {
   id: string;
@@ -13,6 +20,7 @@ export type StoredJob = {
   source: PartSource;
   fileName: string | null;
   wearableSize: WearableSizeId | null;
+  wearableCategory: WearableCategoryId | null;
   nativeSizeMm: [number, number, number];
   editMode: PlateEditMode;
   notes: string[];
@@ -22,6 +30,7 @@ export type CreateJobInput = Omit<StoredJob, "id" | "createdAt"> & {
   source?: PartSource;
   fileName?: string | null;
   wearableSize?: WearableSizeId | null;
+  wearableCategory?: WearableCategoryId | null;
   nativeSizeMm?: [number, number, number];
   editMode?: PlateEditMode;
   notes?: string[];
@@ -51,6 +60,7 @@ export function createJob(input: CreateJobInput): StoredJob {
     source: input.source ?? "openscad",
     fileName: input.fileName ?? null,
     wearableSize: input.wearableSize ?? null,
+    wearableCategory: input.wearableCategory ?? null,
     nativeSizeMm: input.nativeSizeMm ?? input.report.boundingBoxMm.size,
     editMode: input.editMode ?? "create",
     notes: input.notes ?? [],
@@ -80,6 +90,7 @@ export function toGenerateResult(job: StoredJob): GenerateResult {
     source: job.source,
     fileName: job.fileName,
     wearableSize: job.wearableSize,
+    wearableCategory: job.wearableCategory,
     editMode: job.editMode,
     notes: job.notes,
   };

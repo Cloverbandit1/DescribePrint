@@ -128,5 +128,6 @@ export function toGenerateResult(job: StoredJob): GenerateResult {
     machineDesignation: job.machineDesignation ?? null,
     printPreset: job.printPreset,
     printPresetUrl: `/api/jobs/${job.id}/model.print.json`,
+    projectPackUrl: `/api/jobs/${job.id}/model.pack.zip`,
   };
 }

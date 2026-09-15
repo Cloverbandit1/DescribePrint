@@ -16,6 +16,15 @@ import {
   type ClearanceIntent,
 } from "./joints";
 import {
+  cadKnowledgeFromPrompt,
+  formatKnowledgeCodegenHint,
+  formatKnowledgeConstraints,
+  formatKnowledgePlanHint,
+  knowledgeOverallMm,
+  mergeKnowledgeFeatures,
+  type CadKnowledge,
+} from "./knowledge";
+import {
   formatPrettyUpPromptHint,
   inferCadPrettyUp,
   normalizeCadPrettyUp,
@@ -84,6 +93,8 @@ export type CadPlan = {
   reliefs?: CadRelief[];
   /** Present only when the user asked to pretty-up / restyle (not a structural edit). */
   pretty_up?: CadPrettyUp;
+  /** Present only when the prompt names a curated character or tech keyword. */
+  knowledge?: CadKnowledge;
 };
 
 export { LOCAL_AI_START_MESSAGE } from "./llm-config";
@@ -114,6 +125,7 @@ OpenSCAD best practices
 - If the user names colors or materials (e.g. red body, black letters): emit one module per region named region_<name>(), wrap each call in color("#RRGGBB"), and union them for the preview solid. Prefer raised cubes/bars for letters — avoid text() (no fonts). color() is preview metadata; each region_* module must render alone.
 - Raised etchings / emboss only when asked: union a primitive motif onto the named face (emboss / raised) or difference it into that face (etch / engrave). Default region is the largest vertical face, ties to front (+Y). Default raised height 0.8 mm, recessed depth 0.6 mm. Etch must leave ≥ 1.6 mm remaining wall. Keep the host solid — do not rebuild a new part. No Style2Fab / fonts / text().
 - Pretty-up / restyle only when asked (pretty-up, restyle, fillet, chamfer, decorative ribs/panels, steampunk). Stylistic CSG only — primitive fillets (hull of cylinders), chamfers (inset-cube hull), ribs/panels/rivets. Keep planned holes, PIP joint gaps, mating faces, and ≥ 1.6 mm walls. Refuse pretty-up that would fuse print-in-place joints or close through-holes. Not neural Style2Fab.
+- Knowledge pack: only when the user names a curated character/prop (stormtrooper / vader / iron man / master chief / saber hilt) or tech keyword (PLA/PETG/PA/ABS/TPU, 0.4 mm nozzle, 0.2 mm layer, joint clearance, P2S volume, print-in-place, split-for-bed). Use pack millimeters. Unknown names: ignore and design from the description. Curated stub — not a live web crawl.
 - Never use import(), include, use <>, surface(), or any file/network access.
 - Do not add echo() debug spam. Do not generate animation or $t.
 - Valid syntax only: every statement ends with ';'. Balance braces and parentheses. Define modules before calling them.
@@ -126,7 +138,7 @@ Safety
 const PLAN_SYSTEM_PROMPT = `You are a CAD planner for FDM 3D printing. Reply with ONLY compact JSON (no markdown, no prose).
 
 Schema:
-{"object":string,"one_piece":true,"units":"mm","overall_mm":{"x":n,"y":n,"z":n},"features":[{"name":string,"kind":string,"dims_mm":{"…":n},"notes":string}],"holes":[{"d":n,"purpose":string,"through":true}],"min_wall_mm":n,"clearance_mm":n,"sit_on_z0":true,"safety_notes":string,"joints":[{"type":"hinge|pin|ball|snap","intent":"print-in-place|multi-part","radial_mm":n,"axial_mm":n,"notes":string}],"clearance_intent":"print-in-place","color_regions":[{"name":string,"color":string,"hex":"#RRGGBB","filament":"pla","ams_slot":1}],"reliefs":[{"kind":"emboss|etch","motif":"text|crest|disc|bar","text":"DP","region":"front|back|left|right|top|bottom","height_mm":0.8,"depth_mm":0.6}],"pretty_up":{"applied":true,"refused":false,"style":"fillet|chamfer|ribs|panels|steampunk|motif","ops":[{"kind":"fillet","mm":2}],"functional_regions":[{"kind":"functional","role":"hole","note":"keep through-hole"}],"decorative_regions":[{"kind":"decorative","role":"fillet","note":"2 mm rounds"}]}}
+{"object":string,"one_piece":true,"units":"mm","overall_mm":{"x":n,"y":n,"z":n},"features":[{"name":string,"kind":string,"dims_mm":{"…":n},"notes":string}],"holes":[{"d":n,"purpose":string,"through":true}],"min_wall_mm":n,"clearance_mm":n,"sit_on_z0":true,"safety_notes":string,"joints":[{"type":"hinge|pin|ball|snap","intent":"print-in-place|multi-part","radial_mm":n,"axial_mm":n,"notes":string}],"clearance_intent":"print-in-place","color_regions":[{"name":string,"color":string,"hex":"#RRGGBB","filament":"pla","ams_slot":1}],"reliefs":[{"kind":"emboss|etch","motif":"text|crest|disc|bar","text":"DP","region":"front|back|left|right|top|bottom","height_mm":0.8,"depth_mm":0.6}],"pretty_up":{"applied":true,"refused":false,"style":"fillet|chamfer|ribs|panels|steampunk|motif","ops":[{"kind":"fillet","mm":2}],"functional_regions":[{"kind":"functional","role":"hole","note":"keep through-hole"}],"decorative_regions":[{"kind":"decorative","role":"fillet","note":"2 mm rounds"}]},"knowledge":{"pack_version":"1.0.0","curated":true,"live_web_crawl":false,"characters":[{"id":"stormtrooper-helmet","name":"stormtrooper helmet"}],"tech":[{"id":"petg","name":"PETG"}],"notes":["curated stub"]}}
 
 Rules:
 - Millimeters only. Real-world dimensions. One piece first unless the user clearly asks for an assembly / multi-part kit or a moving joint.
@@ -134,6 +146,7 @@ Rules:
 - If the user names colors or materials, fill color_regions (named body or painted feature, hex, optional pla/petg/pa/abs/tpu). ams_slot is 1–4 export metadata, not a live printer. Omit color_regions when no color is mentioned.
 - Reliefs: omit the reliefs array unless the user asks to emboss, etch, engrave, raise a crest/logo, or cut initials. kind is emboss (raised, union) or etch (recessed, difference). motif is text (block initials), crest, disc, or bar. region is a face hint (front/back/left/right/top/bottom). Default region: largest vertical face, ties to front. Default height_mm 0.8, depth_mm 0.6. Etch must leave 1.6 mm walls. Honest CSG stub — not Style2Fab.
 - Pretty-up: omit pretty_up unless the user asks to pretty-up, restyle, fillet, chamfer, add decorative ribs/panels, or make it look steampunk. Separate from structural edits. Mark functional vs decorative regions. Refuse (applied=false, refused=true) if pretty-up would fuse PIP joints or close through-holes. Heuristic CSG only — not neural Style2Fab.
+- Knowledge: omit the knowledge object unless the user names a curated character/prop or tech keyword. Use pack millimeters when present. Unknown names: omit knowledge and plan from the description alone. Curated in-repo stub — not a live web crawl.
 - Every feature must attach to the main solid unless it is a planned joint member. Through-holes fully pierce (overshoot 0.2–1 mm).
 - min_wall_mm >= 1.6 unless the user insists thinner. clearance_mm ~ 0.3 for ordinary fits; for joints use the documented radial_mm. Sit the part on z=0.
 - Fit overall_mm on the target printer bed unless they asked for a larger object.
@@ -406,6 +419,9 @@ export function buildUserPrompt(input: {
     if (input.plan.pretty_up) {
       parts.push(formatPrettyUpPromptHint(input.plan.pretty_up));
     }
+    if (input.plan.knowledge) {
+      parts.push(formatKnowledgeCodegenHint(input.plan.knowledge));
+    }
   }
   if (input.previousCode) {
     if (wantsNewDesign(input.prompt)) {
@@ -440,12 +456,14 @@ export function buildPlanPrompt(input: {
 }): string {
   const parts = [`Plan this printable part as compact JSON.`, `User request:\n${input.prompt.trim()}`];
   if (input.sizeNote) parts.push(input.sizeNote);
+  const knowledge = cadKnowledgeFromPrompt(input.prompt);
+  if (knowledge) parts.push(formatKnowledgePlanHint(knowledge));
   if (input.previousCode) {
     if (wantsNewDesign(input.prompt)) {
       parts.push(`The user wants a new object. Plan from scratch.`);
     } else {
       parts.push(
-        `This is a follow-up edit. Update only the requested dimensions/features. Keep one_piece true unless they asked for an assembly or a moving joint. Keep joints only if they still want motion. Keep reliefs only if they still want emboss/etch. Keep pretty_up only if they still want restyle. Do not start over.`,
+        `This is a follow-up edit. Update only the requested dimensions/features. Keep one_piece true unless they asked for an assembly or a moving joint. Keep joints only if they still want motion. Keep reliefs only if they still want emboss/etch. Keep pretty_up only if they still want restyle. Keep knowledge only if they still name a curated character or tech keyword. Do not start over.`,
       );
     }
     if (input.previousPrompt) {
@@ -717,11 +735,11 @@ export async function completeChat(
 }
 
 export function systemPrompt(): string {
-  return `${SYSTEM_PROMPT}\n\n${formatPrinterConstraints()}`;
+  return `${SYSTEM_PROMPT}\n\n${formatPrinterConstraints()}\n\n${formatKnowledgeConstraints()}`;
 }
 
 export function planSystemPrompt(): string {
-  return `${PLAN_SYSTEM_PROMPT}\n\n${formatPrinterConstraints()}`;
+  return `${PLAN_SYSTEM_PROMPT}\n\n${formatPrinterConstraints()}\n\n${formatKnowledgeConstraints()}`;
 }
 
 function round1(n: number): number {
@@ -755,7 +773,7 @@ export function normalizeCadPlan(
     joints[0]?.radial_mm ??
     (plan.clearance_mm > 0 ? plan.clearance_mm : rules.clearanceMm);
   const bed = bedMaxMm(rules);
-  let overall_mm = plan.overall_mm;
+  let overall_mm = knowledgeOverallMm(input.prompt, plan.overall_mm);
   if (overall_mm) {
     const maxDim = Math.max(overall_mm.x, overall_mm.y, overall_mm.z);
     if (maxDim > bed && !promptAllowsOversize(input.prompt, maxDim)) {
@@ -776,7 +794,7 @@ export function normalizeCadPlan(
     return { ...h, d, through: h.through !== false };
   });
 
-  const features = plan.features.map((f) => {
+  const features = mergeKnowledgeFeatures(input.prompt, plan.features).map((f) => {
     if (!f.dims_mm) return f;
     const dims_mm = { ...f.dims_mm };
     for (const [key, value] of Object.entries(dims_mm)) {
@@ -828,8 +846,12 @@ export function normalizeCadPlan(
     one_piece = plan.one_piece;
   }
 
+  const knowledge = cadKnowledgeFromPrompt(input.prompt);
+  const namedCharacter = knowledge?.characters[0]?.name;
+
   return {
     ...plan,
+    object: namedCharacter && (plan.object === "part" || !plan.object) ? namedCharacter : plan.object,
     one_piece,
     sit_on_z0: true,
     min_wall_mm,
@@ -842,5 +864,6 @@ export function normalizeCadPlan(
     color_regions,
     reliefs: reliefs.length ? reliefs : undefined,
     pretty_up,
+    knowledge,
   };
 }

@@ -49,6 +49,7 @@ import {
 } from "./import-hole";
 import { formatPrettyUpNote, inferCadPrettyUp } from "./pretty-up";
 import { formatReliefNote, inferCadReliefs } from "./relief";
+import { cadKnowledgeFromPrompt, formatKnowledgeNote } from "./knowledge";
 import { parseMeshEditIntent, type MeshEditIntent } from "./mesh-edit";
 import {
   rotateMeshesZ,
@@ -997,6 +998,9 @@ async function runOpenscadGenerate(
   });
   const prettyNote = formatPrettyUpNote(prettyUp);
   if (prettyNote) notes.push(prettyNote);
+  const knowledge = plan?.knowledge ?? cadKnowledgeFromPrompt(prompt);
+  const knowledgeNote = formatKnowledgeNote(knowledge);
+  if (knowledgeNote) notes.push(knowledgeNote);
   const exportedRegions = artifacts.colorRegions ?? colorRegions;
   if (!isDefaultOnlyRegions(exportedRegions)) {
     notes.push(colorRegionsNote(exportedRegions));

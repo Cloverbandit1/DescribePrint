@@ -97,6 +97,8 @@ describe("LLM prompt", () => {
     expect(planSystemPrompt()).toMatch(/"kind":"emboss\|etch"/);
     expect(planSystemPrompt()).toMatch(/omit the reliefs array unless/i);
     expect(planSystemPrompt()).toMatch(/omit pretty_up unless/i);
+    expect(planSystemPrompt()).toMatch(/omit the knowledge object unless/i);
+    expect(planSystemPrompt()).toMatch(/not a live web crawl/i);
     expect(prompt).toMatch(/Raised etchings \/ emboss/i);
     expect(prompt).toMatch(/Pretty-up \/ restyle/i);
     expect(prompt).toMatch(/captive by default/i);

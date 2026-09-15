@@ -1,3 +1,4 @@
+import { colorRegionsFromPrompt } from "./color-regions";
 import { toMillimeters } from "./units";
 import type { Unit } from "./types";
 
@@ -65,6 +66,30 @@ difference() {
 }
 `;
 
+const TWO_COLOR_PLAQUE = `// Fixture: two-color plaque (mm) — region_* + color() for 3MF objects
+$fn = 32;
+body_w = 40;
+body_d = 20;
+body_h = 6;
+letter_h = 1.6;
+
+module region_body() {
+  cube([body_w, body_d, body_h]);
+}
+
+module region_letters() {
+  // Raised bars stand in for letters (no text() / fonts)
+  translate([8, 6, body_h]) cube([4, 8, letter_h]);
+  translate([16, 6, body_h]) cube([4, 8, letter_h]);
+  translate([24, 6, body_h]) cube([4, 8, letter_h]);
+}
+
+union() {
+  color("red") region_body();
+  color("black") region_letters();
+}
+`;
+
 const numberAt = (source: string, re: RegExp, fallback: number): number => {
   const match = source.match(re);
   if (!match) return fallback;
@@ -79,6 +104,10 @@ export function matchFixture(
 ): FixtureMatch | null {
   const text = prompt.toLowerCase();
   const hinted = sizeHint && sizeHint > 0 ? toMillimeters(sizeHint, units) : null;
+
+  if (isTwoColorFixturePrompt(text)) {
+    return { id: "two-color-plaque", title: "Two-color plaque", code: TWO_COLOR_PLAQUE };
+  }
 
   if ((text.includes("cube") && (text.includes("hole") || text.includes("bore"))) || text.includes("cube with")) {
     const size = hinted ?? numberAt(text, /(\d+(?:\.\d+)?)\s*mm\s+cube/, 20);
@@ -166,7 +195,7 @@ export function matchConversationFixture(
   const fromCode = paramsFromCode(previousCode);
   const hinted = sizeHint && sizeHint > 0 ? toMillimeters(sizeHint, units) : null;
   const text = prompt.toLowerCase();
-  const baseId = prev?.id ?? (Number.isFinite(fromCode.hole) ? "cube-with-hole" : Number.isFinite(fromCode.tilt) ? "phone-stand" : Number.isFinite(fromCode.diameter) ? "drawer-knob" : Number.isFinite(fromCode.size) ? "plain-cube" : null);
+  const baseId = prev?.id ?? (/module\s+region_letters\s*\(/.test(previousCode ?? "") ? "two-color-plaque" : Number.isFinite(fromCode.hole) ? "cube-with-hole" : Number.isFinite(fromCode.tilt) ? "phone-stand" : Number.isFinite(fromCode.diameter) ? "drawer-knob" : Number.isFinite(fromCode.size) ? "plain-cube" : null);
 
   const hole = numberFrom(
     prompt,
@@ -209,6 +238,10 @@ export function matchConversationFixture(
     }
   }
 
+  if (baseId === "two-color-plaque") {
+    return { id: "two-color-plaque", title: "Two-color plaque", code: TWO_COLOR_PLAQUE };
+  }
+
   if (baseId === "phone-stand") {
     const nextTilt = Number.isFinite(tilt)
       ? tilt
@@ -241,8 +274,16 @@ export function shouldUseFixture(requestFixture?: boolean): boolean {
   return false;
 }
 
+export function isTwoColorFixturePrompt(prompt: string): boolean {
+  const text = prompt.toLowerCase();
+  const regions = colorRegionsFromPrompt(text);
+  if (regions.length < 2) return false;
+  return /\b(letter|plaque|nameplate|sign|logo|inlay|body)\b/.test(text);
+}
+
 export const EXAMPLE_PROMPTS = [
   "20mm cube with 5mm hole",
   "phone stand for iPhone 15, 60 degree tilt",
   "parametric drawer knob diameter 40mm",
+  "red 40mm plaque with black letters",
 ] as const;

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { boundingBoxMm } from "@/lib/mesh-check";
-import { rotateMeshZ, scaleMeshToMaxMm, scaleMeshUniform, sitMeshOnBed } from "@/lib/mesh-transform";
+import {
+  rotateMeshZ,
+  scaleMeshToMaxMm,
+  scaleMeshesUniform,
+  scaleMeshUniform,
+  sitMeshOnBed,
+  sitMeshesOnBed,
+} from "@/lib/mesh-transform";
 import { makeAxisAlignedBoxMesh } from "@/lib/stl";
 
 describe("mesh transforms", () => {
@@ -27,5 +34,16 @@ describe("mesh transforms", () => {
     expect(box.min[2]).toBeCloseTo(0);
     expect(box.size[0]).toBeCloseTo(10);
     expect(box.size[1]).toBeCloseTo(40);
+  });
+
+  it("sits and scales multiple color bodies about a shared origin", () => {
+    const body = makeAxisAlignedBoxMesh([40, 20, 6], [0, 0, 2]);
+    const letters = makeAxisAlignedBoxMesh([4, 8, 1.6], [8, 6, 8]);
+    const seated = sitMeshesOnBed([body, letters]);
+    expect(boundingBoxMm(seated[0]).min[2]).toBeCloseTo(0);
+    expect(boundingBoxMm(seated[1]).min[2]).toBeCloseTo(6);
+    const scaled = scaleMeshesUniform(seated, 2);
+    expect(boundingBoxMm(scaled[0]).size).toEqual([80, 40, 12]);
+    expect(boundingBoxMm(scaled[1]).size[2]).toBeCloseTo(3.2);
   });
 });

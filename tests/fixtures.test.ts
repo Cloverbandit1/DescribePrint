@@ -4,6 +4,16 @@ import { sanitizeOpenScad } from "@/lib/sanitize";
 import { toMillimeters } from "@/lib/units";
 
 describe("fixtures + units", () => {
+  it("matches the two-color plaque fixture with region modules", () => {
+    const fixture = matchFixture("red 40mm plaque with black letters");
+    expect(fixture?.id).toBe("two-color-plaque");
+    const sanitized = sanitizeOpenScad(fixture!.code);
+    expect(sanitized.ok).toBe(true);
+    expect(fixture?.code).toMatch(/module region_body/);
+    expect(fixture?.code).toMatch(/module region_letters/);
+    expect(fixture?.code).toMatch(/color\("red"\)/);
+  });
+
   it("matches the three example prompts with sanitizable OpenSCAD", () => {
     const prompts = [
       "20mm cube with 5mm hole",

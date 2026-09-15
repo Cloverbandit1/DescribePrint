@@ -222,8 +222,9 @@ Secrets stay in the browser (Machine panel) or `.env.local`. Do not commit `.env
 - `20mm cube with 5mm hole`
 - `phone stand for iPhone 15, 60 degree tilt`
 - `parametric drawer knob diameter 40mm`
+- `red 40mm plaque with black letters`
 
-These three match built-in fixtures (used when `USE_FIXTURE` is on, or in tests). With local AI running, the same UI asks the dedicated Ollama model for OpenSCAD (optional two-pass plan → code when `SMART_PIPELINE=1`), sanitizes it, compiles, and retries up to twice with structured compiler or printability feedback if OpenSCAD fails or the mesh is disconnected, off the plate, non-manifold, or thinner than 2× the 0.4 mm nozzle.
+The first three match built-in single-body fixtures (used when `USE_FIXTURE` is on, or in tests). The plaque prompt is a two-color fixture: OpenSCAD `region_*` modules compile separately so the downloaded 3MF has two objects (red body, black letters) with AMS slot metadata. With local AI running, the same UI asks the dedicated Ollama model for OpenSCAD (optional two-pass plan → code when `SMART_PIPELINE=1`), sanitizes it, compiles, and retries up to twice with structured compiler or printability feedback if OpenSCAD fails or the mesh is disconnected, off the plate, non-manifold, or thinner than 2× the 0.4 mm nozzle.
 
 ## What V0 does
 
@@ -232,7 +233,7 @@ These three match built-in fixtures (used when `USE_FIXTURE` is on, or in tests)
 3. Sanitize / validate (no network, no filesystem escapes); run OpenSCAD in a subprocess with a timeout.
 4. Parse the STL; check non-empty, volume, triangle count, edge-manifold / watertight-ish.
 5. Preview in Three.js (`react-three-fiber`).
-6. Download **STL** and **3MF** (plus the `.scad` source).
+6. Download **STL** and **3MF** (plus the `.scad` source). If the description names colors or materials, the 3MF carries **separate objects** with `basematerials` display colors and extruder / AMS 1–4 metadata so a slicer can assign filaments. No colors mentioned → one default object. This is CAD export, not live AMS control. OpenSCAD itself is one mesh; split bodies need `region_*` modules or `color()` groups (the two-color fixture does this). Importing a colored 3MF preserves those objects.
 
 Printability report: bounding box (mm), volume, triangle count, manifold flag, and issues (empty mesh, zero volume, huge triangle count, oversized vs the P2S 256 mm bed, undersized / thin walls vs the 0.4 mm nozzle, off-bed, disconnected solids). Soft printability issues are fed back into CAD retries. Plans are normalized to one-piece, 1.6 mm walls, and through-holes unless the user clearly asks otherwise.
 
@@ -242,7 +243,7 @@ Shipped as an in-app stub trio on top of the OpenSCAD create path. No Blender / 
 
 | Path | What works | What is stubbed |
 | --- | --- | --- |
-| **STL/3MF import** | Upload onto the plate, preview, mesh-check, sit on z=0, re-export STL/3MF | No repair sculpt, no multi-body 3MF transforms |
+| **STL/3MF import** | Upload onto the plate, preview, mesh-check, sit on z=0, re-export STL/3MF. Colored 3MF objects / materials are preserved on re-export | No repair sculpt; build-item transforms still ignored. Hole wraps flatten color objects into one solid |
 | **Describe-to-edit (imported)** | Scale / rotate / sit-on-bed and S–XL edit the real triangles. “Add an 8 mm hole” (and similar) **differences** `import("imported.stl")` — through-holes by default, axis/offset inferred from the prompt, sit-on-bed + one-piece checks kept. Repair retries stay on the wrap (no from-scratch rewrite) | Full triangle sculpt / Style2Fab / organic remesh is **not** ready. Blind holes and multi-feature wraps are still CSG, not mesh sculpt |
 | **Wearable size** | Category + S/M/L/XL picker and chat (“helmet size L”) scale the current mesh from documented mm charts and show the assumed size + key measurements | Not a custom-fit / saved-body grade; scale is **uniform** from the category primary measurement (preserves walls and holes) |
 
@@ -274,7 +275,7 @@ Run as a Node process (`next dev` / `next start`). V0 is not aimed at serverless
 npm test
 ```
 
-Covers local LLM config defaults, OpenSCAD path resolution, launch health (Ollama + MODEL + OpenSCAD), Start preflight exit codes (0 = pass, 2 = warn/soft fail and continue), code sanitization, mesh-check / STL / 3MF, import, wearable measurement charts + size application, imported-mesh describe-edit (hole difference / placement / wrap repair), the P2S profile, Print doctor, and machine adapters (mock + flagged LAN MQTT, no physical printer). If OpenSCAD is installed, an integration test compiles the default fixture and an imported-mesh hole wrap (skipped if the binary is missing).
+Covers local LLM config defaults, OpenSCAD path resolution, launch health (Ollama + MODEL + OpenSCAD), Start preflight exit codes (0 = pass, 2 = warn/soft fail and continue), code sanitization, mesh-check / STL / 3MF (including multi-object color / AMS-slot encoding), import, wearable measurement charts + size application, imported-mesh describe-edit (hole difference / placement / wrap repair), the P2S profile, Print doctor, and machine adapters (mock + flagged LAN MQTT, no physical printer). If OpenSCAD is installed, an integration test compiles the default fixture, an imported-mesh hole wrap, and the two-color plaque regions (skipped if the binary is missing).
 
 `GET /api/health` returns the same Local AI / OpenSCAD / P2S status the header chip shows. `npm run health:preflight` is the same check Start runs before `npm run dev`.
 

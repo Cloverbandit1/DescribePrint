@@ -84,6 +84,8 @@ describe("LLM prompt", () => {
     expect(prompt).toMatch(/safe/i);
     expect(planSystemPrompt()).toMatch(/ONLY compact JSON/i);
     expect(planSystemPrompt()).toMatch(/min_wall_mm/i);
+    expect(planSystemPrompt()).toMatch(/color_regions/i);
+    expect(prompt).toMatch(/region_<name>/i);
     expect(prompt).toMatch(/256 × 256 × 256 mm/);
     expect(prompt).toMatch(/0\.4 mm/);
     expect(planSystemPrompt()).toMatch(/256 × 256 × 256 mm/);
@@ -210,6 +212,7 @@ describe("LLM prompt", () => {
     expect(raw?.holes[0]?.d).toBe(5);
     expect(raw?.holes[0]?.through).toBe(true);
     expect(raw?.sit_on_z0).toBe(true);
+    expect(raw?.color_regions).toBeUndefined();
     expect(parseCadPlan("not json at all")).toBeNull();
     expect(parseCadPlan('{"hello":true}')).toBeNull();
   });
@@ -247,6 +250,24 @@ describe("LLM prompt", () => {
     const thin = normalizeCadPlan(raw!, { prompt: "0.8mm wall clip" });
     expect(thin.min_wall_mm).toBe(0.8);
     expect(thin.features[0]?.dims_mm?.wall).toBe(0.8);
+
+    const colored = parseCadPlan(
+      JSON.stringify({
+        object: "plaque",
+        features: [{ name: "body" }],
+        holes: [],
+        min_wall_mm: 1.6,
+        clearance_mm: 0.3,
+        color_regions: [
+          { name: "body", color: "red" },
+          { name: "letters", color: "black", filament: "pla", ams_slot: 2 },
+        ],
+      }),
+    );
+    expect(colored?.color_regions).toHaveLength(2);
+    const normalized = normalizeCadPlan(colored!, { prompt: "red body, black letters" });
+    expect(normalized.color_regions?.[0]).toMatchObject({ hex: "#FF0000", ams_slot: 1 });
+    expect(normalized.color_regions?.[1]).toMatchObject({ hex: "#1A1A1A", filament: "pla" });
   });
 });
 

@@ -1,3 +1,7 @@
+import type { ColorRegion } from "./color-regions";
+
+export type { ColorRegion };
+
 export type Unit = "mm" | "in";
 
 export type PartSource = "openscad" | "imported-mesh";
@@ -95,6 +99,8 @@ export type GenerateResult = {
   wearableCategory?: WearableCategoryId | null;
   editMode: PlateEditMode;
   notes: string[];
+  /** Named color / material objects written into the 3MF (AMS slots are export metadata). */
+  colorRegions: ColorRegion[];
 };
 
 export type Triangle = {
@@ -116,6 +122,10 @@ export type Mesh = {
  *   generative adds (holes, tabs) wrap import("imported.stl") in OpenSCAD.
  *   Holes difference the import (through by default). Full triangle sculpt /
  *   Style2Fab is not implemented.
+ * - Multi-filament 3MF: describe colors/materials → separate 3MF objects with
+ *   displaycolor + extruder/AMS slot metadata. OpenSCAD compiles one mesh;
+ *   color bodies are split via named region_* modules / color() groups.
+ *   Import preserves 3MF colors when present. Not live AMS / machine control.
  *
  * Still later:
  * - describe-to-modify already sends previousPrompt/previousCode on CAD follow-ups

@@ -5,6 +5,7 @@ import {
   LOCAL_AI_START_MESSAGE,
   type LlmConfig,
 } from "./llm-config";
+import { isDefaultOnlyRegions, mergeColorRegionSources } from "./color-regions";
 import {
   allowsThinWalls,
   bedMaxMm,
@@ -47,6 +48,13 @@ export type CadPlan = {
   clearance_mm: number;
   sit_on_z0: boolean;
   safety_notes?: string;
+  color_regions?: Array<{
+    name: string;
+    color?: string;
+    hex?: string;
+    filament?: string;
+    ams_slot?: number;
+  }>;
 };
 
 export { LOCAL_AI_START_MESSAGE } from "./llm-config";
@@ -73,6 +81,7 @@ OpenSCAD best practices
 - Use $fn = 64 (or $fa/$fs) for curves. Do not exceed $fn = 96.
 - Prefer cube(), cylinder(), sphere(), hull(), difference(), union(), intersection(), linear_extrude(), rotate_extrude().
 - Name parameters at the top (size, wall, hole_d, …) so follow-up edits are easy.
+- If the user names colors or materials (e.g. red body, black letters): emit one module per region named region_<name>(), wrap each call in color("#RRGGBB"), and union them for the preview solid. Prefer raised cubes/bars for letters — avoid text() (no fonts). color() is preview metadata; each region_* module must render alone.
 - Never use import(), include, use <>, surface(), or any file/network access.
 - Do not add echo() debug spam. Do not generate animation or $t.
 - Valid syntax only: every statement ends with ';'. Balance braces and parentheses. Define modules before calling them.
@@ -85,10 +94,11 @@ Safety
 const PLAN_SYSTEM_PROMPT = `You are a CAD planner for FDM 3D printing. Reply with ONLY compact JSON (no markdown, no prose).
 
 Schema:
-{"object":string,"one_piece":true,"units":"mm","overall_mm":{"x":n,"y":n,"z":n},"features":[{"name":string,"kind":string,"dims_mm":{"…":n},"notes":string}],"holes":[{"d":n,"purpose":string,"through":true}],"min_wall_mm":n,"clearance_mm":n,"sit_on_z0":true,"safety_notes":string}
+{"object":string,"one_piece":true,"units":"mm","overall_mm":{"x":n,"y":n,"z":n},"features":[{"name":string,"kind":string,"dims_mm":{"…":n},"notes":string}],"holes":[{"d":n,"purpose":string,"through":true}],"min_wall_mm":n,"clearance_mm":n,"sit_on_z0":true,"safety_notes":string,"color_regions":[{"name":string,"color":string,"hex":"#RRGGBB","filament":"pla","ams_slot":1}]}
 
 Rules:
 - Millimeters only. Real-world dimensions. One piece first unless the user clearly asks for an assembly / multi-part kit.
+- If the user names colors or materials, fill color_regions (named body or painted feature, hex, optional pla/petg/abs/tpu). ams_slot is 1–4 export metadata, not a live printer. Omit color_regions when no color is mentioned.
 - Every feature must attach to the main solid (no floating islands). Through-holes fully pierce (overshoot 0.2–1 mm).
 - min_wall_mm >= 1.6 unless the user insists thinner. clearance_mm ~ 0.3 for fits. Sit the part on z=0.
 - Fit overall_mm on the target printer bed unless they asked for a larger object.
@@ -470,6 +480,30 @@ export function parseCadPlan(raw: string): CadPlan | null {
   const minWall = asFiniteNumber(rec.min_wall_mm) ?? 1.6;
   const clearance = asFiniteNumber(rec.clearance_mm) ?? 0.3;
 
+  const rawColors = Array.isArray(rec.color_regions)
+    ? rec.color_regions
+    : Array.isArray(rec.colors)
+      ? rec.colors
+      : [];
+  const colorRegions = rawColors.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const c = item as Record<string, unknown>;
+    const name = asString(c.name) ?? asString(c.id);
+    const color = asString(c.color) ?? asString(c.colour);
+    const hex = asString(c.hex) ?? asString(c.colorHex);
+    if (!name && !color && !hex) return [];
+    const slot = asFiniteNumber(c.ams_slot) ?? asFiniteNumber(c.amsSlot) ?? asFiniteNumber(c.extruder);
+    return [
+      {
+        name: name ?? color ?? "region",
+        color,
+        hex,
+        filament: asString(c.filament) ?? asString(c.material),
+        ams_slot: slot !== undefined && slot >= 1 ? slot : undefined,
+      },
+    ];
+  });
+
   return {
     object: object ?? "part",
     one_piece: rec.one_piece !== false,
@@ -481,6 +515,7 @@ export function parseCadPlan(raw: string): CadPlan | null {
     clearance_mm: clearance > 0 ? clearance : 0.3,
     sit_on_z0: rec.sit_on_z0 !== false,
     safety_notes: asString(rec.safety_notes),
+    color_regions: colorRegions.length ? colorRegions : undefined,
   };
 }
 
@@ -673,6 +708,17 @@ export function normalizeCadPlan(
     return { ...f, dims_mm };
   });
 
+  const merged = mergeColorRegionSources(input.prompt, plan.color_regions);
+  const color_regions = isDefaultOnlyRegions(merged)
+    ? undefined
+    : merged.map((region) => ({
+        name: region.name,
+        color: region.colorName,
+        hex: region.colorHex,
+        filament: region.filament,
+        ams_slot: region.amsSlot,
+      }));
+
   return {
     ...plan,
     one_piece: multi ? plan.one_piece : true,
@@ -682,5 +728,6 @@ export function normalizeCadPlan(
     overall_mm,
     holes,
     features,
+    color_regions,
   };
 }

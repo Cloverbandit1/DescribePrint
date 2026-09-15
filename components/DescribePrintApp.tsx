@@ -10,12 +10,17 @@ import { diagnosePrintComplaint, looksLikePrintDoctorComplaint, type PrintDoctor
 import { defaultPrinter, filamentPreset, type PrinterProfile } from "@/lib/printers";
 import { formatMm } from "@/lib/units";
 import {
+  DEFAULT_WEARABLE_CATEGORY,
+  MEASUREMENT_LABELS,
+  WEARABLE_CATEGORY_IDS,
   WEARABLE_SIZE_IDS,
-  WEARABLE_SIZE_PRESETS,
+  WEARABLE_SIZE_LABELS,
   describeWearableSize,
+  getWearableCategory,
   wearableChartNote,
+  wearableSizeRatio,
 } from "@/lib/wearable-sizes";
-import type { GenerateResult, PipelineStep, StatusEvent, Unit, WearableSizeId } from "@/lib/types";
+import type { GenerateResult, PipelineStep, StatusEvent, Unit, WearableCategoryId, WearableSizeId } from "@/lib/types";
 import type { CameraView, ViewerTheme } from "./Viewer";
 
 const Viewer = dynamic(() => import("./Viewer").then((m) => m.Viewer), {
@@ -94,6 +99,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
   const [doctorResult, setDoctorResult] = useState<PrintDoctorResult | null>(null);
   const [designPrompt, setDesignPrompt] = useState<string | null>(null);
   const [wearableSize, setWearableSize] = useState<WearableSizeId | null>(null);
+  const [wearableCategory, setWearableCategory] = useState<WearableCategoryId>(DEFAULT_WEARABLE_CATEGORY);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const [showDetails, setShowDetails] = useState(false);
@@ -142,15 +148,20 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
     setDoctorResult(null);
     setDesignPrompt(null);
     setWearableSize(null);
+    setWearableCategory(DEFAULT_WEARABLE_CATEGORY);
     setPrompt("");
     setShowDetails(false);
     setWorkspace("prepare");
   }
 
-  async function printPart(text: string, options?: { wearableSize?: WearableSizeId | null }) {
+  async function printPart(
+    text: string,
+    options?: { wearableSize?: WearableSizeId | null; wearableCategory?: WearableCategoryId | null },
+  ) {
     const cleaned = text.trim();
     if (!cleaned || busy) return;
     const sizeForRequest = options?.wearableSize !== undefined ? options.wearableSize : wearableSize;
+    const categoryForRequest = options?.wearableCategory ?? wearableCategory;
 
     if (looksLikePrintDoctorComplaint(cleaned)) {
       const diagnosis = diagnosePrintComplaint({ complaint: cleaned, printerId: printer.id });
@@ -195,6 +206,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
           previousJobId,
           previousSource,
           wearableSize: sizeForRequest,
+          wearableCategory: categoryForRequest,
           fixture: process.env.NODE_ENV === "test" ? true : undefined,
         }),
       });
@@ -236,6 +248,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
 
       setResult(generated);
       setWearableSize(generated.wearableSize ?? wearableSize);
+      setWearableCategory(generated.wearableCategory ?? wearableCategory);
       setDesignPrompt(startFresh || !previousPrompt ? cleaned : `${previousPrompt}. ${cleaned}`);
       setShowDetails(false);
       setItems((prev) => [
@@ -296,6 +309,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       const generated: GenerateResult = latest;
       setResult(generated);
       setWearableSize(generated.wearableSize ?? null);
+      setWearableCategory(generated.wearableCategory ?? DEFAULT_WEARABLE_CATEGORY);
       setDesignPrompt(`Imported ${file.name}`);
       setShowDetails(false);
       setItems((prev) => [
@@ -348,6 +362,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
           setPrompt("");
           setDesignPrompt(null);
           setWearableSize(null);
+          setWearableCategory(DEFAULT_WEARABLE_CATEGORY);
           setResult(null);
           return;
         }
@@ -521,11 +536,20 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
             <WearableSizePicker
               selected={wearableSize}
               applied={result?.wearableSize ?? null}
+              category={wearableCategory}
+              appliedCategory={result?.wearableCategory ?? null}
               disabled={busy}
               canApply={Boolean(result) && !busy}
+              onSelectCategory={(category) => {
+                setWearableCategory(category);
+                const size = result?.wearableSize ?? wearableSize;
+                if (result && size) {
+                  void printPart(`Apply wearable size ${size}`, { wearableSize: size, wearableCategory: category });
+                }
+              }}
               onSelect={(size) => {
                 setWearableSize(size);
-                if (result) void printPart(`Apply wearable size ${size}`, { wearableSize: size });
+                if (result) void printPart(`Apply wearable size ${size}`, { wearableSize: size, wearableCategory });
               }}
             />
 
@@ -1071,22 +1095,48 @@ function EmptyState({ onPick }: { onPick: (value: string) => void }) {
 function WearableSizePicker({
   selected,
   applied,
+  category,
+  appliedCategory,
   disabled,
   canApply,
   onSelect,
+  onSelectCategory,
 }: {
   selected: WearableSizeId | null;
   applied: WearableSizeId | null;
+  category: WearableCategoryId;
+  appliedCategory: WearableCategoryId | null;
   disabled: boolean;
   canApply: boolean;
   onSelect: (size: WearableSizeId) => void;
+  onSelectCategory: (category: WearableCategoryId) => void;
 }) {
   const assumed = applied ?? selected;
+  const chart = getWearableCategory(category);
   return (
     <div className="rounded-md border border-line bg-panel-2 p-2.5">
       <div className="studio-label">Wearable size</div>
       <p className="mt-1 text-[11px] leading-relaxed text-muted">{wearableChartNote()}</p>
-      <p className="mt-1 text-[11px] text-ink">{describeWearableSize(assumed)}</p>
+      <p className="mt-1 text-[11px] text-ink">{describeWearableSize(assumed, category)}</p>
+      <label className="mt-2 block">
+        <span className="sr-only">Wearable category</span>
+        <select
+          value={category}
+          disabled={disabled}
+          onChange={(event) => onSelectCategory(event.target.value as WearableCategoryId)}
+          className="h-7 w-full rounded-md border border-line bg-panel px-2 text-[11px] text-ink"
+        >
+          {WEARABLE_CATEGORY_IDS.map((id) => {
+            const option = getWearableCategory(id);
+            return (
+              <option key={id} value={id}>
+                {option.label}
+                {appliedCategory === id ? " · on plate" : ""}
+              </option>
+            );
+          })}
+        </select>
+      </label>
       <div className="mt-2 flex flex-wrap gap-1.5">
         {WEARABLE_SIZE_IDS.map((id) => {
           const active = (applied ?? selected) === id;
@@ -1110,27 +1160,30 @@ function WearableSizePicker({
           <tr>
             <th className="font-medium">Size</th>
             <th className="font-medium">× M</th>
-            <th className="font-medium">Head</th>
-            <th className="font-medium">Chest</th>
-            <th className="font-medium">Wrist</th>
+            {chart.keys.map((key) => (
+              <th key={key} className="font-medium">
+                {MEASUREMENT_LABELS[key]}
+                {key === chart.primaryKey ? "*" : ""}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
-          {WEARABLE_SIZE_IDS.map((id) => {
-            const preset = WEARABLE_SIZE_PRESETS[id];
-            return (
-              <tr key={id} className={assumed === id ? "text-ink" : undefined}>
-                <td>{preset.id}</td>
-                <td>{preset.scaleFromM.toFixed(2)}</td>
-                <td>{preset.measurementsMm.headCirc}</td>
-                <td>{preset.measurementsMm.chest}</td>
-                <td>{preset.measurementsMm.wrist}</td>
-              </tr>
-            );
-          })}
+          {WEARABLE_SIZE_IDS.map((id) => (
+            <tr key={id} className={assumed === id ? "text-ink" : undefined}>
+              <td>{id}</td>
+              <td>{wearableSizeRatio(id, category).toFixed(3)}</td>
+              {chart.keys.map((key) => (
+                <td key={key}>{chart.sizes[id][key]}</td>
+              ))}
+            </tr>
+          ))}
         </tbody>
       </table>
-      <p className="mt-1 text-[10px] text-muted">Measurements are mm stubs. Select a size to scale the plate mesh.</p>
+      <p className="mt-1 text-[10px] text-muted">
+        {WEARABLE_SIZE_LABELS[assumed ?? "M"]} · values in mm · * primary (uniform scale). Select a size to scale the
+        plate mesh.
+      </p>
     </div>
   );
 }

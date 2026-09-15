@@ -48,14 +48,17 @@ export function importedMeshStubScad(input: {
   sizeMm: [number, number, number];
   triangleCount: number;
   wearableSize?: string | null;
+  wearableCategory?: string | null;
 }): string {
   const [x, y, z] = input.sizeMm;
   const size = input.wearableSize ?? "native (assumed M)";
+  const category = input.wearableCategory ?? "helmet_mask";
   return `// DescribePrint imported mesh (not generated OpenSCAD)
 // file: ${input.fileName}
 // bbox_mm: ${x.toFixed(2)} x ${y.toFixed(2)} x ${z.toFixed(2)}
 // triangles: ${input.triangleCount}
 // wearable_size: ${size}
+// wearable_category: ${category}
 //
 // Chat follow-ups can scale this mesh or wrap it with import("imported.stl").
 // Full triangle sculpt / Style2Fab is not available yet.

@@ -4,6 +4,8 @@ export type PartSource = "openscad" | "imported-mesh";
 
 export type WearableSizeId = "S" | "M" | "L" | "XL";
 
+export type WearableCategoryId = "helmet_mask" | "torso_armor" | "gauntlet" | "bracer";
+
 export type PlateEditMode = "create" | "import" | "transform" | "describe-wrapper";
 
 export type GenerateRequest = {
@@ -20,8 +22,10 @@ export type GenerateRequest = {
   previousJobId?: string | null;
   /** How the current plate part was produced. */
   previousSource?: PartSource | null;
-  /** Wearable / cosplay size preset to apply (S–XL stub chart). */
+  /** Wearable / cosplay size preset to apply (S–XL chart). */
   wearableSize?: WearableSizeId | null;
+  /** Wearable category chart (helmet, torso, gauntlet, bracer). */
+  wearableCategory?: WearableCategoryId | null;
 };
 
 export type PipelineStep =
@@ -88,6 +92,7 @@ export type GenerateResult = {
   source: PartSource;
   fileName?: string | null;
   wearableSize?: WearableSizeId | null;
+  wearableCategory?: WearableCategoryId | null;
   editMode: PlateEditMode;
   notes: string[];
 };
@@ -106,7 +111,7 @@ export type Mesh = {
  *
  * Shipped M2 foundations (in-app, no DCC):
  * - STL/3MF import onto the plate
- * - Wearable S/M/L/XL stub charts that scale the current mesh
+ * - Wearable S/M/L/XL measurement charts that scale the current mesh
  * - Describe-to-edit on imported meshes: real triangle scale/rotate/sit-on-bed;
  *   generative adds (holes, tabs) wrap import("imported.stl") in OpenSCAD.
  *   Full triangle sculpt / Style2Fab is not implemented.

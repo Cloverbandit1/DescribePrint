@@ -6,6 +6,8 @@ describe("imported-mesh edit intent", () => {
     const size = parseMeshEditIntent("Apply wearable size L", "L");
     expect(size.kind).toBe("transform");
     expect(size.wearableSize).toBe("L");
+    expect(parseMeshEditIntent("helmet size L").wearableCategory).toBe("helmet_mask");
+    expect(parseMeshEditIntent("gauntlet XL").wearableCategory).toBe("gauntlet");
 
     const bigger = parseMeshEditIntent("make it larger");
     expect(bigger.kind).toBe("transform");

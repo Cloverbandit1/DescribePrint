@@ -16,6 +16,20 @@ import {
   snapFixtureScad,
 } from "./joints";
 import {
+  CUBE_FILLET_PROMPT,
+  CUBE_RIBS_PROMPT,
+  CUBE_STEAMPUNK_PROMPT,
+  inferPrettyUpStyle,
+  isCubePrettyChamferPrompt,
+  isCubePrettyFilletPrompt,
+  isCubePrettyRibsPrompt,
+  isCubePrettySteampunkPrompt,
+  isPrettyUpFollowUp,
+  prettyUpFixtureScad,
+  prettyUpRefusalReason,
+  type PrettyUpStyle,
+} from "./pretty-up";
+import {
   CUBE_ETCH_PROMPT,
   HELMET_EMBOSS_PROMPT,
   cubeEtchFixtureScad,
@@ -176,6 +190,9 @@ export function matchFixture(
     };
   }
 
+  const pretty = matchPrettyUpFixture(prompt, hinted);
+  if (pretty) return pretty;
+
   if ((text.includes("cube") && (text.includes("hole") || text.includes("bore"))) || text.includes("cube with")) {
     const size = hinted ?? numberAt(text, /(\d+(?:\.\d+)?)\s*mm\s+cube/, 20);
     const hole = numberAt(text, /(\d+(?:\.\d+)?)\s*mm\s+(?:hole|bore)/, 5);
@@ -214,7 +231,49 @@ export function defaultFixture(): FixtureMatch {
 const NEW_DESIGN =
   /\b(new part|start over|something else|different part|instead make|forget that|scratch)\b/i;
 const EDIT_CUE =
-  /\b(make|change|update|add|remove|delete|bigger|smaller|wider|taller|shorter|without|more|less|hole|tilt|diameter|emboss|etch|engrave|recess|raised|initials|crest)\b/i;
+  /\b(make|change|update|add|remove|delete|bigger|smaller|wider|taller|shorter|without|more|less|hole|tilt|diameter|emboss|etch|engrave|recess|raised|initials|crest|pretty|restyle|steampunk|fillet|chamfer|rib|panel|round)\b/i;
+
+function prettyUpFixtureId(style: PrettyUpStyle): string {
+  if (style === "chamfer") return "cube-pretty-chamfer";
+  if (style === "steampunk") return "cube-pretty-steampunk";
+  if (style === "ribs" || style === "panels") return "cube-pretty-ribs";
+  return "cube-pretty-fillet";
+}
+
+function prettyUpFixtureTitle(style: PrettyUpStyle): string {
+  if (style === "chamfer") return "Cube with chamfered edges";
+  if (style === "steampunk") return "Steampunk cube (keep hole)";
+  if (style === "ribs" || style === "panels") return "Cube with decorative ribs";
+  return "Cube with rounded edges";
+}
+
+function matchPrettyUpFixture(prompt: string, sizeHint?: number | null, holeHint?: number): FixtureMatch | null {
+  if (prettyUpRefusalReason({ prompt })) return null;
+  const text = prompt.toLowerCase();
+  const size = sizeHint && sizeHint > 0 ? sizeHint : numberAt(text, /(\d+(?:\.\d+)?)\s*mm\s+cube/, 20);
+  const hole = holeHint ?? numberAt(text, /(\d+(?:\.\d+)?)\s*mm\s+(?:hole|bore)/, 5);
+  if (isCubePrettySteampunkPrompt(text)) {
+    return { id: "cube-pretty-steampunk", title: prettyUpFixtureTitle("steampunk"), code: prettyUpFixtureScad("steampunk", size, hole) };
+  }
+  if (isCubePrettyRibsPrompt(text)) {
+    return { id: "cube-pretty-ribs", title: prettyUpFixtureTitle("ribs"), code: prettyUpFixtureScad("ribs", size, hole) };
+  }
+  if (isCubePrettyChamferPrompt(text)) {
+    return { id: "cube-pretty-chamfer", title: prettyUpFixtureTitle("chamfer"), code: prettyUpFixtureScad("chamfer", size, hole) };
+  }
+  if (isCubePrettyFilletPrompt(text)) {
+    return { id: "cube-pretty-fillet", title: prettyUpFixtureTitle("fillet"), code: prettyUpFixtureScad("fillet", size, hole) };
+  }
+  const style = inferPrettyUpStyle(prompt);
+  if (style) {
+    return {
+      id: prettyUpFixtureId(style),
+      title: prettyUpFixtureTitle(style),
+      code: prettyUpFixtureScad(style, size, hole),
+    };
+  }
+  return null;
+}
 
 export function isLikelyEdit(prompt: string): boolean {
   const text = prompt.trim();
@@ -274,7 +333,15 @@ export function matchConversationFixture(
             ? "snap-fit"
             : /module\s+helmet_shell\s*\(/.test(previousCode ?? "")
             ? "helmet-emboss-crest"
-            : /etch_depth\s*=/.test(previousCode ?? "")
+            : /steampunk_disc\s*\(/.test(previousCode ?? "")
+              ? "cube-pretty-steampunk"
+              : /module\s+decorative_ribs\s*\(/.test(previousCode ?? "")
+                ? "cube-pretty-ribs"
+                : /chamfer\s*=/.test(previousCode ?? "")
+                  ? "cube-pretty-chamfer"
+                  : /fillet_r\s*=/.test(previousCode ?? "")
+                    ? "cube-pretty-fillet"
+                    : /etch_depth\s*=/.test(previousCode ?? "")
               ? "cube-etched-initials"
               : /module\s+region_letters\s*\(/.test(previousCode ?? "")
               ? "two-color-plaque"
@@ -323,6 +390,32 @@ export function matchConversationFixture(
         code: cubeEtchFixtureScad(nextSize, initials, nextHole),
       };
     }
+    if (isPrettyUpFollowUp(prompt)) {
+      const refuse = prettyUpRefusalReason({
+        prompt,
+        previousPrompt,
+        previousCode,
+      });
+      if (refuse) {
+        const nextHole = Number.isFinite(hole)
+          ? hole
+          : Number.isFinite(fromCode.hole)
+            ? fromCode.hole
+            : 5;
+        return { id: "cube-with-hole", title: "Cube with hole", code: CUBE_WITH_HOLE(nextSize, nextHole) };
+      }
+      const style = inferPrettyUpStyle(prompt) ?? "fillet";
+      const nextHole = Number.isFinite(hole)
+        ? hole
+        : Number.isFinite(fromCode.hole)
+          ? fromCode.hole
+          : 5;
+      return {
+        id: prettyUpFixtureId(style),
+        title: prettyUpFixtureTitle(style),
+        code: prettyUpFixtureScad(style, nextSize, nextHole),
+      };
+    }
     if (/\bremove\b/.test(text) && /\bhole\b/.test(text)) {
       return {
         id: "plain-cube",
@@ -349,6 +442,48 @@ export function matchConversationFixture(
 
   if (baseId === "helmet-emboss-crest") {
     return { id: "helmet-emboss-crest", title: "Helmet with embossed crest", code: helmetEmbossFixtureScad() };
+  }
+
+  if (
+    baseId === "cube-pretty-fillet" ||
+    baseId === "cube-pretty-chamfer" ||
+    baseId === "cube-pretty-ribs" ||
+    baseId === "cube-pretty-steampunk"
+  ) {
+    const nextSize = Number.isFinite(size)
+      ? size
+      : Number.isFinite(fromCode.size)
+        ? fromCode.size
+        : 20;
+    const nextHole = Number.isFinite(hole)
+      ? hole
+      : Number.isFinite(fromCode.hole)
+        ? fromCode.hole
+        : 5;
+    if (prettyUpRefusalReason({ prompt, previousPrompt, previousCode })) {
+      return { id: "cube-with-hole", title: "Cube with hole", code: CUBE_WITH_HOLE(nextSize, nextHole) };
+    }
+    if (/\bremove\b/.test(text) && /\bhole\b/.test(text)) {
+      return {
+        id: "plain-cube",
+        title: "Cube",
+        code: `$fn = 16;\ncube(${nextSize}, center = false);\n`,
+      };
+    }
+    const style = inferPrettyUpStyle(prompt) ?? (
+      baseId === "cube-pretty-chamfer"
+        ? "chamfer"
+        : baseId === "cube-pretty-steampunk"
+          ? "steampunk"
+          : baseId === "cube-pretty-ribs"
+            ? "ribs"
+            : "fillet"
+    );
+    return {
+      id: prettyUpFixtureId(style),
+      title: prettyUpFixtureTitle(style),
+      code: prettyUpFixtureScad(style, nextSize, nextHole),
+    };
   }
 
   if (baseId === "cube-etched-initials" || (baseId === "plain-cube" && isCubeEtchPrompt(text))) {
@@ -445,4 +580,7 @@ export const EXAMPLE_PROMPTS = [
   SNAP_FIXTURE_PROMPT,
   HELMET_EMBOSS_PROMPT,
   CUBE_ETCH_PROMPT,
+  CUBE_FILLET_PROMPT,
+  CUBE_STEAMPUNK_PROMPT,
+  CUBE_RIBS_PROMPT,
 ] as const;

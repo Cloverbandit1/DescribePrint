@@ -31,7 +31,11 @@ describe("imported-mesh edit intent", () => {
 
     const etch = parseMeshEditIntent("etch initials on the front");
     expect(etch.kind).toBe("describe-wrapper");
-    expect(etch.notes.join(" ")).toMatch(/emboss\/etch|partial/i);
+    expect(etch.notes.join(" ")).toMatch(/emboss\/etch|partial|pretty-up/i);
+
+    const pretty = parseMeshEditIntent("make it look steampunk");
+    expect(pretty.kind).toBe("describe-wrapper");
+    expect(pretty.notes.join(" ")).toMatch(/pretty-up|partial/i);
   });
 
   it("starts over when the user wants a new part", () => {

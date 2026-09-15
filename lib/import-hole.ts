@@ -1,6 +1,13 @@
 import { boundingBoxMm } from "./mesh-check";
 import { printRules } from "./printability";
 import {
+  inferCadPrettyUp,
+  importedPrettyUpChamferCutters,
+  importedPrettyUpExtrasScad,
+  promptHasPrettyUp,
+  type CadPrettyUp,
+} from "./pretty-up";
+import {
   inferCadReliefs,
   promptHasRelief,
   reliefMotifScad,
@@ -42,17 +49,28 @@ const TAB_H = 3;
 const HOLE_WORD = /\b(holes?|bores?|through-holes?)\b/i;
 const BLIND = /\b(blind|pocket|stopped|partial(?:ly)?(?:\s+through)?)\b/i;
 const COMPLEX_WRAP =
-  /\b(slot|slit|fillet|chamfer|thicken|remesh|boolean)\b/i;
+  /\b(slot|slit|thicken|remesh|boolean)\b/i;
 
-/** Hole/tab/relief wraps we can emit as deterministic CSG — no LLM rewrite. */
+/** Hole/tab/relief/pretty-up wraps we can emit as deterministic CSG — no LLM rewrite. */
 export function canBuildDeterministicImportWrap(
   prompt: string,
   hole: ImportHoleSpec | null,
   addTab: boolean,
   reliefs?: CadRelief[] | null,
+  prettyUp?: CadPrettyUp | null,
 ): boolean {
   if (COMPLEX_WRAP.test(prompt)) return false;
-  return hole !== null || addTab || Boolean(reliefs?.length) || promptHasRelief(prompt);
+  if (prettyUp?.refused) {
+    return hole !== null || addTab || Boolean(reliefs?.length) || promptHasRelief(prompt);
+  }
+  return (
+    hole !== null ||
+    addTab ||
+    Boolean(reliefs?.length) ||
+    promptHasRelief(prompt) ||
+    Boolean(prettyUp?.applied) ||
+    promptHasPrettyUp(prompt)
+  );
 }
 
 function numberAt(source: string, re: RegExp): number | null {
@@ -289,6 +307,7 @@ export function buildImportedMeshWrapper(input: {
   hole?: ImportHoleSpec | null;
   addTab?: boolean;
   reliefs?: CadRelief[] | null;
+  prettyUp?: CadPrettyUp | null;
   prompt?: string;
 }): string {
   const box = boundingBoxMm(input.mesh);
@@ -302,6 +321,16 @@ export function buildImportedMeshWrapper(input: {
       : input.prompt
         ? inferCadReliefs(input.prompt, box.size)
         : [];
+  const prettyUp =
+    input.prettyUp ??
+    (input.prompt
+      ? inferCadPrettyUp({
+          prompt: input.prompt,
+          holes: hole ? [{ d: hole.diameterMm, through: hole.through }] : undefined,
+          sizeMm: box.size,
+          reliefs,
+        })
+      : undefined);
   const lines = [
     "// DescribePrint imported-mesh wrapper (mm)",
     "$fn = 64;",
@@ -320,27 +349,35 @@ export function buildImportedMeshWrapper(input: {
     lines.push(`// relief: ${first?.kind} ${first?.motif} on ${first?.region}`);
     lines.push(`relief_extent = ${fmt(first?.kind === "etch" ? first.depth_mm : first?.height_mm ?? 0.8)};`);
   }
+  if (prettyUp?.applied) {
+    lines.push(`// pretty-up: ${prettyUp.style} (decorative CSG; keep functional holes)`);
+  } else if (prettyUp?.refused) {
+    lines.push(`// pretty-up refused: ${prettyUp.refuse_reason ?? "functional preserve"}`);
+  }
 
   const host = `import("${IMPORTED_MESH_FILENAME}", convexity = 10);`;
   const etchReliefs = reliefs.filter((relief) => relief.kind === "etch");
   const embossReliefs = reliefs.filter((relief) => relief.kind === "emboss");
   const etchCutter = etchReliefs.map((relief) => reliefMotifScad(relief, box)).join("\n  ");
   const embossBody = embossReliefs.map((relief) => reliefMotifScad(relief, box)).join("\n  ");
+  const prettyExtras = prettyUp?.applied ? importedPrettyUpExtrasScad(prettyUp, box) : "";
+  const prettyCuts = prettyUp?.applied ? importedPrettyUpChamferCutters(prettyUp, box) : "";
   const holeBlock =
     hole &&
     `difference() {
   ${host}
   ${holeCutter(hole, box)}
 }`;
-  const etchedHost = etchCutter
+  const cutters = [etchCutter, prettyCuts].filter(Boolean).join("\n  ");
+  const etchedHost = cutters
     ? `difference() {
   ${holeBlock ?? host}
-  ${etchCutter}
+  ${cutters}
 }`
     : holeBlock ?? host;
   const tabBlock = `translate([${fmt(minx + sx)}, ${fmt(cy - TAB_D / 2)}, ${fmt(minz)}])
     cube([tab_w, tab_d, tab_h]);`;
-  const extras = [input.addTab ? tabBlock : "", embossBody].filter(Boolean);
+  const extras = [input.addTab ? tabBlock : "", embossBody, prettyExtras].filter(Boolean);
 
   if (extras.length) {
     lines.push(`union() {

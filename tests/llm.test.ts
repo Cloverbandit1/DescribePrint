@@ -96,7 +96,9 @@ describe("LLM prompt", () => {
     expect(planSystemPrompt()).toMatch(/omit the joints array unless/i);
     expect(planSystemPrompt()).toMatch(/"kind":"emboss\|etch"/);
     expect(planSystemPrompt()).toMatch(/omit the reliefs array unless/i);
+    expect(planSystemPrompt()).toMatch(/omit pretty_up unless/i);
     expect(prompt).toMatch(/Raised etchings \/ emboss/i);
+    expect(prompt).toMatch(/Pretty-up \/ restyle/i);
     expect(prompt).toMatch(/captive by default/i);
     expect(prompt).toMatch(/cantilever hook/i);
     expect(planSystemPrompt()).toMatch(/real CSG/i);

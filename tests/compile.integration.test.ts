@@ -5,6 +5,7 @@ import path from "node:path";
 import { compileOpenScad, withTempDir } from "@/lib/compile";
 import { defaultFixture, matchFixture } from "@/lib/fixtures";
 import { BALL_FIXTURE_PROMPT, HINGE_FIXTURE_PROMPT, PIN_FIXTURE_PROMPT, SNAP_FIXTURE_PROMPT } from "@/lib/joints";
+import { CUBE_FILLET_PROMPT, CUBE_STEAMPUNK_PROMPT } from "@/lib/pretty-up";
 import { CUBE_ETCH_PROMPT, HELMET_EMBOSS_PROMPT } from "@/lib/relief";
 import { buildImportedMeshWrapper, parseImportHoleSpec } from "@/lib/import-hole";
 import { boundingBoxMm, checkMesh, countSolidComponents, hasHardMeshFailure } from "@/lib/mesh-check";
@@ -181,6 +182,28 @@ describe("OpenSCAD compile path", () => {
       expect(checkMesh(helmetMesh).volumeMm3).toBeGreaterThan(0);
       expect(checkMesh(cubeMesh).volumeMm3).toBeGreaterThan(0);
       expect(checkMesh(cubeMesh).volumeMm3).toBeLessThan(8000);
+    });
+  });
+
+  it.skipIf(!hasOpenscad())("compiles pretty-up fillet and steampunk fixtures without closing the hole", async () => {
+    const fillet = matchFixture(CUBE_FILLET_PROMPT);
+    const steampunk = matchFixture(CUBE_STEAMPUNK_PROMPT);
+    expect(fillet && steampunk).toBeTruthy();
+    const filletOk = sanitizeOpenScad(fillet!.code);
+    const steamOk = sanitizeOpenScad(steampunk!.code);
+    expect(filletOk.ok && steamOk.ok).toBe(true);
+    if (!filletOk.ok || !steamOk.ok) return;
+
+    await withTempDir(async (dir) => {
+      const filletMesh = parseStl((await compileOpenScad(filletOk.code, dir)).stl);
+      const steamMesh = parseStl((await compileOpenScad(steamOk.code, dir)).stl);
+      const filletReport = checkMesh(filletMesh);
+      const steamReport = checkMesh(steamMesh);
+      expect(hasHardMeshFailure(filletReport)).toBe(false);
+      expect(hasHardMeshFailure(steamReport)).toBe(false);
+      expect(filletReport.volumeMm3).toBeGreaterThan(0);
+      expect(filletReport.volumeMm3).toBeLessThan(8000);
+      expect(steamReport.volumeMm3).toBeGreaterThan(filletReport.volumeMm3);
     });
   });
 });

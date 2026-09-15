@@ -214,10 +214,11 @@ export type Mesh = {
  *   Not photogrammetry / NeRF / identity-accurate.
  * - Wearable S/M/L/XL measurement charts that scale the current mesh
  * - Describe-to-edit on imported meshes: real triangle scale/rotate/sit-on-bed;
- *   generative adds (holes, tabs, emboss/etch) wrap import("imported.stl") in
+ *   generative adds (holes, tabs, emboss/etch, pretty-up) wrap import("imported.stl") in
  *   OpenSCAD. Holes difference the import (through by default). Relief is an
- *   honest CSG stub (primitive / block initials), not Style2Fab. Full triangle
- *   sculpt is not implemented.
+ *   honest CSG stub (primitive / block initials). Pretty-up is heuristic CSG
+ *   (fillet/chamfer/ribs/panels) that keeps functional holes/joints/walls —
+ *   not neural Style2Fab. Full triangle sculpt is not implemented.
  * - Multi-filament 3MF: describe colors/materials → separate 3MF objects with
  *   displaycolor + extruder/AMS slot metadata. OpenSCAD compiles one mesh;
  *   color bodies are split via named region_* modules / color() groups.
@@ -225,8 +226,8 @@ export type Mesh = {
  *
  * Still later:
  * - describe-to-modify already sends previousPrompt/previousCode on CAD follow-ups
- * - Style2Fab-style edit, organic mesh, photogrammetry / NeRF image→3D,
- *   Print doctor, machine control
+ * - Neural Style2Fab / image style transfer (pretty-up shipped as heuristic CSG)
+ * - organic mesh, photogrammetry / NeRF image→3D, Print doctor, machine control
  *
  * Default printer: Bambu Lab P2S (see lib/printers.ts).
  */

@@ -11,6 +11,12 @@ import {
   type DesignOptionGroup,
 } from "@/lib/design-options";
 import { EXAMPLE_PROMPTS } from "@/lib/fixtures";
+import {
+  namedColorRegions,
+  PAINT_CHIP_COLORS,
+  previewTintHex,
+  suggestedPaintFollowUp,
+} from "@/lib/region-paint";
 import type { HealthReport, HealthTone } from "@/lib/health-types";
 import {
   applyChatAmsSlotAssignment,
@@ -162,6 +168,12 @@ const FRIENDLY_STEP: Record<PipelineStep, string> = {
 
 const CAD_FOLLOW_UPS = ["Make the hole 8 mm", "Make it larger", "Start a new part"] as const;
 const IMPORTED_FOLLOW_UPS = ["Make it size L", "Add an 8 mm hole", "Sit it on the plate", "Start a new part"] as const;
+
+function cadFollowUps(result: GenerateResult): string[] {
+  const paint = suggestedPaintFollowUp(result.colorRegions ?? []);
+  if (!paint) return [...CAD_FOLLOW_UPS];
+  return ["Make the hole 8 mm", "Make it larger", paint, "Start a new part"];
+}
 const PHOTO_FOLLOW_UPS = ["Complete the body", "Make it size L", "Add an 8 mm hole", "Start a new part"] as const;
 
 const THEME_KEY = "describeprint-theme";
@@ -683,6 +695,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       choices: appliedChoices,
       wearableSize,
       filament: material,
+      colorRegions: result?.colorRegions,
     });
     if (live.options.length) return live.options;
     return result?.needs_user_choice ? (result.options ?? []) : [];
@@ -725,7 +738,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
             ? PHOTO_FOLLOW_UPS
             : result.source === "imported-mesh"
               ? IMPORTED_FOLLOW_UPS
-              : CAD_FOLLOW_UPS
+              : cadFollowUps(result)
           : null
       }
       onFollowUp={(value) => {
@@ -941,6 +954,8 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
               packOutlines={packOutlines}
               heatmap={Boolean(result) && showStrengthHeatmap}
               triangleScores={result?.report.strengthPreview?.triangleScores}
+              previewTint={result ? previewTintHex(result.colorRegions ?? []) : null}
+              colorRegions={result ? namedColorRegions(result.colorRegions) : []}
             />
           </div>
         </section>
@@ -1004,7 +1019,13 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
             />
 
             {result ? (
-              <ResultPanel result={result} showDetails={showDetails} onToggleDetails={() => setShowDetails((v) => !v)} />
+              <ResultPanel
+                result={result}
+                showDetails={showDetails}
+                onToggleDetails={() => setShowDetails((v) => !v)}
+                onPaintRegion={(phrase) => void printPart(phrase)}
+                paintDisabled={busy}
+              />
             ) : (
               <div className="space-y-2 rounded-md border border-dashed border-line px-2.5 py-2 text-[11px] text-muted">
                 <p>
@@ -2155,10 +2176,14 @@ function ResultPanel({
   result,
   showDetails,
   onToggleDetails,
+  onPaintRegion,
+  paintDisabled = false,
 }: {
   result: GenerateResult;
   showDetails: boolean;
   onToggleDetails: () => void;
+  onPaintRegion?: (phrase: string) => void;
+  paintDisabled?: boolean;
 }) {
   const { report } = result;
   const issues = report.issues;
@@ -2222,20 +2247,45 @@ function ResultPanel({
         {issues.length === 0 ? " · looks good" : ""}
       </p>
       {showColors ? (
-        <div className="flex flex-wrap gap-1.5">
-          {colorRegions.map((region) => (
-            <span
-              key={`${region.id}-${region.amsSlot}`}
-              className="inline-flex items-center gap-1.5 rounded-full border border-line bg-panel-2 px-2 py-0.5 text-[11px] text-ink"
-              title={`AMS ${region.amsSlot} metadata — not a live printer slot`}
-            >
+        <div className="space-y-1.5">
+          <div className="studio-label">Color regions</div>
+          <div className="flex flex-wrap gap-1.5">
+            {colorRegions.map((region) => (
               <span
-                className="inline-block h-2.5 w-2.5 rounded-full border border-line"
-                style={{ background: region.colorHex }}
-              />
-              {region.name} · {region.colorName} · AMS {region.amsSlot}
-            </span>
-          ))}
+                key={`${region.id}-${region.amsSlot}`}
+                className="inline-flex items-center gap-1.5 rounded-full border border-line bg-panel-2 px-2 py-0.5 text-[11px] text-ink"
+                title={`Suggested extruder ${region.amsSlot} — CAD export metadata, not a live AMS tray`}
+              >
+                <span
+                  className="inline-block h-2.5 w-2.5 rounded-full border border-line"
+                  style={{ background: region.colorHex }}
+                />
+                {region.name} · {region.colorName} · {region.colorHex} · extruder {region.amsSlot}
+              </span>
+            ))}
+          </div>
+          {onPaintRegion ? (
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="text-[10px] text-muted">Paint</span>
+              {namedColorRegions(colorRegions).flatMap((region) =>
+                PAINT_CHIP_COLORS.filter((color) => color !== region.colorName).map((color) => (
+                  <button
+                    key={`${region.id}-${color}`}
+                    type="button"
+                    disabled={paintDisabled}
+                    className="inline-flex items-center gap-1 rounded-full border border-line bg-panel px-1.5 py-0.5 text-[10px] text-ink hover:bg-panel-2 disabled:opacity-40"
+                    onClick={() => onPaintRegion(`paint the ${region.name} ${color}`)}
+                  >
+                    <span className="inline-block h-2 w-2 rounded-full border border-line" style={{ background: color === "white" ? "#FFFFFF" : color === "black" ? "#1A1A1A" : color === "blue" ? "#2F6FED" : "#FF0000" }} />
+                    {region.name} {color}
+                  </button>
+                )),
+              )}
+            </div>
+          ) : null}
+          <p className="text-[10px] leading-snug text-muted">
+            Suggested extruder / AMS index is CAD export metadata. Print Control maps physical trays.
+          </p>
         </div>
       ) : null}
       {issues.length > 0 ? (

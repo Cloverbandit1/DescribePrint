@@ -5,7 +5,14 @@
  * emboss face, vague color regions). Ordinary prompts like a sized cube
  * generate immediately — no options wall.
  */
-import { colorRegionsFromPrompt, isDefaultOnlyRegions } from "./color-regions";
+import { colorRegionsFromPrompt, isDefaultOnlyRegions, type ColorRegion } from "./color-regions";
+import {
+  isRegionPaintChoiceValue,
+  looksLikeRegionPaint,
+  parseRegionPaintChoice,
+  regionPaintChoicePhrase,
+  regionPaintOptionChips,
+} from "./region-paint";
 import { matchKnowledge, wantsWearableScale } from "./knowledge";
 import { wantsMotion } from "./joints";
 import { FILAMENT_IDS, isFilamentId, normalizeFilamentId, type FilamentId } from "./printers";
@@ -20,6 +27,7 @@ export const DESIGN_OPTION_GROUP_IDS = [
   "clearance",
   "emboss_face",
   "color_regions",
+  "region_paint",
 ] as const;
 
 export type DesignOptionGroupId = (typeof DESIGN_OPTION_GROUP_IDS)[number];
@@ -56,6 +64,8 @@ export type DesignOptionsInput = {
   choices?: AppliedDesignChoice[] | null;
   wearableSize?: WearableSizeId | null;
   filament?: string | null;
+  /** Named bodies already on the plate — used for paint/recolor chips. */
+  colorRegions?: ColorRegion[] | null;
   /** LLM/plan may mark a fork; still ignored unless a known group is open. */
   plan?: {
     needs_user_choice?: boolean;
@@ -73,7 +83,7 @@ const DISPLAY_SCALE =
 const ASKS_MATERIAL =
   /\b(?:what|which|pick|choose|select)\s+(?:a\s+)?(?:material|filament|plastic)\b|\bmaterial\s*\?|\bfilament\s*\?|\bin\s+plastic\b|\b(?:material|filament)\s+(?:please|choice|options?)\b/i;
 const ASKS_COLOR =
-  /\b(?:multi[-\s]?colou?r(?:ed)?|two\s+colou?rs|colou?r(?:\s+it|\s+this|\s+regions?)|ams\s+colou?rs?|paint(?:ed)?(?:\s+it)?|make\s+it\s+colou?rful)\b/i;
+  /\b(?:multi[-\s]?colou?r(?:ed)?|two\s+colou?rs|colou?r(?:\s+it|\s+this|\s+regions?)|ams\s+colou?rs?|paint(?:ed)?(?:\s+it)?(?!\s+the\s+\w+)|make\s+it\s+colou?rful)\b/i;
 const STATED_OVERALL_MM = /(\d+(?:\.\d+)?)\s*(mm|millimeters?)\b/gi;
 
 const RELIEF_REGIONS: ReliefRegion[] = ["front", "back", "left", "right", "top", "bottom"];
@@ -124,6 +134,8 @@ function isKnownChoiceValue(id: DesignOptionGroupId, value: string): boolean {
       return (RELIEF_REGIONS as string[]).includes(value);
     case "color_regions":
       return value === "red_black" || value === "white_black" || value === "one";
+    case "region_paint":
+      return isRegionPaintChoiceValue(value);
     default:
       return false;
   }
@@ -235,6 +247,20 @@ function colorRegionsGroup(): DesignOptionGroup {
   };
 }
 
+function regionPaintGroup(
+  regions: ColorRegion[] | null | undefined,
+  prompt: string,
+): DesignOptionGroup | null {
+  const chips = regionPaintOptionChips({ prompt, regions });
+  if (!chips.length) return null;
+  return {
+    id: "region_paint",
+    label: "Paint",
+    prompt: "Paint a named region?",
+    options: chips.map((chip) => option("region_paint", chip.value, chip.label, chip.description)),
+  };
+}
+
 function groupById(id: DesignOptionGroupId): DesignOptionGroup {
   switch (id) {
     case "scale_mode":
@@ -249,6 +275,13 @@ function groupById(id: DesignOptionGroupId): DesignOptionGroup {
       return embossFaceGroup();
     case "color_regions":
       return colorRegionsGroup();
+    case "region_paint":
+      return {
+        id: "region_paint",
+        label: "Paint",
+        prompt: "Paint a named region?",
+        options: [],
+      };
   }
 }
 
@@ -271,7 +304,12 @@ export function parseDesignOptionGroups(raw: unknown): DesignOptionGroup[] {
       const value = asString(o.value);
       if (!value || !isKnownChoiceValue(id, value)) return [];
       const fromCatalog = catalog.options.find((entry) => entry.value === value);
-      return fromCatalog ? [fromCatalog] : [];
+      if (fromCatalog) return [fromCatalog];
+      if (id === "region_paint") {
+        const parsed = parseRegionPaintChoice(value);
+        return parsed ? [option("region_paint", value, `${parsed.name} ${parsed.color}`)] : [];
+      }
+      return [];
     });
     groups.push({
       ...catalog,
@@ -305,6 +343,8 @@ function openGroups(input: DesignOptionsInput, applied: AppliedDesignChoice[]): 
   );
   const embossChosen = Boolean(choiceValue(applied, "emboss_face") || parseReliefRegion(text));
   const colorChosen = Boolean(choiceValue(applied, "color_regions") || !isDefaultOnlyRegions(colorRegionsFromPrompt(text)));
+  const paintChosen = Boolean(choiceValue(applied, "region_paint"));
+  const paintGroup = !paintChosen ? regionPaintGroup(input.colorRegions, text) : null;
 
   const character = hasNamedCharacter(text, input.plan);
   const wearableScale = wantsWearableScale(text) || scaleChosen === "wearable";
@@ -330,7 +370,9 @@ function openGroups(input: DesignOptionsInput, applied: AppliedDesignChoice[]): 
     groups.push(embossFaceGroup());
   }
 
-  if (ASKS_COLOR.test(text) && !colorChosen) {
+  if (paintGroup) {
+    groups.push(paintGroup);
+  } else if (ASKS_COLOR.test(text) && !colorChosen && !looksLikeRegionPaint(text)) {
     groups.push(colorRegionsGroup());
   }
 
@@ -340,6 +382,7 @@ function openGroups(input: DesignOptionsInput, applied: AppliedDesignChoice[]): 
     if (groups.some((group) => group.id === extra.id)) continue;
     // Planner-only groups still have to be a known fork, not a settings dump.
     if (extra.id === "material" && !ASKS_MATERIAL.test(text) && materialChosen) continue;
+    if (extra.id === "region_paint" && extra.options.length === 0) continue;
     groups.push(extra);
   }
 
@@ -369,6 +412,8 @@ export function choicePhrase(choice: AppliedDesignChoice): string {
       if (choice.value === "red_black") return "red body, black letters";
       if (choice.value === "white_black") return "white body, black letters";
       return "one color";
+    case "region_paint":
+      return regionPaintChoicePhrase(choice.value);
     default:
       return "";
   }
@@ -389,6 +434,10 @@ export function designChoiceFollowUp(choice: AppliedDesignChoice): string {
       return `Put the relief on the ${choice.value}`;
     case "color_regions":
       return phrase;
+    case "region_paint": {
+      const parsed = parseRegionPaintChoice(choice.value);
+      return parsed ? `Paint the ${parsed.name} ${parsed.color}` : phrase;
+    }
     default:
       return phrase;
   }

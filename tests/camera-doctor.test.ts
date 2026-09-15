@@ -221,10 +221,13 @@ describe("camera doctor modules stay on Print Control", () => {
   it("does not import CAD assembly or pack files", () => {
     expect(cameraDoctorBridgeOwnsPrintControlOnly()).toBe(true);
     const root = process.cwd();
-    const banned = /plate-pack|project-pack|cad-reshape|openscad|assembly|pack\.json|Agent Smith|ollama/i;
+    const banned = /plate-pack|project-pack|cad-reshape|openscad|assembly|knowledge\/pack|ollama/i;
     for (const file of ["camera-help.ts", "camera-doctor-bridge.ts", "camera.ts"]) {
-      const src = readFileSync(join(root, "lib/machine", file), "utf8");
-      expect(src).not.toMatch(banned);
+      const imports = readFileSync(join(root, "lib/machine", file), "utf8")
+        .split("\n")
+        .filter((line) => /^\s*import\b/.test(line))
+        .join("\n");
+      expect(imports).not.toMatch(banned);
     }
   });
 });

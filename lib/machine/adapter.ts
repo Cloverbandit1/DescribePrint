@@ -1,4 +1,5 @@
 import { defaultPrinter, type PrinterId } from "../printers";
+import { resolveMachineAdapterId } from "./config";
 import type {
   CommandResult,
   CommandRisk,
@@ -8,9 +9,9 @@ import type {
 } from "./types";
 
 /**
- * Pluggable machine I/O. Only the mock adapter is implemented in this slice.
- * A future `bambu-lan` adapter must live behind this interface and must not
- * be imported from CAD / health / Ollama code.
+ * Pluggable machine I/O. Mock is the default. `bambu-lan` is selected only
+ * when BAMBU_LAN_MQTT is on and LAN credentials exist. Do not import this
+ * seam from CAD / health / Ollama code.
  */
 export interface MachineAdapter {
   readonly id: string;
@@ -41,9 +42,8 @@ export function listMachineAdapters(): string[] {
   return [...registry.keys()];
 }
 
-export function defaultAdapterId(): string {
-  const fromEnv = typeof process !== "undefined" ? process.env.MACHINE_ADAPTER?.trim() : "";
-  return fromEnv || "mock";
+export function defaultAdapterId(env: NodeJS.ProcessEnv = process.env): string {
+  return resolveMachineAdapterId(env);
 }
 
 export function midPrintCommandRisk(command: MidPrintCommand): CommandRisk {
@@ -73,4 +73,4 @@ export function emptyAmsSlots(count = defaultPrinter().ams.slotsPerUnit, unit = 
   }));
 }
 
-export const RESERVED_BAMBU_LAN_ADAPTER_ID = "bambu-lan";
+export { BAMBU_LAN_ADAPTER_ID as RESERVED_BAMBU_LAN_ADAPTER_ID } from "./config";

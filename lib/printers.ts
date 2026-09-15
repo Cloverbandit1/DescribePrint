@@ -2,7 +2,7 @@
  * Printer profiles. Default target is the Bambu Lab P2S + AMS (4 slots).
  *
  * V0 still exports STL/3MF and does not embed Bambu Studio / Orca.
- * Machine I/O lives behind lib/machine (mock only in this slice).
+ * Machine I/O lives behind lib/machine (mock by default; optional LAN MQTT).
  * Specs: https://bambulab.com/en/p2s/specs and
  * https://wiki.bambulab.com/en/p2s/manual/p2s-faq
  */

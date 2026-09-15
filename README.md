@@ -94,12 +94,12 @@ Profile data lives in [`lib/printers.ts`](lib/printers.ts). V0 does not ship Bam
 
 ## Machine control
 
-First slice of **in-app** P2S + AMS control. Architecture and stubs: [`docs/machine-control.md`](docs/machine-control.md). This is not live send-to-printer and not farm/digital-twin mode.
+In-app P2S + AMS control. Architecture: [`docs/machine-control.md`](docs/machine-control.md). Not send-to-printer, not a farm, not Bambu Cloud.
 
-- **Connect (later):** a future `bambu-lan` adapter will use the printer’s **LAN** path (IP + serial + access code). Those values belong in `.env.local` or local-only storage — never commit them. Reserved names are in `.env.example`. This PR does **not** open MQTT/FTPS or talk to Bambu Cloud.
-- **Machine panel** (Print column): shows the P2S profile, disconnected status, four AMS slots, and the PLA smart default. CAD export still works with no printer.
+- **LAN MQTT (off by default):** set `BAMBU_LAN_MQTT=1` plus `BAMBU_HOST`, `BAMBU_SERIAL`, and `BAMBU_ACCESS_CODE` in `.env.local`. On the P2S enable **LAN Only** and **Developer Mode**. The adapter uses TLS MQTT on port 8883 (`bblp` + access code). Never commit those values.
+- **Machine panel** (Print column): flag off keeps the disconnected stub. Flag + creds shows live connection, temps, layer/progress, AMS slots, and tiny pause / resume / speed / temp controls. CAD export still works with no printer.
 - **Print doctor:** type a defect or machine complaint in the existing chat (`stringing with PETG`, `AMS 2 keeps looping feed/unfeed`). A keyword stub returns a diagnosis plus proposed settings or physical steps. It does not call the CAD pipeline and does not need an LLM or a live printer.
-- **Mock adapter:** tests and the disconnected UI use an in-memory adapter (connection state, AMS mapping, pause-before-risky temp changes, remaining-layer reshape **planner** stub that only says “pause / remaining height H / ask CAD”).
+- **Mock adapter:** default and CI path — in-memory connection state, AMS mapping, pause-before-risky temp changes, remaining-layer reshape **planner** stub. An unhealthy LAN host fails safe (not connected, no crash, access code never logged).
 
 ## Why OpenSCAD (not build123d)
 
@@ -191,8 +191,11 @@ xvfb-run -a npm run dev
 | `OPENSCAD_PATH` | no | Preferred OpenSCAD executable **or** folder (portable ZIP, custom install). |
 | `OPENSCAD_BIN` | no | Legacy executable override. Bare `openscad` still searches well-known locations. |
 | `OPENSCAD_TIMEOUT_MS` | no | Compile timeout (default `45000`) |
-| `MACHINE_ADAPTER` | no | Default `mock`. `bambu-lan` is reserved and not implemented. |
-| `BAMBU_HOST` / `BAMBU_SERIAL` / `BAMBU_ACCESS_CODE` | no | Reserved for a later LAN adapter. Leave unset. Never commit real values. |
+| `MACHINE_ADAPTER` | no | Default `mock`. Forced `mock` always wins. `bambu-lan` is selected only with the flag + creds. |
+| `BAMBU_LAN_MQTT` | no | Default off. Set `1`/`true` to enable the live P2S LAN MQTT adapter. |
+| `BAMBU_HOST` / `BAMBU_SERIAL` / `BAMBU_ACCESS_CODE` | no | Printer LAN IP, serial, and LAN access code. Required together with `BAMBU_LAN_MQTT=1`. Never commit real values. |
+| `BAMBU_MQTT_PORT` | no | Default `8883`. |
+| `BAMBU_MQTT_TIMEOUT_MS` | no | Connect timeout (default `8000`). |
 
 Secrets stay in the environment only. Do not commit `.env.local`.
 
@@ -242,7 +245,7 @@ Run as a Node process (`next dev` / `next start`). V0 is not aimed at serverless
 npm test
 ```
 
-Covers local LLM config defaults, OpenSCAD path resolution, launch health (Ollama + MODEL + OpenSCAD), Start preflight exit codes (0 = pass, 2 = warn/soft fail and continue), code sanitization, mesh-check / STL / 3MF, import, wearable size stubs, imported-mesh describe-edit, the P2S profile, Print doctor, and machine-adapter stubs (no physical printer). If OpenSCAD is installed, an integration test compiles the default fixture (and an imported-mesh wrapper when present).
+Covers local LLM config defaults, OpenSCAD path resolution, launch health (Ollama + MODEL + OpenSCAD), Start preflight exit codes (0 = pass, 2 = warn/soft fail and continue), code sanitization, mesh-check / STL / 3MF, import, wearable size stubs, imported-mesh describe-edit, the P2S profile, Print doctor, and machine adapters (mock + flagged LAN MQTT, no physical printer). If OpenSCAD is installed, an integration test compiles the default fixture (and an imported-mesh wrapper when present).
 
 `GET /api/health` returns the same Local AI / OpenSCAD / P2S status the header chip shows. `npm run health:preflight` is the same check Start runs before `npm run dev`.
 

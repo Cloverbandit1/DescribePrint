@@ -10,11 +10,11 @@ Default machine remains **Bambu Lab P2S** with one **AMS (4 slots)**.
 2. A **pluggable machine adapter** interface, a **mock** adapter, and typed stubs for live status, AMS slots, mid-print commands, 3MF→AMS mapping, and a remaining-layer reshape **planner** (ask CAD later — do not rewrite geometry here).
 3. A **Print doctor** keyword/rule stub: plain-language defect or machine complaint → structured diagnosis + proposed setting or physical steps. No LLM and no LAN I/O.
 
-The Print column shows a compact **Machine** stub (disconnected, AMS slot count, default filament temps, last doctor result). Chat can route a complaint to Print doctor **without** calling the CAD generate path. STL/3MF export still works with no printer.
+The Print column shows a compact **Machine** panel. With the flag off (default) it stays the disconnected stub. With `BAMBU_LAN_MQTT=1` and LAN credentials it shows live P2S/AMS status and tiny pause/resume/speed/temp controls. Chat can route a complaint to Print doctor **without** calling the CAD generate path. STL/3MF export still works with no printer.
 
 ## What this slice does not ship
 
-- Real Bambu LAN MQTT/FTPS, cloud, camera, or send-to-printer
+- Bambu Cloud, camera streams, send-to-printer FTPS, or remaining-layer CAD reshape
 - Changes to Ollama host/port or Agent Smith models
 - M1 Desktop Pack files (`Start-DescribePrint.cmd`, `scripts/windows/`, `/api/health`, OpenSCAD path discovery)
 
@@ -32,8 +32,8 @@ Chat / Print column
                                    mapDesignFilamentsToAms()
                                             │
 MachineAdapter (interface)
-        ├─ mock          ◄── tests + disconnected UI
-        └─ bambu-lan     ◄── reserved; not implemented
+        ├─ mock          ◄── default; tests + disconnected UI
+        └─ bambu-lan     ◄── BAMBU_LAN_MQTT=1 + LAN creds only
                  │
                  ▼
         LiveMachineStatus (temps, layer, AMS slots)
@@ -53,20 +53,23 @@ MachineAdapter (interface)
 - `connect` / `disconnect` / `status`
 - `send(MidPrintCommand)` for mid-print adjust
 
-Register new machines with `registerMachineAdapter`. The default id is `mock`. A future `bambu-lan` id is reserved; this PR must not open sockets.
+Register new machines with `registerMachineAdapter`. The default id is `mock`. `bambu-lan` is registered but **selected only** when `BAMBU_LAN_MQTT` is on and `BAMBU_HOST` / `BAMBU_SERIAL` / `BAMBU_ACCESS_CODE` are all set. `MACHINE_ADAPTER=mock` always wins. `MACHINE_ADAPTER=bambu-lan` without the flag+creds still falls back to mock.
 
-Credentials (`host`, `serial`, `accessCode`) are typed and validated as strings only. They belong in env or local-only client storage. **Never commit them.**
+Credentials (`host`, `serial`, `accessCode`) are typed and validated as strings only. They belong in `.env.local`. **Never commit them. Never log the access code.**
 
-### LAN connect (later)
+### LAN MQTT (flagged)
 
-Bambu printers historically expose a **local LAN** control path (community stacks typically combine MQTT status/control with file transfer). Topic names, ports, and FTPS details are **not** assumed here. The next implementation step is:
+P2S LAN control uses **MQTT over TLS** (not Bambu Cloud):
 
-1. Confirm the current P2S LAN protocol against a real device or current public docs.
-2. Implement `bambu-lan` behind `MachineAdapter` only.
-3. Keep cloud optional/off if LAN works.
-4. Read `BAMBU_HOST`, `BAMBU_SERIAL`, `BAMBU_ACCESS_CODE` from env (see `.env.example`). Never log the access code.
+1. On the printer: **LAN Only**, then **Developer Mode** (required on P2S / H2 for MQTT writes). The 8-digit LAN access code is on that settings page.
+2. Broker: `mqtts://{BAMBU_HOST}:8883` (override with `BAMBU_MQTT_PORT`). Username `bblp`, password = access code. Printers use a self-signed cert; the adapter does not verify it.
+3. Topics (observed community / OpenBambuAPI contract): subscribe `device/{serial}/report`, publish `device/{serial}/request`. After connect the adapter sends `pushing.pushall` for a full status dump.
+4. Status fields mapped when present: `gcode_state`, `nozzle_temper` / `nozzle_target_temper`, `bed_temper` / `bed_target_temper`, `layer_num` / `total_layer_num`, `mc_percent`, `spd_mag` / `spd_lvl`, AMS `tray_type` / `tray_color` / `remain`.
+5. Commands: `print.pause`, `print.resume`, `print.print_speed` (levels 1–4), temps via `print.gcode_line` (`M104` / `M140`). Risky temps still **pause first**. If a publish fails, the adapter returns Print-doctor-style physical steps (use the P2S screen).
 
-Until that adapter exists, `connect()` on the mock flips an in-memory state machine and returns canned `LiveMachineStatus`.
+`GET /api/machine` auto-connects only when the live adapter is selected. Flag off: mock snapshot, no sockets. An unhealthy host fails safe (`error` / not connected, no throw, secrets redacted).
+
+FTPS, camera, and send-to-printer are out of scope.
 
 ### Live monitor
 
@@ -78,7 +81,7 @@ Until that adapter exists, `connect()` on the mock flips an in-memory state mach
 - layer / total layers / progress
 - AMS slots: type, color, remaining % when the protocol exposes them
 
-The UI may render a snapshot. There is no live stream in this slice.
+The Machine panel polls `/api/machine` every few seconds. Flag off keeps the disconnected stub. Live + connected shows temps, layer/progress, AMS slots, and tiny controls. There is no camera stream.
 
 ### Print doctor
 
@@ -101,7 +104,7 @@ V0 3MF export is still single-material. The mapper is the hook for multi-filamen
 
 ### Mid-print adjust
 
-`pause`, `resume`, `set-speed`, `set-nozzle-temp`, `set-bed-temp` are typed commands. **Risky** commands (nozzle/bed temp while printing) must **pause first**. The mock adapter enforces that. Safe commands do not pause.
+`pause`, `resume`, `set-speed`, `set-nozzle-temp`, `set-bed-temp` are typed commands. **Risky** commands (nozzle/bed temp while printing) must **pause first**. Mock and `bambu-lan` both enforce that. Safe commands do not pause.
 
 ### Remaining-layer reshape (planner stub only)
 
@@ -129,9 +132,11 @@ Taken from Bambu’s published P2S specs / FAQ (see sources below):
 
 ## Tests
 
-`npm test` must pass **without** a physical printer. Coverage targets: profile tables, doctor diagnoses, AMS mapping, pause-before-risky, mock connection state machine.
+`npm test` must pass **without** a physical printer. Coverage targets: profile tables, doctor diagnoses, AMS mapping, pause-before-risky, mock connection state machine, flag off = mock, live adapter + fake/unhealthy endpoint fails safe without leaking secrets.
 
 ## Sources
 
 - [Bambu Lab P2S technical specifications](https://bambulab.com/en/p2s/specs)
 - [P2S FAQ (Bambu Lab Wiki)](https://wiki.bambulab.com/en/p2s/manual/p2s-faq)
+- [Enable Developer Mode (P2S / H2)](https://wiki.bambulab.com/en/knowledge-sharing/enable-developer-mode)
+- [OpenBambuAPI MQTT notes](https://github.com/Doridian/OpenBambuAPI/blob/main/mqtt.md)

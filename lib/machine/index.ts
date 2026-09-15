@@ -1,4 +1,5 @@
 import "./mock";
+import "./bambu-lan";
 
 export type {
   AmsMapping,
@@ -31,5 +32,22 @@ export {
 } from "./adapter";
 
 export { MockMachineAdapter } from "./mock";
+export { BambuLanMachineAdapter } from "./bambu-lan";
+export {
+  BAMBU_LAN_ADAPTER_ID,
+  isBambuLanMqttEnabled,
+  readBambuLanCredentials,
+  resolveMachineAdapterId,
+} from "./config";
+export {
+  bambuTopics,
+  buildBambuCommandPayload,
+  buildPushAllRequest,
+  parseBambuPrintReport,
+  percentToBambuSpeedLevel,
+  physicalStepsForCommand,
+} from "./bambu-protocol";
+export { redactSecrets, safeErrorMessage } from "./redact";
+export { getSharedMachine, isLiveMachineSelected, resetSharedMachine } from "./runtime";
 export { mapDesignFilamentsToAms } from "./ams";
 export { planRemainingLayerReshape, type ReshapePlannerInput } from "./reshape";

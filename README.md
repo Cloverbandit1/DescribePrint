@@ -148,6 +148,22 @@ The header chip reports Local AI + OpenSCAD. Click it if something is red or yel
 
 **Windows portable / installer pack:** zip + bootstrap (not Electron). Build with `npm run pack:windows`. Install/setup: `Setup-DescribePrint.cmd` or `scripts/windows/Install-AllosWorstation.ps1 -Layout Laptop|Smith`. Full steps, OpenSCAD fetch, qwen-only Ollama pulls, and Smith-model safety: [`packaging/windows/README.md`](packaging/windows/README.md).
 
+### Build Setup.exe (optional)
+
+Portable zip is the supported Windows path. After the portable folder exists, an optional Inno Setup wrapper can produce `dist/AllosWorstation-DescribePrint-Setup.exe` (does **not** bundle Node; MSI is a follow-up):
+
+```bat
+npm run pack:windows:installer
+```
+
+or:
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\Build-InnoInstaller.ps1
+```
+
+Requires [Inno Setup 6](https://jrsoftware.org/isinfo.php) (`ISCC.exe`). The helper runs `npm run pack:windows` if `dist\AllosWorstation-portable\` is missing.
+
 ### Any OS (terminal)
 
 ```bash

@@ -14,7 +14,14 @@ param(
     [switch]$SkipDesktop,
     [switch]$PreferSystemOpenScad,
     [switch]$Start,
-    [switch]$DryRun
+    [switch]$DryRun,
+    [switch]$AutoStart,
+    [switch]$NoAutoStart,
+    [switch]$RemoveAutoStart,
+    [ValidateSet('Task', 'Startup')]
+    [string]$AutoStartMethod = 'Task',
+    [switch]$SkipHostPower,
+    [switch]$ConfigureHostPower
 )
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
@@ -67,8 +74,95 @@ Write-Host "AllosWorstation - Install ($Layout)" -ForegroundColor Green
 Write-Host "Desktop: $Desktop"
 Write-Host ('Laptop default target: ' + $LaptopTarget)
 Write-Host 'Smith often stays on OneDrive Desktop\AllosWorstation\DescribePrint'
+Write-Host 'Smith desktop is the 24/7 AllosWorstation host (not the laptop).'
 Write-Host 'Desktop bat is a shared launcher (safe to OneDrive-sync). This-machine hint:'
 Write-Host ('  ' + $MachineHint)
 Write-Host ''
 & node @argsList
-exit $LASTEXITCODE
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+
+$autoScript = Join-Path $PSScriptRoot 'Install-AutoStart.ps1'
+$unautoScript = Join-Path $PSScriptRoot 'Uninstall-AutoStart.ps1'
+$powerScript = Join-Path $PSScriptRoot 'Configure-HostPower.ps1'
+
+$hintRepo = $null
+if (-not $DryRun -and (Test-Path -LiteralPath $MachineHint)) {
+    $hintLine = (Get-Content -LiteralPath $MachineHint -TotalCount 1)
+    if ($hintLine) { $hintRepo = $hintLine.Trim() }
+}
+
+$autoRepo = $Repo
+if ($RepoPath) {
+    $autoRepo = $RepoPath
+} elseif ($hintRepo) {
+    $autoRepo = $hintRepo
+} elseif ($Layout -eq 'Laptop') {
+    $autoRepo = $LaptopTarget
+}
+
+$enableAutoStart = $false
+if ($RemoveAutoStart) {
+    Write-Host ''
+    Write-Host 'Removing auto-start (task and Startup shortcut)...'
+    if ($DryRun) {
+        & $unautoScript -DryRun
+    } else {
+        & $unautoScript
+    }
+} else {
+    if ($AutoStart) {
+        $enableAutoStart = $true
+    } elseif ($NoAutoStart) {
+        $enableAutoStart = $false
+    } elseif ($Layout -eq 'Smith') {
+        $enableAutoStart = $true
+    }
+
+    Write-Host ''
+    if ($enableAutoStart) {
+        Write-Host ('Registering auto-start at logon (' + $AutoStartMethod + ') for ' + $autoRepo)
+        $autoArgs = @{
+            RepoPath = $autoRepo
+            Method   = $AutoStartMethod
+        }
+        if ($DryRun) { $autoArgs['DryRun'] = $true }
+        & $autoScript @autoArgs
+    } else {
+        Write-Host 'Auto-start skipped.'
+        if ($Layout -eq 'Laptop') {
+            Write-Host 'Laptop is not the 24/7 host. Pass -AutoStart only if you want logon start here.'
+        } elseif ($Layout -eq 'Current') {
+            Write-Host 'Current layout does not auto-enable. Pass -AutoStart or use -Layout Smith.'
+        } else {
+            Write-Host 'Pass -AutoStart to enable, or omit -NoAutoStart on Smith.'
+        }
+    }
+}
+
+$runHostPower = $false
+if ($Layout -eq 'Smith' -and -not $SkipHostPower) {
+    $runHostPower = $true
+} elseif ($ConfigureHostPower -and $Layout -eq 'Smith') {
+    $runHostPower = $true
+} elseif ($ConfigureHostPower) {
+    Write-Host ''
+    Write-Host 'Host power tweaks are Smith-only. Not applying on this layout.' -ForegroundColor Yellow
+    Write-Host 'Laptop battery settings stay untouched. Use Configure-HostPower.ps1 -ForceHost only if this PC is the host.'
+}
+
+if ($runHostPower) {
+    Write-Host ''
+    Write-Host 'Configuring Smith host power (AC sleep never)...'
+    $powerArgs = @{ Layout = 'Smith' }
+    if ($DryRun) { $powerArgs['DryRun'] = $true }
+    & $powerScript @powerArgs
+    if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 2) {
+        Write-Host ('Configure-HostPower exited ' + $LASTEXITCODE + ' (install still succeeded).') -ForegroundColor Yellow
+    }
+}
+
+Write-Host ''
+Write-Host 'Keep Ollama on 127.0.0.1:11434. Do not auto-kill Agent Smith models.'
+exit 0

@@ -80,5 +80,8 @@ describe("Windows PowerShell 5.1 parse safety", () => {
     expect(text).toMatch(/'Smith often stays on OneDrive Desktop\\AllosWorstation\\DescribePrint'/);
     expect(text).toMatch(/Join-Path \$env:USERPROFILE 'AllosWorstation\\DescribePrint'/);
     expect(text).toMatch(/--local-app-data/);
+    expect(text).toMatch(/\[switch\]\$AutoStart/);
+    expect(text).toMatch(/\[switch\]\$RemoveAutoStart/);
+    expect(text).toMatch(/Install-AutoStart\.ps1/);
   });
 });

@@ -40,7 +40,7 @@ describe("local LLM config defaults", () => {
         expect(config.baseUrl).toBe(DEFAULT_OPENAI_BASE_URL);
         expect(config.apiKey).toBe("ollama");
         expect(config.apiKey).toBe(DEFAULT_OPENAI_API_KEY);
-        expect(config.model).toBe("qwen2.5-coder:7b");
+        expect(config.model).toBe("qwen2.5-coder:14b");
         expect(config.model).toBe(DEFAULT_MODEL);
         expect(isLocalAiActive()).toBe(true);
       },
@@ -57,7 +57,7 @@ describe("local LLM config defaults", () => {
   });
 
   it("never defaults to an Agent Smith model", () => {
-    expect(DEFAULT_MODEL).toBe("qwen2.5-coder:7b");
+    expect(DEFAULT_MODEL).toBe("qwen2.5-coder:14b");
     expect(DEFAULT_MODEL.toLowerCase()).not.toMatch(/minicpm5/);
     expect(DEFAULT_MODEL.toLowerCase()).not.toMatch(/smith-/);
     expect(AGENT_SMITH_MODEL_RE.test(DEFAULT_MODEL)).toBe(false);
@@ -83,9 +83,16 @@ describe("local LLM config defaults", () => {
         expect(config.apiKey).toBe("sk-test");
         expect(config.model).toBe("gpt-4o-mini");
         expect(isLocalAiActive()).toBe(false);
-        expect(DEFAULT_MODEL).toBe("qwen2.5-coder:7b");
+        expect(DEFAULT_MODEL).toBe("qwen2.5-coder:14b");
       },
     );
+  });
+
+  it("allows qwen2.5-coder:7b as a lighter MODEL override", () => {
+    withEnv({ MODEL: "qwen2.5-coder:7b" }, () => {
+      expect(getLlmConfig().model).toBe("qwen2.5-coder:7b");
+      expect(DEFAULT_MODEL).toBe("qwen2.5-coder:14b");
+    });
   });
 
   it("detects loopback OpenAI-compatible hosts as local AI", () => {

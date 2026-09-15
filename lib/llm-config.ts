@@ -12,10 +12,11 @@ export const DEFAULT_OPENAI_API_KEY = "ollama";
 
 /**
  * DescribePrint’s dedicated local coder model.
+ * Pushed default for capable machines (RTX-class + 32GB RAM).
  * Never default to Agent Smith models (smith-minicpm5, openbmb/minicpm5-*, …).
- * Override with the MODEL env var if you pulled a different DescribePrint model.
+ * Override with MODEL=qwen2.5-coder:7b on lighter machines, or another DescribePrint model.
  */
-export const DEFAULT_MODEL = "qwen2.5-coder:7b";
+export const DEFAULT_MODEL = "qwen2.5-coder:14b";
 
 export const LOCAL_AI_START_MESSAGE = "Start local AI (Ollama)";
 

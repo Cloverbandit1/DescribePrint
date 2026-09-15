@@ -931,6 +931,12 @@ function ChatBubble({ item }: { item: ChatItem }) {
   );
 }
 
+function packPlacementLabel(id: string, index: number): string {
+  const copy = id.match(/#(\d+)$/);
+  if (copy) return `copy ${copy[1]}`;
+  return `part ${index + 1}`;
+}
+
 function PlatePackControls({
   result,
   plan,
@@ -1009,9 +1015,10 @@ function PlatePackControls({
           <div>{plan.message}</div>
           {plan.placements.length > 0 ? (
             <ul className="mt-1 space-y-0.5 text-muted">
-              {plan.placements.map((placement) => (
+              {plan.placements.map((placement, index) => (
                 <li key={placement.id}>
-                  {placement.id} · x {formatMm(placement.x)} · y {formatMm(placement.y)} · {placement.rotationDeg}°
+                  {packPlacementLabel(placement.id, index)} · x {formatMm(placement.x)} · y {formatMm(placement.y)} ·{" "}
+                  {placement.rotationDeg}°
                 </li>
               ))}
             </ul>

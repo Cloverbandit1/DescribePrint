@@ -84,6 +84,18 @@ const DEFECT_RULES: DefectRule[] = [
     confidence: "high",
   },
   {
+    id: "nozzle-scrape",
+    title: "Nozzle scrape",
+    re: /\bnozzle\s*scrape|\bscrape(?:d)?\s+(?:the\s+)?(?:bed|plate|nozzle)\b/i,
+    confidence: "high",
+  },
+  {
+    id: "empty-bed",
+    title: "Empty bed / part off",
+    re: /\bempty\s+bed\b|\bpart\s+(?:came\s+off|off the (?:bed|plate))\b/i,
+    confidence: "high",
+  },
+  {
     id: "first-layer",
     title: "First-layer adhesion",
     re: /\bfirst\s+layer\b|\bnot stick(?:ing)?\b|\bwon'?t\s+stick\b|\bbad\s+adhesion\b/i,
@@ -128,7 +140,7 @@ const DEFECT_RULES: DefectRule[] = [
 ];
 
 const DOCTOR_HINT =
-  /\b(stringing|warp(?:ing)?|ams|clog|jam|spaghetti|layer\s*shift|under[-\s]?extrud|over[-\s]?extrud|elephant|first\s+layer|not stick|nozzle|bed temp|feed\/?unfeed|wisps?|blobs?|zits?|clicking|grinding)\b/i;
+  /\b(stringing|warp(?:ing)?|ams|clog|jam|spaghetti|empty\s+bed|nozzle\s*scrape|layer\s*shift|under[-\s]?extrud|over[-\s]?extrud|elephant|first\s+layer|not stick|nozzle|bed temp|feed\/?unfeed|wisps?|blobs?|zits?|clicking|grinding)\b/i;
 
 export function looksLikePrintDoctorComplaint(text: string): boolean {
   const cleaned = text.trim();
@@ -275,6 +287,30 @@ function buildFixes(defectId: string, material: FilamentId): { fixes: PrintDocto
         ],
         steps: ["Pause/abort, clear the spaghetti, clean the plate, and fix first-layer adhesion before reprinting."],
       };
+    case "nozzle-scrape":
+      return {
+        fixes: [
+          physical("Check z-offset and whether the toolhead crashed into the plate."),
+          setting("Pause before inspecting the nozzle or bed.", "pause", "now", false),
+        ],
+        steps: [
+          "Pause.",
+          "Check z-offset and a crashed toolhead before reprinting.",
+          "Clear any gouged plastic from the plate.",
+        ],
+      };
+    case "empty-bed":
+      return {
+        fixes: [
+          physical("The plate looks empty — the part may have come off."),
+          setting("Pause and inspect the plate before reprinting.", "pause", "now", false),
+        ],
+        steps: [
+          "Pause.",
+          "Inspect the plate and find the part.",
+          "Clean the plate and fix first-layer adhesion before reprinting.",
+        ],
+      };
     case "wet-filament":
       return {
         fixes: [
@@ -322,11 +358,31 @@ function diagnosisFor(defectId: string, material: FilamentId, amsSlot?: number):
       return "Layers jumped. Pause — already-printed plastic cannot be shifted back. Check a crash or loose belt, then reprint.";
     case "spaghetti":
       return "The print left the plate. Pause or abort; do not keep extruding into air.";
+    case "nozzle-scrape":
+      return "Suspected nozzle scrape. Pause and check z-offset / a crashed toolhead before reprinting.";
+    case "empty-bed":
+      return "The bed looks empty — the part may have come off. Pause and inspect the plate.";
     case "wet-filament":
       return "Popping or fuzzy walls usually mean moisture. Dry the spool before chasing more temperature changes.";
     default:
       return "I could not match a specific P2S defect. Describe the symptom (stringing, warp, AMS loop, first layer) and the filament.";
   }
+}
+
+export function diagnosisFromCameraDetect(
+  detect: { kind: string; failure?: string } | undefined,
+): PrintDoctorResult | undefined {
+  if (!detect || detect.kind !== "suspected-failure" || !detect.failure) return undefined;
+  const complaint =
+    detect.failure === "spaghetti"
+      ? "spaghetti, print detached"
+      : detect.failure === "nozzle-scrape"
+        ? "nozzle scrape"
+        : detect.failure === "empty-bed"
+          ? "empty bed"
+          : "";
+  if (!complaint) return undefined;
+  return diagnosePrintComplaint({ complaint });
 }
 
 export function diagnosePrintComplaint(request: PrintDoctorRequest): PrintDoctorResult {

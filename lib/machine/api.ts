@@ -1,5 +1,7 @@
 import type { PrintDoctorResult } from "../print-doctor";
 import type { AmsAutofixResult } from "./ams-autofix";
+import type { CameraDetectReport } from "./camera";
+import { parseCameraStubPref } from "./camera";
 import type { CommandResult, LiveMachineStatus, MachineCredentials, MidPrintCommand } from "./types";
 import type { MachineLanSource } from "./config";
 
@@ -17,11 +19,14 @@ export type MachineApiResponse = {
   lastCommand?: CommandResult;
   diagnosis?: PrintDoctorResult;
   lastAutofix?: AmsAutofixResult;
+  /** Present only when the camera stub is on (env or checkbox). One detect per poll. */
+  cameraDetect?: CameraDetectReport;
 };
 
 export type MachineConfigureRequest = {
   lan: boolean;
   credentials: MachineCredentials;
+  cameraStub?: boolean;
 };
 
 export function parseMidPrintCommand(value: unknown): MidPrintCommand | null {
@@ -67,6 +72,21 @@ function readCredentialField(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+export function parseCameraStubFromBody(value: unknown): boolean | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const row = value as { cameraStub?: unknown };
+  if (typeof row.cameraStub === "boolean") return row.cameraStub;
+  if (typeof row.cameraStub === "string") return parseCameraStubPref(row.cameraStub);
+  return undefined;
+}
+
+export function parseCameraStubFromRequest(request?: Request): boolean | undefined {
+  if (!request) return undefined;
+  const url = new URL(request.url);
+  if (!url.searchParams.has("cameraStub")) return undefined;
+  return parseCameraStubPref(url.searchParams.get("cameraStub"));
+}
+
 export function parseMachineConfigure(value: unknown): MachineConfigureRequest | null {
   if (!value || typeof value !== "object") return null;
   const body = value as { lan?: unknown; credentials?: unknown };
@@ -75,6 +95,7 @@ export function parseMachineConfigure(value: unknown): MachineConfigureRequest |
     body.credentials && typeof body.credentials === "object"
       ? (body.credentials as Record<string, unknown>)
       : {};
+  const cameraStub = parseCameraStubFromBody(body);
   return {
     lan: body.lan,
     credentials: {
@@ -82,6 +103,7 @@ export function parseMachineConfigure(value: unknown): MachineConfigureRequest |
       serial: readCredentialField(row.serial),
       accessCode: readCredentialField(row.accessCode),
     },
+    ...(cameraStub !== undefined ? { cameraStub } : {}),
   };
 }
 

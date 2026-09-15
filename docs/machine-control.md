@@ -87,14 +87,15 @@ FTPS, camera, and send-to-printer are out of scope.
 - layer / total layers / progress
 - AMS slots: type, color, remaining % when the protocol exposes them
 
-[`useMachineMonitor`](../lib/machine/use-machine-monitor.ts) is the client hook: it persists the toggle + three fields in `localStorage`, configures the server session, and polls `/api/machine` every few seconds so the panel updates while connected (temps, layer/progress, AMS, connection). LAN off keeps the disconnected stub. Live + connected shows status and tiny controls.
+[`useMachineMonitor`](../lib/machine/use-machine-monitor.ts) is the client hook: it persists the toggle + three fields in `localStorage`, configures the server session, and polls `/api/machine` every few seconds so the panel updates while connected (temps, layer/progress, AMS, connection). LAN off keeps the disconnected stub. Live + connected shows status and tiny controls. When the camera stub is on, each poll also runs one `detectFailure()` on a mock frame and includes `cameraDetect` (and a print-doctor hint if suspected). Flag off skips detect.
 
 ### Camera stub (flagged, default OFF)
 
 No real camera stream. [`lib/machine/camera.ts`](../lib/machine/camera.ts) is a typed stub so a later revision can attach a LAN JPEG (`futureLanJpegUrl`) and classify failures (spaghetti, nozzle scrape, empty bed).
 
 - Off unless `BAMBU_CAMERA_STUB=1` **or** the Machine-panel **Camera stub** checkbox is on (also off by default; saved in `localStorage`).
-- When on, the panel shows a tiny `camera: stub` line.
+- When on, each `/api/machine` poll runs one stub `detectFailure()` (mock frames only). The panel shows a tiny `camera: ok` or `camera: suspected spaghetti` (or scrape / empty bed) line.
+- A suspected failure feeds Print doctor as a chat-first hint (pause + physical/settings steps). It does **not** send printer commands or auto-stop the job. `AMS_AUTOFIX` still only applies to AMS feed-loop.
 - `detectFailure()` returns `none` or `suspected-failure` with a print-doctor-style hint. Tests use the stub only — no pixels, no sockets.
 
 ### AMS feed-loop autofix (flagged, default OFF)
@@ -158,7 +159,7 @@ Taken from Bambu’s published P2S specs / FAQ (see sources below):
 
 ## Tests
 
-`npm test` must pass **without** a physical printer. Coverage targets: profile tables, doctor diagnoses, AMS mapping, pause-before-risky, mock connection state machine, flag off = mock, UI toggle + incomplete creds = mock + hint, UI toggle + complete creds selects `bambu-lan` without setting the env flag, env override still works, live adapter + fake/unhealthy endpoint fails safe without leaking secrets, camera stub `detectFailure` (stub only), AMS autofix flag off (no commands) vs flag on (pause then autofix or physical steps).
+`npm test` must pass **without** a physical printer. Coverage targets: profile tables, doctor diagnoses, AMS mapping, pause-before-risky, mock connection state machine, flag off = mock, UI toggle + incomplete creds = mock + hint, UI toggle + complete creds selects `bambu-lan` without setting the env flag, env override still works, live adapter + fake/unhealthy endpoint fails safe without leaking secrets, camera stub `detectFailure` (stub only), live poll + detect (flag off = no detect; flag on + mock `none` = `camera: ok`; injected spaghetti / scrape / empty-bed surfaces on the panel and doctor without auto-pause), AMS autofix flag off (no commands) vs flag on (pause then autofix or physical steps).
 
 ## Sources
 

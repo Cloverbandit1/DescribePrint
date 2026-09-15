@@ -11,6 +11,7 @@ import {
 } from "./prefs";
 import {
   MACHINE_CAMERA_STORAGE_KEY,
+  machineMonitorPollPath,
   parseCameraStubPref,
   serializeCameraStubPref,
 } from "./camera";
@@ -70,6 +71,8 @@ export function useMachineMonitor() {
   const [busy, setBusy] = useState(false);
   const prefsRef = useRef(prefs);
   prefsRef.current = prefs;
+  const cameraStubPrefRef = useRef(cameraStubPref);
+  cameraStubPrefRef.current = cameraStubPref;
 
   useEffect(() => {
     const stored = readStoredPrefs();
@@ -104,6 +107,7 @@ export function useMachineMonitor() {
           serial: next.serial,
           accessCode: next.accessCode,
         },
+        cameraStub: cameraStubPrefRef.current,
       }),
     });
     const data = await readMachineResponse(response);
@@ -116,7 +120,7 @@ export function useMachineMonitor() {
       await configure(current);
       return;
     }
-    const response = await fetch("/api/machine", { cache: "no-store" });
+    const response = await fetch(machineMonitorPollPath(cameraStubPrefRef.current), { cache: "no-store" });
     if (!response.ok) return;
     const data = await readMachineResponse(response);
     if (data) setMachine(data);
@@ -135,7 +139,7 @@ export function useMachineMonitor() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [hydrated, prefs, configure, poll]);
+  }, [hydrated, prefs, cameraStubPref, configure, poll]);
 
   useEffect(() => {
     if (!hydrated) return;

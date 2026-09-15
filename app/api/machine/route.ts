@@ -1,11 +1,13 @@
 import {
   commandFromBody,
+  parseCameraStubFromBody,
+  parseCameraStubFromRequest,
   parseMachineConfigure,
   parsePrintDoctorBody,
   type MachineApiResponse,
 } from "@/lib/machine/api";
 import { isAmsAutofixEnabled, maybeAutofixAmsFeedLoop } from "@/lib/machine/ams-autofix";
-import { isCameraStubEnabled } from "@/lib/machine/camera";
+import { isCameraDetectEnabled, isCameraStubEnabled, maybeDetectFailure } from "@/lib/machine/camera";
 import {
   BAMBU_LAN_ADAPTER_ID,
   machineLanHint,
@@ -15,10 +17,16 @@ import {
 import { defaultAdapterId } from "@/lib/machine/adapter";
 import { getSharedMachine } from "@/lib/machine/runtime";
 import { getMachineUiSession, setMachineUiSession } from "@/lib/machine/session";
-import { diagnosePrintComplaint, withAutofix } from "@/lib/print-doctor";
+import { diagnosisFromCameraDetect, diagnosePrintComplaint, withAutofix } from "@/lib/print-doctor";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+function applyCameraStubPref(cameraStub?: boolean): void {
+  if (cameraStub !== undefined) {
+    setMachineUiSession({ cameraStub });
+  }
+}
 
 function payload(
   status: MachineApiResponse["status"],
@@ -32,6 +40,7 @@ function payload(
   const session = getMachineUiSession();
   const host = creds?.host || (session.enabled ? session.credentials.host : "") || undefined;
   const serial = creds?.serial || (session.enabled ? session.credentials.serial : "") || undefined;
+  const cameraDetect = maybeDetectFailure(isCameraDetectEnabled(process.env, session.cameraStub));
   return {
     live,
     adapterId,
@@ -44,7 +53,9 @@ function payload(
     amsAutofix: isAmsAutofixEnabled(),
     status,
     lastCommand,
+    cameraDetect,
     ...extras,
+    diagnosis: extras?.diagnosis ?? diagnosisFromCameraDetect(cameraDetect),
   };
 }
 
@@ -58,7 +69,8 @@ async function snapshot(lastCommand?: MachineApiResponse["lastCommand"]): Promis
   });
 }
 
-export async function GET() {
+export async function GET(request?: Request) {
+  applyCameraStubPref(parseCameraStubFromRequest(request));
   return snapshot();
 }
 
@@ -75,7 +87,10 @@ export async function POST(request: Request) {
     setMachineUiSession({
       enabled: configure.lan,
       credentials: configure.credentials,
+      cameraStub: configure.cameraStub,
     });
+  } else {
+    applyCameraStubPref(parseCameraStubFromBody(body));
   }
 
   const command = commandFromBody(body);

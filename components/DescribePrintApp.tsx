@@ -826,6 +826,7 @@ function MachinePanel({ printer, doctor }: { printer: PrinterProfile; doctor: Pr
   const amsSlots = live && status ? status.amsSlots : [];
   const cameraOn = machine?.cameraStub === true || cameraStubPref;
   const cameraEnvLocked = machine?.cameraStub === true;
+  const doctorHint = doctor ?? machine?.diagnosis ?? null;
 
   return (
     <div className="rounded-md border border-line bg-panel-2 p-2.5 text-[11px] leading-relaxed text-muted">
@@ -909,7 +910,7 @@ function MachinePanel({ printer, doctor }: { printer: PrinterProfile; doctor: Pr
         Camera stub
         {cameraEnvLocked ? <span className="font-normal text-muted">· .env</span> : null}
       </label>
-      {cameraOn ? <div className="mt-1">camera: stub</div> : null}
+      {cameraOn ? <div className="mt-1">camera: {machine?.cameraDetect?.line ?? "ok"}</div> : null}
       {connected ? (
         <div className="mt-2 space-y-0.5">
           <div>
@@ -1040,11 +1041,11 @@ function MachinePanel({ printer, doctor }: { printer: PrinterProfile; doctor: Pr
           ) : null}
         </div>
       ) : null}
-      {doctor ? (
+      {doctorHint ? (
         <div className="mt-2 border-t border-line pt-2">
-          <div className="font-medium text-ink">{doctor.title}</div>
-          <div className="mt-0.5">{doctor.diagnosis}</div>
-          {doctor.autofix?.attempted ? <div className="mt-0.5">{doctor.autofix.message}</div> : null}
+          <div className="font-medium text-ink">{doctorHint.title}</div>
+          <div className="mt-0.5">{doctorHint.diagnosis}</div>
+          {doctorHint.autofix?.attempted ? <div className="mt-0.5">{doctorHint.autofix.message}</div> : null}
         </div>
       ) : (
         <p className="mt-2">Describe a print problem in chat — CAD export still works disconnected.</p>

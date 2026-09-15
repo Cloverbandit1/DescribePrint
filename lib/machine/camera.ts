@@ -91,3 +91,65 @@ export function detectFailure(frame: CameraFrame = mockCameraFrame("none")): Fai
     frame,
   };
 }
+
+/** API / panel view of a detect — no JPEG bytes. */
+export type CameraDetectReport = Omit<FailureDetection, "frame"> & {
+  line: string;
+};
+
+let stubScene: CameraFailureKind = "none";
+let detectCalls = 0;
+
+/** Test-only: force the next stub frame scene. No pixels. */
+export function injectStubCameraScene(scene: CameraFailureKind): void {
+  stubScene = scene;
+}
+
+export function resetCameraDetectState(): void {
+  stubScene = "none";
+  detectCalls = 0;
+}
+
+export function cameraDetectCallCount(): number {
+  return detectCalls;
+}
+
+export function currentStubCameraFrame(): CameraFrame {
+  return mockCameraFrame(stubScene);
+}
+
+export function cameraStatusLine(detect: Pick<FailureDetection, "kind" | "failure">): string {
+  if (detect.kind === "none" || !detect.failure) return "ok";
+  if (detect.failure === "spaghetti") return "suspected spaghetti";
+  if (detect.failure === "nozzle-scrape") return "suspected nozzle scrape";
+  return "suspected empty bed";
+}
+
+export function toCameraDetectReport(detect: FailureDetection): CameraDetectReport {
+  const { frame: _frame, ...rest } = detect;
+  return { ...rest, line: cameraStatusLine(detect) };
+}
+
+/**
+ * One stub classify when the camera flag/checkbox is on. Flag off skips detect.
+ */
+export function maybeDetectFailure(
+  enabled: boolean,
+  frame: CameraFrame = currentStubCameraFrame(),
+): CameraDetectReport | undefined {
+  if (!enabled) return undefined;
+  detectCalls += 1;
+  return toCameraDetectReport(detectFailure(frame));
+}
+
+/** Env flag or Machine-panel checkbox (session / poll query). */
+export function isCameraDetectEnabled(
+  env: ProcessEnvLike = process.env,
+  sessionCameraStub = false,
+): boolean {
+  return isCameraStubEnabled(env) || sessionCameraStub === true;
+}
+
+export function machineMonitorPollPath(cameraStub: boolean): string {
+  return `/api/machine?cameraStub=${cameraStub ? "1" : "0"}`;
+}

@@ -4,6 +4,16 @@ Describe anything in plain language and get a **printable 3D model** (STL + 3MF)
 
 V0 is the **create** path for parametric / mechanical parts: a chat-style web app, an OpenSCAD generation pipeline, mesh checks, and downloads. You can run the whole loop without a live LLM via the fixture/mock path.
 
+## Product principles
+
+DescribePrint is **fully end-to-end in the web app**. Users must **never** need Blender, Meshmixer, or any other DCC after generation.
+
+- The complete path is: describe → preview in the UI → download **STL** and **3MF**.
+- Those files are meant to go to a slicer / printer, not to a modeling tool for cleanup.
+- Future Style2Fab-like edit, organic mesh, and other mesh work stay **in-app**. They are not a Blender plugin or an external DCC dependency.
+
+V0 already follows this: the viewer plus STL/3MF download is the whole user path.
+
 ## Why OpenSCAD (not build123d)
 
 V0 compiles **OpenSCAD**, not build123d / OpenCascade.
@@ -99,11 +109,13 @@ Priority order from the product owner (not in V0):
 2. **Raised etchings / emboss** — from a description (and later images) that print as visible relief.
 3. **Articulated / functional assemblies** — real joints with print clearances, multi-part export, and material-aware thickness/strength so moving parts (e.g. robot arms) don’t break.
 
+All of the above ship **inside the web UI** (preview + printable export). None of them assume Blender or another DCC after the fact.
+
 ## Extension points (later)
 
 - **Describe-to-modify** — send the previous OpenSCAD plus “make the hole 8 mm”.
-- **Style2Fab-style edit** — stylize a mesh while keeping functional regions.
-- **Organic mesh** — swap the OpenSCAD backend for a neural / implicit generator.
+- **Style2Fab-style edit** — in-app stylization while keeping functional regions (not a Blender plugin).
+- **Organic mesh** — swap the OpenSCAD backend for a neural / implicit generator, still exported from the app.
 
 See `FutureEditMode` in [`lib/types.ts`](lib/types.ts). The pipeline is already split so those backends can sit beside `runGeneratePipeline`.
 

@@ -79,11 +79,13 @@ export type Mesh = {
  * V0 extension points (not implemented — reserved for later versions).
  *
  * - describe-to-modify: follow-up "make the hole 8mm" using previous SCAD as context
- * - Style2Fab-style edit: stylize a mesh while preserving functional regions
+ * - Style2Fab-style edit: in-app stylization while preserving functional regions
+ *   (not a Blender plugin or other DCC — preview + STL/3MF in the web UI is the full path)
  * - organic mesh: swap the OpenSCAD backend for a neural / implicit surface generator
  *
  * Product roadmap after V0 (README; do not implement here):
  * 1. wearable/cosplay sizing  2. raised etchings/emboss  3. articulated assemblies
+ * All stay in-app; users never need Blender or another DCC afterward.
  */
 export type FutureEditMode =
   | "create"

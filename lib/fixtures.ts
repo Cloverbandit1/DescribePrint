@@ -583,4 +583,5 @@ export const EXAMPLE_PROMPTS = [
   CUBE_FILLET_PROMPT,
   CUBE_STEAMPUNK_PROMPT,
   CUBE_RIBS_PROMPT,
+  "stormtrooper helmet",
 ] as const;

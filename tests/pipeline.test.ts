@@ -96,6 +96,37 @@ describe("generate pipeline (local AI + fixtures)", () => {
     vi.clearAllMocks();
   });
 
+  it("returns scale chips on the fixture path for a character pack fork", async () => {
+    mockedCompile.mockResolvedValue(compileOk());
+    const result = await runGeneratePipeline({ prompt: "stormtrooper helmet", fixture: true });
+    expect(result.usedFixture).toBe(true);
+    expect(result.needs_user_choice).toBe(true);
+    expect(result.options?.map((group) => group.id)).toEqual(["scale_mode"]);
+    expect(result.options?.[0]?.options.map((option) => option.value)).toEqual(["display", "wearable"]);
+    expect(result.notes.join(" ")).toMatch(/Pick a direction/i);
+    expect(mockedChat).not.toHaveBeenCalled();
+  });
+
+  it("does not ask for chips on a specified cube fixture", async () => {
+    mockedCompile.mockResolvedValue(compileOk());
+    const result = await runGeneratePipeline({ prompt: "20mm cube with 5mm hole", fixture: true });
+    expect(result.needs_user_choice).toBe(false);
+    expect(result.options).toEqual([]);
+  });
+
+  it("threads a scale chip into the next fixture generate", async () => {
+    mockedCompile.mockResolvedValue(compileOk());
+    const result = await runGeneratePipeline({
+      prompt: "stormtrooper helmet",
+      fixture: true,
+      choices: [{ id: "scale_mode", value: "wearable" }],
+    });
+    expect(result.needs_user_choice).toBe(true);
+    expect(result.options?.map((group) => group.id)).toEqual(["wearable_size"]);
+    expect(result.appliedChoices).toEqual([{ id: "scale_mode", value: "wearable" }]);
+    expect(result.notes.join(" ")).toMatch(/1:1|wearable/i);
+  });
+
   it("uses the fixture/mock path without calling the LLM", async () => {
     mockedCompile.mockResolvedValue(compileOk());
     const events: StatusEvent[] = [];

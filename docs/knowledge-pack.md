@@ -85,6 +85,7 @@ npm test
 2. `normalizeCadPlan` seeds `overall_mm` + missing features from the pack, then still applies bed / wall / hole rules.
 3. Job notes get a one-line pack summary (fixture path included).
 4. No match → `knowledge` is omitted. Invalid pack JSON fails open to an empty pack (generate does not crash).
+5. Named character without display vs 1:1 / wearable → the plan marks `needs_user_choice` and the Prepare chat shows scale chips. Pack growth is deferred; interactive choices own that fork.
 
 ## How to verify
 

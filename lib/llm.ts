@@ -16,6 +16,11 @@ import {
   type ClearanceIntent,
 } from "./joints";
 import {
+  parseDesignOptionGroups,
+  resolveDesignOptions,
+  type DesignOptionGroup,
+} from "./design-options";
+import {
   cadKnowledgeFromPrompt,
   formatKnowledgeCodegenHint,
   formatKnowledgeConstraints,
@@ -95,6 +100,9 @@ export type CadPlan = {
   pretty_up?: CadPrettyUp;
   /** Present only when the prompt names a curated character or tech keyword. */
   knowledge?: CadKnowledge;
+  /** True only for a known ambiguous fork — never a settings wall. */
+  needs_user_choice?: boolean;
+  options?: DesignOptionGroup[];
 };
 
 export { LOCAL_AI_START_MESSAGE } from "./llm-config";
@@ -126,6 +134,7 @@ OpenSCAD best practices
 - Raised etchings / emboss only when asked: union a primitive motif onto the named face (emboss / raised) or difference it into that face (etch / engrave). Default region is the largest vertical face, ties to front (+Y). Default raised height 0.8 mm, recessed depth 0.6 mm. Etch must leave ≥ 1.6 mm remaining wall. Keep the host solid — do not rebuild a new part. No Style2Fab / fonts / text().
 - Pretty-up / restyle only when asked (pretty-up, restyle, fillet, chamfer, decorative ribs/panels, steampunk). Stylistic CSG only — primitive fillets (hull of cylinders), chamfers (inset-cube hull), ribs/panels/rivets. Keep planned holes, PIP joint gaps, mating faces, and ≥ 1.6 mm walls. Refuse pretty-up that would fuse print-in-place joints or close through-holes. Not neural Style2Fab.
 - Knowledge pack: only when the user names a curated character/prop (stormtrooper / vader / iron man / master chief / saber hilt) or tech keyword (PLA/PETG/PA/ABS/TPU, 0.4 mm nozzle, 0.2 mm layer, joint clearance, P2S volume, print-in-place, split-for-bed). Use pack millimeters. Unknown names: ignore and design from the description. Curated stub — not a live web crawl.
+- Mid-design options: if the user already picked a chip (1:1 wearable, size L, PETG, print-in-place, a named face), honor that choice. Do not re-ask.
 - Never use import(), include, use <>, surface(), or any file/network access.
 - Do not add echo() debug spam. Do not generate animation or $t.
 - Valid syntax only: every statement ends with ';'. Balance braces and parentheses. Define modules before calling them.
@@ -138,7 +147,7 @@ Safety
 const PLAN_SYSTEM_PROMPT = `You are a CAD planner for FDM 3D printing. Reply with ONLY compact JSON (no markdown, no prose).
 
 Schema:
-{"object":string,"one_piece":true,"units":"mm","overall_mm":{"x":n,"y":n,"z":n},"features":[{"name":string,"kind":string,"dims_mm":{"…":n},"notes":string}],"holes":[{"d":n,"purpose":string,"through":true}],"min_wall_mm":n,"clearance_mm":n,"sit_on_z0":true,"safety_notes":string,"joints":[{"type":"hinge|pin|ball|snap","intent":"print-in-place|multi-part","radial_mm":n,"axial_mm":n,"notes":string}],"clearance_intent":"print-in-place","color_regions":[{"name":string,"color":string,"hex":"#RRGGBB","filament":"pla","ams_slot":1}],"reliefs":[{"kind":"emboss|etch","motif":"text|crest|disc|bar","text":"DP","region":"front|back|left|right|top|bottom","height_mm":0.8,"depth_mm":0.6}],"pretty_up":{"applied":true,"refused":false,"style":"fillet|chamfer|ribs|panels|steampunk|motif","ops":[{"kind":"fillet","mm":2}],"functional_regions":[{"kind":"functional","role":"hole","note":"keep through-hole"}],"decorative_regions":[{"kind":"decorative","role":"fillet","note":"2 mm rounds"}]},"knowledge":{"pack_version":"1.0.0","curated":true,"live_web_crawl":false,"characters":[{"id":"stormtrooper-helmet","name":"stormtrooper helmet"}],"tech":[{"id":"petg","name":"PETG"}],"notes":["curated stub"]}}
+{"object":string,"one_piece":true,"units":"mm","overall_mm":{"x":n,"y":n,"z":n},"features":[{"name":string,"kind":string,"dims_mm":{"…":n},"notes":string}],"holes":[{"d":n,"purpose":string,"through":true}],"min_wall_mm":n,"clearance_mm":n,"sit_on_z0":true,"safety_notes":string,"joints":[{"type":"hinge|pin|ball|snap","intent":"print-in-place|multi-part","radial_mm":n,"axial_mm":n,"notes":string}],"clearance_intent":"print-in-place","color_regions":[{"name":string,"color":string,"hex":"#RRGGBB","filament":"pla","ams_slot":1}],"reliefs":[{"kind":"emboss|etch","motif":"text|crest|disc|bar","text":"DP","region":"front|back|left|right|top|bottom","height_mm":0.8,"depth_mm":0.6}],"pretty_up":{"applied":true,"refused":false,"style":"fillet|chamfer|ribs|panels|steampunk|motif","ops":[{"kind":"fillet","mm":2}],"functional_regions":[{"kind":"functional","role":"hole","note":"keep through-hole"}],"decorative_regions":[{"kind":"decorative","role":"fillet","note":"2 mm rounds"}]},"knowledge":{"pack_version":"1.0.0","curated":true,"live_web_crawl":false,"characters":[{"id":"stormtrooper-helmet","name":"stormtrooper helmet"}],"tech":[{"id":"petg","name":"PETG"}],"notes":["curated stub"]},"needs_user_choice":false,"options":[{"id":"scale_mode","label":"Scale","prompt":"Fit P2S or 1:1?","options":[{"id":"scale_mode:display","label":"Fit P2S","value":"display"}]}]}
 
 Rules:
 - Millimeters only. Real-world dimensions. One piece first unless the user clearly asks for an assembly / multi-part kit or a moving joint.
@@ -147,6 +156,7 @@ Rules:
 - Reliefs: omit the reliefs array unless the user asks to emboss, etch, engrave, raise a crest/logo, or cut initials. kind is emboss (raised, union) or etch (recessed, difference). motif is text (block initials), crest, disc, or bar. region is a face hint (front/back/left/right/top/bottom). Default region: largest vertical face, ties to front. Default height_mm 0.8, depth_mm 0.6. Etch must leave 1.6 mm walls. Honest CSG stub — not Style2Fab.
 - Pretty-up: omit pretty_up unless the user asks to pretty-up, restyle, fillet, chamfer, add decorative ribs/panels, or make it look steampunk. Separate from structural edits. Mark functional vs decorative regions. Refuse (applied=false, refused=true) if pretty-up would fuse PIP joints or close through-holes. Heuristic CSG only — not neural Style2Fab.
 - Knowledge: omit the knowledge object unless the user names a curated character/prop or tech keyword. Use pack millimeters when present. Unknown names: omit knowledge and plan from the description alone. Curated in-repo stub — not a live web crawl.
+- Options: omit needs_user_choice and options unless a known fork is still open (character scale P2S vs 1:1, wearable S–XL, material, PIP vs multi-part, emboss face, vague color regions). Never set needs_user_choice for an ordinary sized part. Do not dump advanced settings.
 - Every feature must attach to the main solid unless it is a planned joint member. Through-holes fully pierce (overshoot 0.2–1 mm).
 - min_wall_mm >= 1.6 unless the user insists thinner. clearance_mm ~ 0.3 for ordinary fits; for joints use the documented radial_mm. Sit the part on z=0.
 - Fit overall_mm on the target printer bed unless they asked for a larger object.
@@ -610,6 +620,11 @@ export function parseCadPlan(raw: string): CadPlan | null {
       return parsed.length ? parsed : undefined;
     })(),
     pretty_up: parseCadPrettyUp(rec.pretty_up ?? rec.prettyup ?? rec.style),
+    needs_user_choice: rec.needs_user_choice === true,
+    options: (() => {
+      const parsed = parseDesignOptionGroups(rec.options);
+      return parsed.length ? parsed : undefined;
+    })(),
   };
 }
 
@@ -848,6 +863,16 @@ export function normalizeCadPlan(
 
   const knowledge = cadKnowledgeFromPrompt(input.prompt);
   const namedCharacter = knowledge?.characters[0]?.name;
+  const designOptions = resolveDesignOptions({
+    prompt: input.prompt,
+    previousPrompt: undefined,
+    plan: {
+      needs_user_choice: plan.needs_user_choice,
+      options: plan.options,
+      clearance_intent,
+      knowledge,
+    },
+  });
 
   return {
     ...plan,
@@ -865,5 +890,7 @@ export function normalizeCadPlan(
     reliefs: reliefs.length ? reliefs : undefined,
     pretty_up,
     knowledge,
+    needs_user_choice: designOptions.needs_user_choice,
+    options: designOptions.options.length ? designOptions.options : undefined,
   };
 }

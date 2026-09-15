@@ -229,6 +229,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
   const [workspace, setWorkspace] = useState<WorkspaceTab>("prepare");
   const [cameraView, setCameraView] = useState<CameraView>("iso");
   const [showStrengthHeatmap, setShowStrengthHeatmap] = useState(true);
+  const [explodeView, setExplodeView] = useState(false);
   const [theme, setTheme] = useState<ViewerTheme>("dark");
   const [wideLayout, setWideLayout] = useState(true);
   const scroller = useRef<HTMLDivElement>(null);
@@ -933,13 +934,36 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
                 title="Heuristic strength preview — not FEA"
                 onClick={() => setShowStrengthHeatmap((on) => !on)}
                 className={`h-7 rounded-md border px-2.5 text-[11px] font-medium shadow-sm backdrop-blur ${
-                  result && showStrengthHeatmap
+                  result && showStrengthHeatmap && !explodeView
                     ? "border-accent/50 bg-accent text-accent-ink"
                     : "border-line bg-panel/90 text-muted hover:bg-panel-2 hover:text-ink disabled:opacity-40"
                 }`}
               >
                 Strength
               </button>
+              {result?.assembly?.isAssembly ? (
+                <div className="flex overflow-hidden rounded-md border border-line bg-panel/90 shadow-sm backdrop-blur">
+                  <button
+                    type="button"
+                    onClick={() => setExplodeView(false)}
+                    className={`h-7 px-2.5 text-[11px] font-medium ${
+                      !explodeView ? "bg-accent text-accent-ink" : "text-muted hover:bg-panel-2 hover:text-ink"
+                    }`}
+                  >
+                    Assembled
+                  </button>
+                  <button
+                    type="button"
+                    title="Heuristic offset along one axis — not kinematics"
+                    onClick={() => setExplodeView(true)}
+                    className={`h-7 px-2.5 text-[11px] font-medium ${
+                      explodeView ? "bg-accent text-accent-ink" : "text-muted hover:bg-panel-2 hover:text-ink"
+                    }`}
+                  >
+                    Exploded
+                  </button>
+                </div>
+              ) : null}
             </div>
             <div className="rounded-md border border-line bg-panel/90 px-2 py-1 text-[10px] text-muted backdrop-blur">
               Plate 1 · {plateW} × {plateD} mm
@@ -947,15 +971,23 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
           </div>
           <div className="min-h-0 flex-1">
             <Viewer
-              stlUrl={result ? `${result.stlUrl}?v=${result.jobId}` : null}
+              stlUrl={
+                result
+                  ? `${
+                      explodeView && result.assembly?.isAssembly && result.explodedStlUrl
+                        ? result.explodedStlUrl
+                        : result.stlUrl
+                    }?v=${result.jobId}`
+                  : null
+              }
               view={cameraView}
               plateMm={plateW}
               heightMm={plateH}
               theme={theme}
               showGizmo={wideLayout}
               packOutlines={packOutlines}
-              heatmap={Boolean(result) && showStrengthHeatmap}
-              triangleScores={result?.report.strengthPreview?.triangleScores}
+              heatmap={Boolean(result) && showStrengthHeatmap && !explodeView}
+              triangleScores={explodeView ? undefined : result?.report.strengthPreview?.triangleScores}
               previewTint={result ? previewTintHex(result.colorRegions ?? []) : null}
               colorRegions={result ? namedColorRegions(result.colorRegions) : []}
             />
@@ -2252,6 +2284,15 @@ function ResultPanel({
         >
           Download pack
         </a>
+        {result.assembly?.isAssembly && result.partsZipUrl ? (
+          <a
+            href={result.partsZipUrl}
+            className="studio-btn studio-btn-ghost inline-flex h-8 px-3"
+            title="Individual part STLs in assembled coordinates. Explode is a viewer heuristic, not kinematics."
+          >
+            Download parts
+          </a>
+        ) : null}
         <button type="button" onClick={onToggleDetails} className="ml-auto text-[11px] text-muted underline-offset-2 hover:underline">
           {showDetails ? "Hide details" : "Details"}
         </button>
@@ -2261,6 +2302,24 @@ function ResultPanel({
         {formatMm(report.boundingBoxMm.size[2])} mm
         {issues.length === 0 ? " · looks good" : ""}
       </p>
+      {result.assembly?.isAssembly ? (
+        <div className="space-y-1.5">
+          <div className="studio-label">Assembly parts</div>
+          <div className="flex flex-wrap gap-1.5">
+            {result.assembly.parts.map((part) => (
+              <a
+                key={part.id}
+                href={`/api/jobs/${result.jobId}/part-${part.id}.stl`}
+                className="inline-flex items-center rounded-full border border-line bg-panel-2 px-2 py-0.5 text-[11px] text-ink hover:bg-panel"
+                title="Download this solid as STL (assembled coordinates)"
+              >
+                {part.name} STL
+              </a>
+            ))}
+          </div>
+          <p className="text-[10px] leading-snug text-muted">{result.assembly.disclaimer}</p>
+        </div>
+      ) : null}
       {showColors ? (
         <div className="space-y-1.5">
           <div className="studio-label">Color regions</div>

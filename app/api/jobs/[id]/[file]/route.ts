@@ -1,3 +1,9 @@
+import {
+  explodedStlBuffer,
+  partsFromThreeMf,
+  partsZipBuffer,
+  partStlBuffer,
+} from "@/lib/assembly";
 import { getJob, updateJobAmsSlotPlan } from "@/lib/jobs";
 import { amsSlotPlanSidecarJson, parseAmsSlotPlan } from "@/lib/machine/ams";
 import { buildProjectPack, ProjectPackError } from "@/lib/machine/project-pack";
@@ -64,6 +70,47 @@ export async function GET(
   const job = getJob(id);
   if (!job) {
     return Response.json({ error: "Job expired or not found" }, { status: 404 });
+  }
+
+  if (file === "exploded.stl" || file === "parts.zip" || /^part-.+\.stl$/i.test(file)) {
+    const parts = await partsFromThreeMf(job.threemf, { code: job.scad });
+    if (file === "exploded.stl") {
+      const body = parts.length
+        ? explodedStlBuffer(parts, job.assembly)
+        : job.stl;
+      return new Response(new Uint8Array(body), {
+        headers: {
+          "Content-Type": "application/sla",
+          "Content-Disposition": 'attachment; filename="describeprint-exploded.stl"',
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+    if (file === "parts.zip") {
+      if (parts.length < 2) {
+        return Response.json({ error: "This plate is a single part — download the STL instead." }, { status: 400 });
+      }
+      const body = await partsZipBuffer(parts);
+      return new Response(new Uint8Array(body), {
+        headers: {
+          "Content-Type": "application/zip",
+          "Content-Disposition": 'attachment; filename="describeprint-parts.zip"',
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+    const slug = file.replace(/^part-/i, "").replace(/\.stl$/i, "");
+    const part = parts.find((item) => item.id === slug);
+    if (!part) {
+      return Response.json({ error: "Unknown part" }, { status: 404 });
+    }
+    return new Response(new Uint8Array(partStlBuffer(part)), {
+      headers: {
+        "Content-Type": "application/sla",
+        "Content-Disposition": `attachment; filename="${slug}.stl"`,
+        "Cache-Control": "no-store",
+      },
+    });
   }
 
   if (file === "ams-plan.json") {

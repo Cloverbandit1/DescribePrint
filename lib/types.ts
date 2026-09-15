@@ -196,6 +196,30 @@ export type PrintabilityReport = {
   strengthPreview?: StrengthPreview;
 };
 
+export type AssemblySource = "joints" | "modules" | "color-regions" | "mesh-islands" | "single";
+
+export type ExplodeAxis = "x" | "y" | "z";
+
+export type AssemblyPartInfo = {
+  id: string;
+  name: string;
+  triangleCount: number;
+  boundingBoxMm: BoundingBoxMm;
+  explodeOffsetMm: [number, number, number];
+};
+
+/** Heuristic multi-body inspect / export — not kinematics. */
+export type AssemblyInfo = {
+  isAssembly: boolean;
+  source: AssemblySource;
+  parts: AssemblyPartInfo[];
+  explodeAxis: ExplodeAxis;
+  explodeGapMm: number;
+  kinematics: false;
+  method: "heuristic-offset";
+  disclaimer: string;
+};
+
 export type GenerateResult = {
   jobId: string;
   language: "openscad";
@@ -205,6 +229,8 @@ export type GenerateResult = {
   stlUrl: string;
   threemfUrl: string;
   scadUrl: string;
+  explodedStlUrl?: string;
+  partsZipUrl?: string;
   report: PrintabilityReport;
   source: PartSource;
   fileName?: string | null;
@@ -214,6 +240,8 @@ export type GenerateResult = {
   notes: string[];
   /** Named color / material objects written into the 3MF (AMS slots are export metadata). */
   colorRegions: ColorRegion[];
+  /** Multi-body inspect / named-part export. Present after generate/import. */
+  assembly?: AssemblyInfo;
   /** Present when the plate came from a photo → solid stub. */
   imageImport?: ImageImportMeta | null;
   /** Present when the solid does not fit the current printer (default P2S). */
@@ -264,6 +292,9 @@ export type Mesh = {
  *   Import preserves 3MF colors when present. Not live AMS / machine control.
  * - Heuristic strength preview heatmap (thickness / concave / overhang /
  *   tiny-section). Not FEA.
+ * - Assembly / explode stub: detect joints / named modules / 3MF regions /
+ *   mesh islands; Assembled vs Exploded viewer offset; per-part STL + named
+ *   multi-object 3MF. Explode is a one-axis heuristic, not kinematics.
  *
  * Still later:
  * - describe-to-modify already sends previousPrompt/previousCode on CAD follow-ups

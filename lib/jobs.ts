@@ -1,3 +1,4 @@
+import { emptyAssembly, formatAssemblyNote, type AssemblyInfo } from "./assembly";
 import type { MachineDesignation } from "./alternate-machines";
 import { defaultColorRegion, regionsToDesignFilaments, type ColorRegion } from "./color-regions";
 import { buildAmsSlotPlan, normalizeAmsSlotPlan } from "./machine/ams";
@@ -35,6 +36,7 @@ export type StoredJob = {
   machineDesignation?: MachineDesignation | null;
   printPreset: PrintPresetSummary;
   amsSlotPlan: AmsSlotPlan;
+  assembly: AssemblyInfo;
 };
 
 export type CreateJobInput = Omit<StoredJob, "id" | "createdAt" | "printPreset" | "amsSlotPlan"> & {
@@ -50,6 +52,7 @@ export type CreateJobInput = Omit<StoredJob, "id" | "createdAt" | "printPreset" 
   machineDesignation?: MachineDesignation | null;
   printPreset?: PrintPresetSummary | null;
   amsSlotPlan?: AmsSlotPlan | null;
+  assembly?: AssemblyInfo | null;
 };
 
 const TTL_MS = 60 * 60 * 1000;
@@ -90,6 +93,7 @@ export function createJob(input: CreateJobInput): StoredJob {
         material: (input.printPreset ?? printPresetSummary("pla")).material,
         design: regionsToDesignFilaments(input.colorRegions?.length ? input.colorRegions : [defaultColorRegion()]),
       }),
+    assembly: input.assembly ?? emptyAssembly(),
     id: globalThis.crypto.randomUUID(),
     createdAt: Date.now(),
   };
@@ -125,8 +129,10 @@ export function resetJobs(): void {
 
 export function toGenerateResult(job: StoredJob): GenerateResult {
   const strengthNote = formatStrengthPreviewNote(job.report.strengthPreview);
+  const assemblyNote = formatAssemblyNote(job.assembly);
   const notes = [...job.notes];
   if (strengthNote && !notes.includes(strengthNote)) notes.push(strengthNote);
+  if (assemblyNote && !notes.includes(assemblyNote)) notes.push(assemblyNote);
   return {
     jobId: job.id,
     language: "openscad",
@@ -136,6 +142,8 @@ export function toGenerateResult(job: StoredJob): GenerateResult {
     stlUrl: `/api/jobs/${job.id}/model.stl`,
     threemfUrl: `/api/jobs/${job.id}/model.3mf`,
     scadUrl: `/api/jobs/${job.id}/model.scad`,
+    explodedStlUrl: `/api/jobs/${job.id}/exploded.stl`,
+    partsZipUrl: `/api/jobs/${job.id}/parts.zip`,
     report: job.report,
     source: job.source,
     fileName: job.fileName,
@@ -144,6 +152,7 @@ export function toGenerateResult(job: StoredJob): GenerateResult {
     editMode: job.editMode,
     notes,
     colorRegions: job.colorRegions,
+    assembly: job.assembly,
     imageImport: job.imageImport ?? null,
     machineDesignation: job.machineDesignation ?? null,
     printPreset: job.printPreset,

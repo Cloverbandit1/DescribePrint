@@ -1,9 +1,17 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
+  assemblyFromParts,
+  emptyAssembly,
+  hasNamedPartColors,
+  objectsFromAssemblyParts,
+  partsFromIslands,
+  partsFromObjects,
+  type AssemblyInfo,
+} from "./assembly";
+import {
   colorRegionsNote,
   defaultColorRegion,
-  isDefaultOnlyRegions,
   mergeColorRegionSources,
   withSelectedFilament,
   type ColorRegion,
@@ -18,7 +26,7 @@ import {
   UNSPLIT_COLOR_NOTE,
 } from "./region-paint";
 import { printPresetSummary, type PrintPresetSummary } from "./printers";
-import { checkMesh, hasHardMeshFailure } from "./mesh-check";
+import { boundingBoxMm, checkMesh, hasHardMeshFailure, splitSolidComponents } from "./mesh-check";
 import { compileOpenScad, withTempDir } from "./compile";
 import { createJob, getJob, toGenerateResult, type StoredJob } from "./jobs";
 import {
@@ -71,9 +79,10 @@ import {
   scaleMeshesUniform,
   sitMeshOnBed,
   sitMeshesOnBed,
+  translateMesh,
 } from "./mesh-transform";
-import { extractOpenScadColorBodies, mergeScadBodiesWithRegions, scadWithOnlyBody } from "./openscad-colors";
-import { hasPrintInPlaceJoints } from "./joints";
+import { extractOpenScadAssemblyBodies, extractOpenScadColorBodies, mergeScadBodiesWithRegions, scadWithOnlyBody } from "./openscad-colors";
+import { hasPrintInPlaceJoints, type CadJoint } from "./joints";
 import { formatPrintabilityFeedback, shouldRetryPrintability, wantsNewDesign } from "./printability";
 import { IMPORTED_MESH_FILENAME, sanitizeOpenScad } from "./sanitize";
 import { parseStl, writeBinaryStl } from "./stl";
@@ -149,20 +158,73 @@ function stampPresetFilament(objects: ThreeMfObject[], preset: PrintPresetSummar
   }));
 }
 
+function sitObjectsAsGroup(objects: ThreeMfObject[]): ThreeMfObject[] {
+  if (objects.length === 0) return objects;
+  const combined = { triangles: objects.flatMap((object) => object.mesh.triangles) };
+  const box = boundingBoxMm(combined);
+  if (!Number.isFinite(box.min[2]) || Math.abs(box.min[2]) < 1e-6) return objects;
+  return objects.map((object) => ({ ...object, mesh: translateMesh(object.mesh, [0, 0, -box.min[2]]) }));
+}
+
+function assemblyFromExportObjects(
+  objects: ThreeMfObject[],
+  opts: { code?: string | null; prompt?: string | null; joints?: CadJoint[] | null } = {},
+): AssemblyInfo {
+  if (objects.length < 2) return emptyAssembly();
+  const parts = partsFromObjects(objects, opts);
+  return assemblyFromParts(parts, {
+    ...opts,
+    namedColors: hasNamedPartColors(colorRegionsFromObjects(objects)),
+  });
+}
+
+async function compileAssemblyObjects(
+  code: string,
+  regions: ColorRegion[],
+  dir: string,
+): Promise<ThreeMfObject[]> {
+  const bodies = extractOpenScadAssemblyBodies(code);
+  if (bodies.length < 2) return [];
+  const paired = mergeScadBodiesWithRegions(bodies, regions);
+  const objects: ThreeMfObject[] = [];
+  for (const item of paired) {
+    try {
+      const compiled = await compileOpenScad(scadWithOnlyBody(code, item.renderStatement), dir);
+      const mesh = parseStl(compiled.stl);
+      if (mesh.triangles.length === 0) continue;
+      objects.push({
+        name: item.name,
+        mesh,
+        colorHex: item.region.colorHex,
+        colorName: item.region.colorName,
+        filament: item.region.filament,
+        extruder: item.region.amsSlot,
+      });
+    } catch {
+      // Isolate compile failed — fall back to mesh islands.
+    }
+  }
+  return objects.length >= 2 ? objects : [];
+}
+
 async function artifactsFromObjects(
   objects: ThreeMfObject[],
   code: string,
   name = "DescribePrint",
   printPreset: PrintPresetSummary = printPresetSummary("pla"),
+  opts: { prompt?: string | null; joints?: CadJoint[] | null; sitAsGroup?: boolean } = {},
 ): Promise<{
   stl: Buffer;
   threemf: Buffer;
   report: ReturnType<typeof checkMesh>;
   code: string;
   colorRegions: ColorRegion[];
+  assembly: AssemblyInfo;
 }> {
   const seated = stampPresetFilament(
-    withMeshes(objects, sitMeshesOnBed(objects.map((object) => object.mesh))),
+    opts.sitAsGroup
+      ? sitObjectsAsGroup(objects)
+      : withMeshes(objects, sitMeshesOnBed(objects.map((object) => object.mesh))),
     printPreset,
   );
   const combined = { triangles: seated.flatMap((object) => object.mesh.triangles) };
@@ -176,7 +238,14 @@ async function artifactsFromObjects(
   }
   const stl = writeBinaryStl(combined, name);
   const threemf = await meshesTo3mf(seated, name, printPreset);
-  return { stl, threemf, report, code, colorRegions: colorRegionsFromObjects(seated) };
+  return {
+    stl,
+    threemf,
+    report,
+    code,
+    colorRegions: colorRegionsFromObjects(seated),
+    assembly: assemblyFromExportObjects(seated, { code, prompt: opts.prompt, joints: opts.joints }),
+  };
 }
 
 async function artifactsFromMesh(
@@ -191,6 +260,7 @@ async function artifactsFromMesh(
   report: ReturnType<typeof checkMesh>;
   code: string;
   colorRegions: ColorRegion[];
+  assembly: AssemblyInfo;
 }> {
   return artifactsFromObjects(
     objectsFromRegions([mesh], withSelectedFilament(regions, printPreset.material), name, printPreset.material),
@@ -346,13 +416,20 @@ function importedWrapHint(
 async function compileAndCheck(
   code: string,
   importedStl?: Buffer,
-  opts: { sitOnBed?: boolean; colorRegions?: ColorRegion[]; printPreset?: PrintPresetSummary } = {},
+  opts: {
+    sitOnBed?: boolean;
+    colorRegions?: ColorRegion[];
+    printPreset?: PrintPresetSummary;
+    prompt?: string | null;
+    joints?: CadJoint[] | null;
+  } = {},
 ): Promise<{
   stl: Buffer;
   threemf: Buffer;
   report: ReturnType<typeof checkMesh>;
   colorRegions: ColorRegion[];
   splitColorObjects: boolean;
+  assembly: AssemblyInfo;
 }> {
   return withTempDir(async (dir) => {
     if (importedStl) {
@@ -369,12 +446,25 @@ async function compileAndCheck(
     if (opts.sitOnBed) {
       mesh = sitMeshOnBed(mesh);
     }
-    const exportObjects = stampPresetFilament(
-      colorObjects.length
-        ? withMeshes(colorObjects, sitMeshesOnBed(colorObjects.map((object) => object.mesh)))
-        : objectsFromRegions([mesh], regions, "DescribePrint", printPreset.material),
-      printPreset,
-    );
+    let exportObjects: ThreeMfObject[];
+    if (colorObjects.length >= 2) {
+      exportObjects = withMeshes(colorObjects, sitMeshesOnBed(colorObjects.map((object) => object.mesh)));
+    } else {
+      const moduleObjects = importedStl ? [] : await compileAssemblyObjects(code, regions, dir);
+      if (moduleObjects.length >= 2) {
+        exportObjects = opts.sitOnBed ? sitObjectsAsGroup(moduleObjects) : moduleObjects;
+      } else {
+        const islands = splitSolidComponents(mesh);
+        if (islands.length >= 2) {
+          exportObjects = objectsFromAssemblyParts(
+            partsFromIslands(islands, { code, prompt: opts.prompt, joints: opts.joints }),
+          );
+        } else {
+          exportObjects = objectsFromRegions([mesh], regions, "DescribePrint", printPreset.material);
+        }
+      }
+    }
+    exportObjects = stampPresetFilament(exportObjects, printPreset);
     const report = checkMesh(mesh);
     if (hasHardMeshFailure(report)) {
       const summary = report.issues
@@ -391,6 +481,11 @@ async function compileAndCheck(
       report,
       colorRegions: colorRegionsFromObjects(exportObjects),
       splitColorObjects: colorObjects.length >= 2,
+      assembly: assemblyFromExportObjects(exportObjects, {
+        code,
+        prompt: opts.prompt,
+        joints: opts.joints,
+      }),
     };
   });
 }
@@ -519,6 +614,7 @@ export async function runImageImportPipeline(
     editMode: "image-import",
     notes,
     colorRegions: artifacts.colorRegions,
+    assembly: artifacts.assembly,
     imageImport: built.meta,
     machineDesignation: built.designation,
     printPreset,
@@ -552,7 +648,7 @@ export async function runImportPipeline(
   const artifacts = await artifactsFromObjects(objects, code, imported.fileName, printPreset);
   const wearableCategory = inferWearableCategory(imported.fileName);
   const notes = [IMPORT_LIMITS_NOTE, wearableChartNote(), describeWearableSize(null, wearableCategory)];
-  if (!isDefaultOnlyRegions(artifacts.colorRegions)) {
+  if (hasNamedPartColors(artifacts.colorRegions)) {
     notes.push(colorRegionsNote(artifacts.colorRegions));
   }
   const job = createJob({
@@ -571,6 +667,7 @@ export async function runImportPipeline(
     editMode: "import",
     notes,
     colorRegions: artifacts.colorRegions,
+    assembly: artifacts.assembly,
   });
   emit(sink, { step: "done", message: "Imported mesh is on the plate." });
   return toGenerateResult(job);
@@ -619,7 +716,7 @@ async function runImportedMeshEdit(
     describeWearableSize(wearableSize, transformed.wearableCategory),
     ...intent.notes,
   ];
-  if (!isDefaultOnlyRegions(colorRegionsFromObjects(objects))) {
+  if (hasNamedPartColors(colorRegionsFromObjects(objects))) {
     notes.push(colorRegionsNote(colorRegionsFromObjects(objects)));
   }
 
@@ -648,6 +745,7 @@ async function runImportedMeshEdit(
       editMode: "transform",
       notes,
       colorRegions: artifacts.colorRegions,
+      assembly: artifacts.assembly,
       printPreset,
       imageImport: previous.imageImport ?? null,
       machineDesignation: previous.machineDesignation ?? null,
@@ -715,7 +813,11 @@ async function runImportedMeshEdit(
     emit(sink, { step: "compile", message: "Compiling OpenSCAD wrapper → STL…", attempt: attemptNo });
     emit(sink, { step: "mesh-check", message: "Checking mesh printability…", attempt: attemptNo });
     emit(sink, { step: "export", message: "Writing STL and 3MF…", attempt: attemptNo });
-    const compiled = await compileAndCheck(sanitized.code, importedStl, { sitOnBed: true, printPreset });
+    const compiled = await compileAndCheck(sanitized.code, importedStl, {
+      sitOnBed: true,
+      printPreset,
+      prompt: request.prompt,
+    });
     return { code: sanitized.code, ...compiled };
   };
 
@@ -788,6 +890,7 @@ async function runImportedMeshEdit(
     editMode: "describe-wrapper",
     notes,
     colorRegions: artifacts.colorRegions ?? [defaultColorRegion()],
+    assembly: artifacts.assembly,
     printPreset,
     imageImport: previous.imageImport ?? null,
     machineDesignation: previous.machineDesignation ?? null,
@@ -877,6 +980,7 @@ async function runCompleteBodyEdit(
     editMode: prior ? "image-import" : "transform",
     notes,
     colorRegions: artifacts.colorRegions,
+    assembly: artifacts.assembly,
     printPreset,
     imageImport,
     machineDesignation: designation,
@@ -951,7 +1055,12 @@ async function runOpenscadGenerate(
     emit(sink, { step: "compile", message: "Compiling OpenSCAD → STL…", attempt: attemptNo });
     emit(sink, { step: "mesh-check", message: "Checking mesh printability…", attempt: attemptNo });
     emit(sink, { step: "export", message: "Writing STL and 3MF…", attempt: attemptNo });
-    const compiled = await compileAndCheck(sanitized.code, undefined, { colorRegions, printPreset });
+    const compiled = await compileAndCheck(sanitized.code, undefined, {
+      colorRegions,
+      printPreset,
+      prompt,
+      joints: plan?.joints,
+    });
     if (wearableSize && wearableSize !== "M") {
       emit(sink, { step: "transform", message: `Applying wearable size ${wearableSize}…` });
       const parsed = await parse3mfDocument(compiled.threemf);
@@ -1025,7 +1134,7 @@ async function runOpenscadGenerate(
   const knowledgeNote = formatKnowledgeNote(knowledge);
   if (knowledgeNote) notes.push(knowledgeNote);
   const exportedRegions = artifacts.colorRegions ?? colorRegions;
-  if (!isDefaultOnlyRegions(exportedRegions)) {
+  if (hasNamedPartColors(exportedRegions)) {
     notes.push(colorRegionsNote(exportedRegions));
     if (!artifacts.splitColorObjects && colorRegions.length > 1) {
       notes.push(UNSPLIT_COLOR_NOTE);
@@ -1046,6 +1155,7 @@ async function runOpenscadGenerate(
     editMode: wearableSize && wearableSize !== "M" ? "transform" : "create",
     notes,
     colorRegions: exportedRegions,
+    assembly: artifacts.assembly,
     printPreset,
   });
 
@@ -1173,7 +1283,7 @@ async function runGeneratePipelineCore(
     const objects = withMeshes(previousObjects, transformed.meshes);
     const mesh = { triangles: objects.flatMap((object) => object.mesh.triangles) };
     const notes = [wearableChartNote(), describeWearableSize(transformed.wearableSize, transformed.wearableCategory)];
-    if (!isDefaultOnlyRegions(colorRegionsFromObjects(objects))) {
+    if (hasNamedPartColors(colorRegionsFromObjects(objects))) {
       notes.push(colorRegionsNote(colorRegionsFromObjects(objects)));
     }
     const source: PartSource = previous.source;
@@ -1204,6 +1314,7 @@ async function runGeneratePipelineCore(
       editMode: "transform",
       notes,
       colorRegions: artifacts.colorRegions,
+      assembly: artifacts.assembly,
       printPreset,
     });
     emit(sink, { step: "done", message: "Applied wearable size." });
@@ -1255,6 +1366,7 @@ async function runRegionPaintEdit(
     editMode: previous.editMode === "image-import" ? "image-import" : "transform",
     notes,
     colorRegions: artifacts.colorRegions,
+    assembly: artifacts.assembly,
     printPreset,
     imageImport: previous.imageImport ?? null,
     machineDesignation: previous.machineDesignation ?? null,

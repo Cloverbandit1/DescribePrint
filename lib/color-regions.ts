@@ -150,9 +150,14 @@ export function isDefaultOnlyRegions(regions: ColorRegion[]): boolean {
   return regions.length <= 1 && (regions[0]?.colorName ?? DEFAULT_COLOR_NAME) === DEFAULT_COLOR_NAME;
 }
 
-/** Stamp the Machine-panel material onto a default (uncolored) region. Named colors keep their own filament. */
+/** True when every region is still the uncolored default (even if there are several named solids). */
+export function isUncoloredRegions(regions: ColorRegion[]): boolean {
+  return regions.every((region) => (region.colorName ?? DEFAULT_COLOR_NAME) === DEFAULT_COLOR_NAME);
+}
+
+/** Stamp the Machine-panel material onto uncolored regions. Named colors keep their own filament. */
 export function withSelectedFilament(regions: ColorRegion[], filament: FilamentId): ColorRegion[] {
-  if (!isDefaultOnlyRegions(regions)) return regions;
+  if (!isUncoloredRegions(regions)) return regions;
   return regions.map((region) => ({ ...region, filament }));
 }
 

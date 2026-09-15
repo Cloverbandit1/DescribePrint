@@ -19,7 +19,7 @@ export type MeshEditIntent = {
 };
 
 const GENERATIVE =
-  /\b(hole|bore|cut|slot|slit|tab|thicken|fillet|chamfer|emboss|engrave|etch|add a|add an|difference|boolean|remesh|carve|pocket|pretty(?:\s+(?:it|this|that|the\s+\w+))?(?:\s|-)?up|restyle|steampunk|decorative\s+(?:ribs?|panels?)|round(?:\s+the)?\s+edges)\b/i;
+  /\b(hole|bore|cut|slot|slit|tab|thicken|fillet|chamfer|emboss|engrave|etch|add a|add an|difference|boolean|remesh|carve|pocket|pretty(?:\s+(?:it|this|that|the\s+\w+))?(?:\s|-)?up|restyle|steampunk|decorative\s+(?:ribs?|panels?)|round(?:\s+the)?\s+edges|lattice|honeycomb|gyroid|lightweight(?:ing)?|lighten)\b/i;
 
 const COMPLETE_BODY =
   /\b(complete(?:\s+the)?\s+body|match(?:\s+this)?\s+head|matching\s+(?:body|torso)|add(?:\s+a)?\s+(?:torso|body)|finish(?:\s+the)?\s+(?:figure|body)|full(?:\s+)?figure)\b/i;
@@ -144,7 +144,7 @@ export function parseMeshEditIntent(
 
   if (generative) {
     notes.push(
-      "Generative remesh is partial: OpenSCAD wraps the imported STL (holes/tabs/emboss/etch/pretty-up). Full triangle sculpt / neural Style2Fab is not ready.",
+      "Generative remesh is partial: OpenSCAD wraps the imported STL (holes/tabs/emboss/etch/pretty-up/lattice). Full triangle sculpt / neural Style2Fab / FEA is not ready.",
     );
     return {
       kind: "describe-wrapper",

@@ -71,6 +71,7 @@ import {
   type ImportHoleSpec,
 } from "./import-hole";
 import { formatPrettyUpNote, inferCadPrettyUp } from "./pretty-up";
+import { formatLatticeNote, inferCadLattice } from "./lattice";
 import { attachImageMotif, formatReliefNote, inferCadReliefs, standaloneImageReliefScad } from "./relief";
 import { cadKnowledgeFromPrompt, formatKnowledgeNote } from "./knowledge";
 import {
@@ -410,11 +411,18 @@ function importedWrapHint(
         reliefs,
       })
     : undefined;
+  const lattice = prompt
+    ? inferCadLattice({
+        prompt,
+        holes: hole ? [{ d: hole.diameterMm, through: hole.through }] : undefined,
+        sizeMm: box.size,
+      })
+    : undefined;
   return {
     holeSpecNote: hole ? formatHoleSpecForPrompt(hole, box) : undefined,
     suggestedWrap:
-      hole || addTab || reliefs.length || prettyUp?.applied
-        ? buildImportedMeshWrapper({ mesh, hole, addTab, reliefs, prettyUp, prompt })
+      hole || addTab || reliefs.length || prettyUp?.applied || lattice?.applied
+        ? buildImportedMeshWrapper({ mesh, hole, addTab, reliefs, prettyUp, lattice, prompt })
         : undefined,
   };
 }
@@ -897,13 +905,22 @@ async function runImportedMeshEdit(
     sizeMm: box.sizeMm,
     reliefs,
   });
-  const deterministic = canBuildDeterministicImportWrap(prompt, hole, intent.addTab, reliefs, prettyUp);
+  const lattice = inferCadLattice({
+    prompt,
+    previousPrompt: request.previousPrompt,
+    previousCode: request.previousCode,
+    holes: hole ? [{ d: hole.diameterMm, through: hole.through }] : undefined,
+    sizeMm: box.sizeMm,
+  });
+  const deterministic = canBuildDeterministicImportWrap(prompt, hole, intent.addTab, reliefs, prettyUp, lattice);
   const wrapHint = importedWrapHint(hole, mesh, intent.addTab, prompt);
-  const engineered = wrapHint.suggestedWrap ?? buildImportedMeshWrapper({ mesh, hole, addTab: intent.addTab, reliefs, prettyUp, prompt });
+  const engineered = wrapHint.suggestedWrap ?? buildImportedMeshWrapper({ mesh, hole, addTab: intent.addTab, reliefs, prettyUp, lattice, prompt });
   if (hole) notes.push(...hole.notes);
   if (reliefs.length) notes.push(formatReliefNote(reliefs));
   const prettyNote = formatPrettyUpNote(prettyUp);
   if (prettyNote) notes.push(prettyNote);
+  const latticeNote = formatLatticeNote(lattice);
+  if (latticeNote) notes.push(latticeNote);
   if ((previous.colorRegions?.length ?? 0) > 1) {
     notes.push(
       "Hole wrap compiles one OpenSCAD solid, so previous 3MF color objects were flattened. Describe colors again to re-split filaments.",
@@ -1255,6 +1272,15 @@ async function runOpenscadGenerate(
   });
   const prettyNote = formatPrettyUpNote(prettyUp);
   if (prettyNote) notes.push(prettyNote);
+  const lattice = plan?.lattice ?? inferCadLattice({
+    prompt,
+    previousPrompt: request.previousPrompt,
+    previousCode: request.previousCode,
+    holes: plan?.holes,
+    joints: plan?.joints,
+  });
+  const latticeNote = formatLatticeNote(lattice);
+  if (latticeNote) notes.push(latticeNote);
   const knowledge = plan?.knowledge ?? cadKnowledgeFromPrompt(prompt);
   const knowledgeNote = formatKnowledgeNote(knowledge);
   if (knowledgeNote) notes.push(knowledgeNote);

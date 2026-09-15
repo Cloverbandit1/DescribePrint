@@ -6,6 +6,7 @@ import { compileOpenScad, withTempDir } from "@/lib/compile";
 import { defaultFixture, matchFixture } from "@/lib/fixtures";
 import { BALL_FIXTURE_PROMPT, HINGE_FIXTURE_PROMPT, PIN_FIXTURE_PROMPT, SNAP_FIXTURE_PROMPT } from "@/lib/joints";
 import { CUBE_FILLET_PROMPT, CUBE_STEAMPUNK_PROMPT } from "@/lib/pretty-up";
+import { CUBE_GYROID_PROMPT, PHONE_HONEYCOMB_PROMPT } from "@/lib/lattice";
 import {
   CHEST_CHEVRON_PROMPT,
   CUBE_ETCH_PROMPT,
@@ -234,6 +235,28 @@ describe("OpenSCAD compile path", () => {
       expect(filletReport.volumeMm3).toBeGreaterThan(0);
       expect(filletReport.volumeMm3).toBeLessThan(8000);
       expect(steamReport.volumeMm3).toBeGreaterThan(filletReport.volumeMm3);
+    });
+  });
+
+  it.skipIf(!hasOpenscad())("compiles honeycomb phone-stand and gyroid cube lattice fixtures", async () => {
+    const stand = matchFixture(PHONE_HONEYCOMB_PROMPT);
+    const cube = matchFixture(CUBE_GYROID_PROMPT);
+    expect(stand && cube).toBeTruthy();
+    const standOk = sanitizeOpenScad(stand!.code);
+    const cubeOk = sanitizeOpenScad(cube!.code);
+    expect(standOk.ok && cubeOk.ok).toBe(true);
+    if (!standOk.ok || !cubeOk.ok) return;
+
+    await withTempDir(async (dir) => {
+      const standMesh = parseStl((await compileOpenScad(standOk.code, dir)).stl);
+      const cubeMesh = parseStl((await compileOpenScad(cubeOk.code, dir)).stl);
+      const standReport = checkMesh(standMesh);
+      const cubeReport = checkMesh(cubeMesh);
+      expect(hasHardMeshFailure(standReport)).toBe(false);
+      expect(hasHardMeshFailure(cubeReport)).toBe(false);
+      expect(standReport.volumeMm3).toBeGreaterThan(0);
+      expect(cubeReport.volumeMm3).toBeGreaterThan(0);
+      expect(cubeReport.volumeMm3).toBeLessThan(8000);
     });
   });
 });

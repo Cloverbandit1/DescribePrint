@@ -8,6 +8,13 @@ import {
   type CadPrettyUp,
 } from "./pretty-up";
 import {
+  inferCadLattice,
+  importedLatticeCutters,
+  importedLatticeModules,
+  promptHasLattice,
+  type CadLattice,
+} from "./lattice";
+import {
   inferCadReliefs,
   promptHasRelief,
   reliefMotifScad,
@@ -51,17 +58,28 @@ const BLIND = /\b(blind|pocket|stopped|partial(?:ly)?(?:\s+through)?)\b/i;
 const COMPLEX_WRAP =
   /\b(slot|slit|thicken|remesh|boolean)\b/i;
 
-/** Hole/tab/relief/pretty-up wraps we can emit as deterministic CSG — no LLM rewrite. */
+/** Hole/tab/relief/pretty-up/lattice wraps we can emit as deterministic CSG — no LLM rewrite. */
 export function canBuildDeterministicImportWrap(
   prompt: string,
   hole: ImportHoleSpec | null,
   addTab: boolean,
   reliefs?: CadRelief[] | null,
   prettyUp?: CadPrettyUp | null,
+  lattice?: CadLattice | null,
 ): boolean {
   if (COMPLEX_WRAP.test(prompt)) return false;
-  if (prettyUp?.refused) {
+  if (prettyUp?.refused && !lattice?.applied) {
     return hole !== null || addTab || Boolean(reliefs?.length) || promptHasRelief(prompt);
+  }
+  if (lattice?.refused) {
+    return (
+      hole !== null ||
+      addTab ||
+      Boolean(reliefs?.length) ||
+      promptHasRelief(prompt) ||
+      Boolean(prettyUp?.applied) ||
+      promptHasPrettyUp(prompt)
+    );
   }
   return (
     hole !== null ||
@@ -69,7 +87,9 @@ export function canBuildDeterministicImportWrap(
     Boolean(reliefs?.length) ||
     promptHasRelief(prompt) ||
     Boolean(prettyUp?.applied) ||
-    promptHasPrettyUp(prompt)
+    promptHasPrettyUp(prompt) ||
+    Boolean(lattice?.applied) ||
+    promptHasLattice(prompt)
   );
 }
 
@@ -308,6 +328,7 @@ export function buildImportedMeshWrapper(input: {
   addTab?: boolean;
   reliefs?: CadRelief[] | null;
   prettyUp?: CadPrettyUp | null;
+  lattice?: CadLattice | null;
   prompt?: string;
 }): string {
   const box = boundingBoxMm(input.mesh);
@@ -329,6 +350,15 @@ export function buildImportedMeshWrapper(input: {
           holes: hole ? [{ d: hole.diameterMm, through: hole.through }] : undefined,
           sizeMm: box.size,
           reliefs,
+        })
+      : undefined);
+  const lattice =
+    input.lattice ??
+    (input.prompt
+      ? inferCadLattice({
+          prompt: input.prompt,
+          holes: hole ? [{ d: hole.diameterMm, through: hole.through }] : undefined,
+          sizeMm: box.size,
         })
       : undefined);
   const lines = [
@@ -357,6 +387,12 @@ export function buildImportedMeshWrapper(input: {
   } else if (prettyUp?.refused) {
     lines.push(`// pretty-up refused: ${prettyUp.refuse_reason ?? "functional preserve"}`);
   }
+  if (lattice?.applied) {
+    lines.push(`// lattice: ${lattice.pattern} interior (heuristic; not FEA)`);
+    lines.push(importedLatticeModules(lattice));
+  } else if (lattice?.refused) {
+    lines.push(`// lattice refused: ${lattice.refuse_reason ?? "functional preserve"}`);
+  }
 
   const host = `import("${IMPORTED_MESH_FILENAME}", convexity = 10);`;
   const etchReliefs = reliefs.filter((relief) => relief.kind === "etch");
@@ -365,13 +401,14 @@ export function buildImportedMeshWrapper(input: {
   const embossBody = embossReliefs.map((relief) => reliefMotifScad(relief, box)).join("\n  ");
   const prettyExtras = prettyUp?.applied ? importedPrettyUpExtrasScad(prettyUp, box) : "";
   const prettyCuts = prettyUp?.applied ? importedPrettyUpChamferCutters(prettyUp, box) : "";
+  const latticeCut = lattice?.applied ? importedLatticeCutters(lattice, box, hole?.diameterMm) : "";
   const holeBlock =
     hole &&
     `difference() {
   ${host}
   ${holeCutter(hole, box)}
 }`;
-  const cutters = [etchCutter, prettyCuts].filter(Boolean).join("\n  ");
+  const cutters = [etchCutter, prettyCuts, latticeCut].filter(Boolean).join("\n  ");
   const etchedHost = cutters
     ? `difference() {
   ${holeBlock ?? host}

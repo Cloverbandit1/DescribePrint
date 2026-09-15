@@ -1,5 +1,6 @@
 # DescribePrint — AllosWorkstation Windows start
-# One-click: deps, .env.local, then the Next.js app on http://localhost:3000
+# One-click: deps, .env.local, health preflight (warn+continue), then Next.js on http://localhost:3000
+# Entry for Desktop bats remains Start-DescribePrint.cmd (this file is the PowerShell path).
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
@@ -41,6 +42,18 @@ if (-not (Test-Path (Join-Path $Root "node_modules"))) {
     Write-Host "Installing npm dependencies…"
     npm install
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
+Write-Host ""
+Write-Host "Launch preflight (Ollama + MODEL + OpenSCAD)…" -ForegroundColor Cyan
+npm run --silent health:preflight
+$preflight = $LASTEXITCODE
+if ($preflight -eq 1) {
+    Write-Host "Preflight could not finish. Starting the app anyway." -ForegroundColor Yellow
+} elseif ($preflight -eq 2) {
+    Write-Host "Preflight reported issues. Starting anyway — generate/compile may fail until those are fixed." -ForegroundColor Yellow
+} elseif ($preflight -ne 0 -and $preflight -ne $null) {
+    Write-Host "Preflight exited $preflight. Starting the app anyway." -ForegroundColor Yellow
 }
 
 Write-Host ""

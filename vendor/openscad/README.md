@@ -11,3 +11,5 @@ Until then:
 1. Install OpenSCAD from https://openscad.org/ (common Windows paths are auto-detected).
 2. Or set `OPENSCAD_PATH` to the executable or its folder.
 3. Or place `openscad.exe` / `openscad` in this directory.
+
+`Start-DescribePrint.cmd` runs a preflight `resolveOpenscad` check before `npm run dev`. A missing binary is a warning — Start still launches.

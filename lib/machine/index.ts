@@ -192,6 +192,25 @@ export {
   type PrintEstimateVolumeSource,
 } from "./print-estimate";
 export {
+  PRINT_DOCTOR_MEMORY_KEY,
+  applyStoredDoctorMemory,
+  confirmDoctorPerfect,
+  emptyPrintDoctorMemory,
+  findMemoryEntry,
+  memoryMaterialKey,
+  memoryScopeFromResult,
+  memoryScopeKey,
+  parsePrintDoctorMemory,
+  readPrintDoctorMemory,
+  rememberPerfect,
+  rememberStillBad,
+  serializePrintDoctorMemory,
+  writePrintDoctorMemory,
+  type PrintDoctorMemoryEntry,
+  type PrintDoctorMemoryScope,
+  type PrintDoctorMemoryStore,
+} from "./print-doctor-memory";
+export {
   PROJECT_PACK_EMPTY_ERROR,
   PROJECT_PACK_FILES,
   PROJECT_PACK_NOTE,

@@ -302,11 +302,15 @@ export type Mesh = {
  * - Assembly / explode stub: detect joints / named modules / 3MF regions /
  *   mesh islands; Assembled vs Exploded viewer offset; per-part STL + named
  *   multi-object 3MF. Explode is a one-axis heuristic, not kinematics.
+ * - Part library + remix stub: save the current plate (prompt + OpenSCAD or
+ *   import job id + metadata) in localStorage, load it back, remix from the
+ *   saved part. This device only — not cloud sync. Cap 12.
  *
  * Still later:
  * - describe-to-modify already sends previousPrompt/previousCode on CAD follow-ups
  * - version history / undo is an in-session stack (see lib/version-history.ts)
  * - user profile stub is localStorage-only (see lib/user-profile.ts)
+ * - part library stub is localStorage-only (see lib/part-library.ts)
  * - Neural Style2Fab / image style transfer (pretty-up shipped as heuristic CSG)
  * - organic mesh, photogrammetry / NeRF image→3D, Print doctor, machine control
  *

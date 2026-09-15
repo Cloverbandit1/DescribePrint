@@ -9,6 +9,15 @@ import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 export type CameraView = "iso" | "top" | "front" | "left";
 export type ViewerTheme = "dark" | "light";
 
+/** Plate-space AABB outlines from the packing stub (front-left origin, mm). */
+export type PackOutline = {
+  id: string;
+  x: number;
+  y: number;
+  widthMm: number;
+  depthMm: number;
+};
+
 const VIEW_PRESETS: Record<CameraView, { position: [number, number, number]; target: [number, number, number] }> = {
   iso: { position: [200, 155, 220], target: [0, 12, 0] },
   top: { position: [0, 340, 0.02], target: [0, 0, 0] },
@@ -145,6 +154,41 @@ function BuildPlate({ sizeMm, heightMm, theme }: { sizeMm: number; heightMm: num
   );
 }
 
+function PackOutlines({
+  plateMm,
+  outlines,
+  theme,
+}: {
+  plateMm: number;
+  outlines: PackOutline[];
+  theme: ViewerTheme;
+}) {
+  if (outlines.length === 0) return null;
+  const half = plateMm / 2;
+  const fill = theme === "dark" ? "#4c8dff" : "#2f6fd6";
+
+  return (
+    <group>
+      {outlines.map((outline) => {
+        const cx = -half + outline.x + outline.widthMm / 2;
+        const cz = half - outline.y - outline.depthMm / 2;
+        return (
+          <group key={outline.id}>
+            <mesh rotation={[-Math.PI / 2, 0, 0]} position={[cx, 0.16, cz]}>
+              <planeGeometry args={[outline.widthMm, outline.depthMm]} />
+              <meshBasicMaterial color={fill} transparent opacity={0.2} depthWrite={false} />
+            </mesh>
+            <mesh rotation={[-Math.PI / 2, 0, 0]} position={[cx, 0.18, cz]}>
+              <planeGeometry args={[outline.widthMm, outline.depthMm]} />
+              <meshBasicMaterial color={fill} wireframe />
+            </mesh>
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
 function CameraRig({ view }: { view: CameraView }) {
   const camera = useThree((state) => state.camera);
   const controls = useThree((state) => state.controls);
@@ -171,6 +215,7 @@ export function Viewer({
   heightMm = 256,
   theme = "dark",
   showGizmo = true,
+  packOutlines = [],
 }: {
   stlUrl: string | null;
   view?: CameraView;
@@ -178,6 +223,7 @@ export function Viewer({
   heightMm?: number;
   theme?: ViewerTheme;
   showGizmo?: boolean;
+  packOutlines?: PackOutline[];
 }) {
   const background = theme === "dark" ? "#242424" : "#d2d2d2";
 
@@ -206,6 +252,7 @@ export function Viewer({
         <Suspense fallback={null}>
           <BuildPlate sizeMm={plateMm} heightMm={heightMm} theme={theme} />
           {stlUrl ? <LoadedModel url={stlUrl} /> : null}
+          <PackOutlines plateMm={plateMm} outlines={packOutlines} theme={theme} />
         </Suspense>
         <ContactShadows opacity={theme === "dark" ? 0.32 : 0.2} scale={plateMm} blur={2.1} far={50} />
         <OrbitControls makeDefault enableDamping dampingFactor={0.08} target={VIEW_PRESETS.iso.target} />

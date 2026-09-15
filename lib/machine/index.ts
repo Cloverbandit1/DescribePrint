@@ -146,6 +146,26 @@ export {
   resolveFarmEnqueueMachineId,
   tickFarmJobs,
 } from "./farm-queue";
+export {
+  DEFAULT_PACK_CLEARANCE_MM,
+  DEFAULT_PACK_MARGIN_MM,
+  PLATE_PACK_NOTE,
+  copiesOfPart,
+  footprintInsidePlate,
+  footprintsOverlap,
+  packOverlays,
+  packPartFromBoundingBox,
+  packPartFromSize,
+  packPlate,
+  packPlateFromBoundingBox,
+  placedSize,
+  placementFootprint,
+  type PackFootprint,
+  type PackOptions,
+  type PackPart,
+  type PackPlacement,
+  type PackPlan,
+} from "./plate-pack";
 export { mapDesignFilamentsToAms } from "./ams";
 export {
   MACHINE_RESHAPE_STORAGE_KEY,

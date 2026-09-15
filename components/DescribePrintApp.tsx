@@ -14,6 +14,14 @@ import { EXAMPLE_PROMPTS } from "@/lib/fixtures";
 import type { HealthReport, HealthTone } from "@/lib/health-types";
 import { MACHINE_RESHAPE_STORAGE_KEY, parseReshapeRemainingPref } from "@/lib/machine/reshape";
 import { FARM_QUEUE_NOTE, nextFarmStubName } from "@/lib/machine/farm";
+import {
+  PLATE_PACK_NOTE,
+  copiesOfPart,
+  packOverlays,
+  packPartFromBoundingBox,
+  packPlate,
+  type PackPlan,
+} from "@/lib/machine/plate-pack";
 import { useFarmRegistry } from "@/lib/machine/use-farm-registry";
 import { useMachineMonitor } from "@/lib/machine/use-machine-monitor";
 import {
@@ -51,7 +59,7 @@ import {
   wearableSizeRatio,
 } from "@/lib/wearable-sizes";
 import type { GenerateResult, ImageImportMeta, PipelineStep, StatusEvent, Unit, WearableCategoryId, WearableSizeId } from "@/lib/types";
-import type { CameraView, ViewerTheme } from "./Viewer";
+import type { CameraView, PackOutline, ViewerTheme } from "./Viewer";
 
 const Viewer = dynamic(() => import("./Viewer").then((m) => m.Viewer), {
   ssr: false,
@@ -159,6 +167,8 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
   const scroller = useRef<HTMLDivElement>(null);
   const printer = defaultPrinter();
   const [material, setMaterial] = useState<FilamentId>(printer.defaultFilament);
+  const [packPlan, setPackPlan] = useState<PackPlan | null>(null);
+  const [packOutlines, setPackOutlines] = useState<PackOutline[]>([]);
 
   const sizeNumber = useMemo(() => {
     const n = Number(sizeHint);
@@ -177,6 +187,11 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
   useEffect(() => {
     window.localStorage.setItem(MATERIAL_SESSION_KEY, serializeMaterialSession(material));
   }, [material]);
+
+  useEffect(() => {
+    setPackPlan(null);
+    setPackOutlines([]);
+  }, [result?.jobId]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -208,6 +223,8 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
     setPrompt("");
     setShowDetails(false);
     setWorkspace("prepare");
+    setPackPlan(null);
+    setPackOutlines([]);
   }
 
   async function printPart(
@@ -652,6 +669,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
               heightMm={plateH}
               theme={theme}
               showGizmo={wideLayout}
+              packOutlines={packOutlines}
             />
           </div>
         </section>
@@ -672,6 +690,12 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
               doctor={doctorResult}
               material={material}
               onMaterialChange={setMaterial}
+              result={result}
+              packPlan={packPlan}
+              onPacked={(plan, outlines) => {
+                setPackPlan(plan);
+                setPackOutlines(outlines);
+              }}
             />
 
             <button
@@ -1023,16 +1047,120 @@ function DesignOptionChips({
   );
 }
 
+function packPlacementLabel(id: string, index: number): string {
+  const copy = id.match(/#(\d+)$/);
+  if (copy) return `copy ${copy[1]}`;
+  return `part ${index + 1}`;
+}
+
+function PlatePackControls({
+  result,
+  plan,
+  onPacked,
+}: {
+  result: GenerateResult | null;
+  plan: PackPlan | null;
+  onPacked: (plan: PackPlan | null, outlines: PackOutline[]) => void;
+}) {
+  const [copies, setCopies] = useState(1);
+  const box = result?.report.boundingBoxMm;
+  const canPack = Boolean(box && box.size[0] > 0 && box.size[1] > 0);
+
+  function runPack() {
+    if (!result || !box) {
+      const [plateW, plateD] = defaultPrinter().buildVolumeMm;
+      onPacked(
+        { placements: [], plateMm: [plateW, plateD], fitted: false, message: "Nothing on the plate to pack." },
+        [],
+      );
+      return;
+    }
+    const parts = copiesOfPart(packPartFromBoundingBox(result.jobId, box), copies);
+    const next = packPlate(parts);
+    onPacked(next, packOverlays(next, parts));
+  }
+
+  return (
+    <div className="mt-1.5 border-t border-line pt-1.5">
+      <div>{PLATE_PACK_NOTE}</div>
+      {box ? (
+        <div className="mt-0.5">
+          {formatMm(box.size[0])} × {formatMm(box.size[1])} × {formatMm(box.size[2])} mm
+          {copies > 1 ? ` · ${copies} copies` : ""}
+        </div>
+      ) : (
+        <div className="mt-0.5">No mesh AABB yet — describe or import a part.</div>
+      )}
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+        <label className="flex items-center gap-1" htmlFor="plate-pack-copies">
+          Copies
+          <input
+            id="plate-pack-copies"
+            type="number"
+            min={1}
+            max={12}
+            inputMode="numeric"
+            className="h-6 w-12 rounded border border-line bg-panel px-1 text-[11px]"
+            value={copies}
+            onChange={(event) => {
+              const n = Number(event.target.value);
+              setCopies(Number.isFinite(n) ? Math.min(12, Math.max(1, Math.floor(n))) : 1);
+            }}
+          />
+        </label>
+        <button
+          type="button"
+          disabled={!canPack}
+          onClick={runPack}
+          className="studio-btn studio-btn-ghost h-6 px-2 text-[11px]"
+        >
+          Pack plate (stub)
+        </button>
+        {plan ? (
+          <button
+            type="button"
+            onClick={() => onPacked(null, [])}
+            className="studio-btn studio-btn-ghost h-6 px-2 text-[11px]"
+          >
+            Clear
+          </button>
+        ) : null}
+      </div>
+      {plan ? (
+        <div className={`mt-1.5 ${plan.fitted ? "text-ink" : "text-warn"}`}>
+          <div>{plan.message}</div>
+          {plan.placements.length > 0 ? (
+            <ul className="mt-1 space-y-0.5 text-muted">
+              {plan.placements.map((placement, index) => (
+                <li key={placement.id}>
+                  {packPlacementLabel(placement.id, index)} · x {formatMm(placement.x)} · y {formatMm(placement.y)} ·{" "}
+                  {placement.rotationDeg}°
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function MachinePanel({
   printer,
   doctor,
   material,
   onMaterialChange,
+  result,
+  packPlan,
+  onPacked,
 }: {
   printer: PrinterProfile;
   doctor: PrintDoctorResult | null;
   material: FilamentId;
   onMaterialChange: (id: FilamentId) => void;
+  result: GenerateResult | null;
+  packPlan: PackPlan | null;
+  onPacked: (plan: PackPlan | null, outlines: PackOutline[]) => void;
 }) {
   const [plateW, plateD, plateH] = printer.buildVolumeMm;
   const preset = filamentPreset(material, printer);
@@ -1122,6 +1250,7 @@ function MachinePanel({
       <div className="mt-1">
         Default printer · {plateW} × {plateD} × {plateH} mm · {printer.nozzleMm} mm nozzle
       </div>
+      <PlatePackControls result={result} plan={packPlan} onPacked={onPacked} />
       <div className="mt-1.5 border-t border-line pt-1.5">
         <div>{FARM_QUEUE_NOTE}</div>
         {farm.machines.map((row) => {

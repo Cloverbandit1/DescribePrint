@@ -683,7 +683,7 @@ function buildFixes(
         steps: [
           "Pause the live job.",
           "Hand remaining height H and current Z to CAD Core — redesign unprinted upper above Z.",
-          "Reslice the new remainder for the P2S. Do not send gcode from this stub.",
+          "CAD Core emits the remaining upper (or a clear refusal). cadFeedForReslice attaches jobId/STL/3MF onto the reslice stub (sendGcode: false).",
           "Resume is manual.",
         ],
       };
@@ -782,7 +782,7 @@ function diagnosisFor(defectId: string, material: FilamentId, amsSlot?: number):
     case "empty-bed":
       return "The bed looks empty — the part may have come off. Pause and inspect the plate.";
     case "emergency-reshape":
-      return "You asked to reshape the unprinted remainder. When RESHAPE_REMAINING is on, Print Control pauses and emits a CAD-handoff + reslice plan. Resume is manual. CAD Core owns the new mesh. When the flag is off this stays a later option — no pause and no live plan.";
+      return "You asked to reshape the unprinted remainder. When RESHAPE_REMAINING is on, Print Control pauses, fills a CAD-handoff, and invokes CAD Core's remaining-upper consumer. Resume is manual. When the flag is off this stays a later option — no pause, no CAD call, and no live plan.";
     case "wet-filament":
       return "Popping or fuzzy walls usually mean moisture. Dry the spool before chasing more temperature changes.";
     case "ams-slot-assign":

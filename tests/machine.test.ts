@@ -164,4 +164,15 @@ describe("remaining-layer reshape planner stub", () => {
     expect(planRemainingLayerReshape({ print: "printing" }).action).toBe("insufficient-data");
     expect(planRemainingLayerReshape({ print: "printing" }).askCad).toBe(false);
   });
+
+  it("does not invent remainingHeightMm from remainingLayers × layerHeightMm", () => {
+    const plan = planRemainingLayerReshape({
+      print: "printing",
+      currentLayer: 12,
+      totalLayers: 40,
+      layerHeightMm: 0.2,
+    });
+    expect(plan.remainingLayers).toBe(28);
+    expect(plan.remainingHeightMm).toBeNull();
+  });
 });

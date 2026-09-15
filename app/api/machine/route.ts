@@ -218,6 +218,8 @@ export async function POST(request: Request) {
       status: await machine.status(),
       enabled: reshapeEnabled,
       jobId: doctor.jobId,
+      previousCode: doctor.previousCode,
+      previousPrompt: doctor.previousPrompt,
       material: doctor.material,
     });
     const nextStatus = await machine.status();

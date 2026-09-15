@@ -75,7 +75,15 @@ export function parseMidPrintCommand(value: unknown): MidPrintCommand | null {
 
 export function parsePrintDoctorBody(
   value: unknown,
-): { complaint: string; slot?: number; reshapeRemaining?: boolean; material?: string; jobId?: string } | null {
+): {
+  complaint: string;
+  slot?: number;
+  reshapeRemaining?: boolean;
+  material?: string;
+  jobId?: string;
+  previousCode?: string;
+  previousPrompt?: string;
+} | null {
   if (!value || typeof value !== "object") return null;
   const row = value as {
     complaint?: unknown;
@@ -84,6 +92,8 @@ export function parsePrintDoctorBody(
     reshapeRemaining?: unknown;
     material?: unknown;
     jobId?: unknown;
+    previousCode?: unknown;
+    previousPrompt?: unknown;
   };
   const complaint = typeof row.complaint === "string" ? row.complaint.trim() : "";
   if (!complaint && row.autofix !== true && row.autofix !== "ams-feed-loop") return null;
@@ -92,12 +102,16 @@ export function parsePrintDoctorBody(
   const reshapeRemaining = parseReshapeRemainingFromBody(row);
   const material = typeof row.material === "string" ? row.material.trim() : undefined;
   const jobId = typeof row.jobId === "string" ? row.jobId.trim() : undefined;
+  const previousCode = typeof row.previousCode === "string" ? row.previousCode : undefined;
+  const previousPrompt = typeof row.previousPrompt === "string" ? row.previousPrompt : undefined;
   return {
     complaint,
     slot,
     ...(reshapeRemaining !== undefined ? { reshapeRemaining } : {}),
     ...(material ? { material } : {}),
     ...(jobId ? { jobId } : {}),
+    ...(previousCode ? { previousCode } : {}),
+    ...(previousPrompt ? { previousPrompt } : {}),
   };
 }
 

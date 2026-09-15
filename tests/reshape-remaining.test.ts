@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { POST } from "@/app/api/machine/route";
 import { createJob, resetJobs } from "@/lib/jobs";
@@ -5,6 +6,7 @@ import {
   CAD_RESHAPE_INSTRUCTION,
   MockMachineAdapter,
   RESUME_IS_MANUAL,
+  buildReslicePlanStub,
   getSharedMachine,
   injectStubCameraScene,
   isReshapeRemainingEnabled,
@@ -12,22 +14,58 @@ import {
   planRemainingLayerReshape,
   resetSharedMachine,
   resolveHandoffLayerHeightMm,
+  setCadReshapeUpperConsumerForTests,
   stumpCutPlaneBoundsFromMesh,
 } from "@/lib/machine";
+import { formatCadUpperStatus, formatResliceFeedStatus, type CadReshapeHandoff } from "@/lib/machine/reshape-plan";
 import {
   diagnosePrintComplaint,
   isEmergencyReshapeRequest,
+  looksLikeDoctorFeedback,
   looksLikeEmergencyReshape,
   looksLikePrintDoctorComplaint,
 } from "@/lib/print-doctor";
 import { printPresetSummary } from "@/lib/printers";
 import { makeAxisAlignedBoxMesh, writeBinaryStl } from "@/lib/stl";
-import type { PrintabilityReport } from "@/lib/types";
+import type { GenerateResult, PrintabilityReport } from "@/lib/types";
 
 const FLAG = "RESHAPE_REMAINING";
 
+const cadCalls: CadReshapeHandoff[] = [];
+
+function mockCadUpper(handoff: CadReshapeHandoff): GenerateResult {
+  return {
+    jobId: "reshape-upper-job",
+    language: "openscad",
+    code: `remaining_h = ${handoff.remainingHeightMm};\ncube([20, 15, remaining_h]);`,
+    usedFixture: true,
+    retried: false,
+    stlUrl: "/api/jobs/reshape-upper-job/model.stl",
+    threemfUrl: "/api/jobs/reshape-upper-job/model.3mf",
+    scadUrl: "/api/jobs/reshape-upper-job/model.scad",
+    report: testReport([20, 15, handoff.remainingHeightMm ?? 5.6]),
+    source: "openscad",
+    editMode: "reshape-upper",
+    notes: ["Cannot reshape already-printed plastic."],
+    colorRegions: [],
+    printPreset: printPresetSummary("pla"),
+    printPresetUrl: "/api/jobs/reshape-upper-job/model.print.json",
+    projectPackUrl: "/api/jobs/reshape-upper-job/model.pack.zip",
+  };
+}
+
 beforeEach(() => {
   resetJobs();
+  cadCalls.length = 0;
+  setCadReshapeUpperConsumerForTests(async ({ handoff }) => {
+    cadCalls.push(handoff);
+    if (handoff.remainingHeightMm == null || !(handoff.remainingHeightMm > 0)) {
+      throw new Error(
+        "CAD reshape upper needs remainingHeightMm > 0 from Print Control. Cannot invent remaining height from remainingLayers alone.",
+      );
+    }
+    return mockCadUpper(handoff);
+  });
 });
 
 afterEach(() => {
@@ -113,6 +151,19 @@ describe("remaining-layer planner + injected height", () => {
     expect(plan.currentZ).toBeCloseTo(2.4);
     expect(plan.remainingLayers).toBe(28);
   });
+
+  it("does not invent remainingHeightMm from remainingLayers × layerHeightMm", () => {
+    const plan = planRemainingLayerReshape({
+      print: "printing",
+      currentLayer: 12,
+      totalLayers: 40,
+      layerHeightMm: 0.2,
+    });
+    expect(plan.action).toBe("pause-now");
+    expect(plan.remainingLayers).toBe(28);
+    expect(plan.remainingHeightMm).toBeNull();
+    expect(plan.askCad).toBe(true);
+  });
 });
 
 describe("maybeEmergencyReshapeRemaining", () => {
@@ -134,9 +185,11 @@ describe("maybeEmergencyReshapeRemaining", () => {
     expect(result.currentZ).toBeNull();
     expect(result.cadHandoff).toBeUndefined();
     expect(result.reslice).toBeUndefined();
+    expect(result.cadUpper).toBeUndefined();
     expect(result.sentResume).toBe(false);
     expect(result.commands).toEqual([]);
     expect(result.message).toMatch(/later option/i);
+    expect(cadCalls).toEqual([]);
     expect((await machine.status()).print).toBe("printing");
   });
 
@@ -173,9 +226,27 @@ describe("maybeEmergencyReshapeRemaining", () => {
     expect(result.cadHandoff).not.toHaveProperty("layerHeightMm");
     expect(result.reslice?.printerProfile).toBe("P2S");
     expect(result.reslice?.sendGcode).toBe(false);
+    expect(result.reslice?.cad?.jobId).toBe("reshape-upper-job");
+    expect(result.reslice?.cad?.stlUrl).toBe("/api/jobs/reshape-upper-job/model.stl");
+    expect(result.reslice?.cad?.threemfUrl).toBe("/api/jobs/reshape-upper-job/model.3mf");
+    expect(result.reslice?.cad?.scadUrl).toBe("/api/jobs/reshape-upper-job/model.scad");
+    expect(result.reslice?.cad?.sitOnCutPlane).toBe(true);
+    expect(result.reslice?.cad?.remainingHeightMm).toBeCloseTo(5.6);
+    expect(result.reslice?.cad?.currentZ).toBeCloseTo(2.4);
+    expect(result.cadUpper?.resliceFeed?.cad.jobId).toBe("reshape-upper-job");
+    expect(result.cadUpper?.resliceFeed?.sendGcode).toBe(false);
     expect(result.commands.map((row) => row.message)).toEqual(["Paused."]);
     expect(result.commands.every((row) => !/resumed/i.test(row.message))).toBe(true);
     expect(result.message).toMatch(/Resume is manual/i);
+    expect(result.message).toMatch(/CAD upper is on the plate/i);
+    expect(result.message).toMatch(/Reslice feed attached \(reshape-upper-job; STL\/3MF; send gcode off\)/);
+    expect(result.cadUpper?.invoked).toBe(true);
+    expect(result.cadUpper?.ok).toBe(true);
+    expect(result.cadUpper?.result?.editMode).toBe("reshape-upper");
+    expect(result.cadUpper?.result?.jobId).toBe("reshape-upper-job");
+    expect(cadCalls).toHaveLength(1);
+    expect(cadCalls[0]?.remainingHeightMm).toBeCloseTo(5.6);
+    expect(cadCalls[0]?.currentZ).toBeCloseTo(2.4);
     expect((await machine.status()).print).toBe("paused");
   });
 });
@@ -201,6 +272,7 @@ describe("machine API emergency reshape", () => {
         currentZ: number | null;
         sentResume: boolean;
         cadHandoff?: unknown;
+        cadUpper?: unknown;
       };
       diagnosis?: { defectId: string; reshape?: { attempted: boolean } };
       lastCommand?: { message: string };
@@ -215,7 +287,9 @@ describe("machine API emergency reshape", () => {
     expect(body.lastReshape?.remainingHeightMm).toBeNull();
     expect(body.lastReshape?.currentZ).toBeNull();
     expect(body.lastReshape?.cadHandoff).toBeUndefined();
+    expect(body.lastReshape?.cadUpper).toBeUndefined();
     expect(body.lastReshape?.sentResume).toBe(false);
+    expect(cadCalls).toEqual([]);
     expect(body.diagnosis?.reshape?.attempted).toBe(false);
     expect(body.status.print).toBe("printing");
     expect(body.lastCommand).toBeUndefined();
@@ -244,7 +318,12 @@ describe("machine API emergency reshape", () => {
         currentZ: number | null;
         resume: string;
         cadHandoff?: { instruction: string };
-        reslice?: { sendGcode: boolean; printerProfile: string };
+        cadUpper?: { invoked: boolean; ok: boolean; result?: { editMode: string; jobId: string } };
+        reslice?: {
+          sendGcode: boolean;
+          printerProfile: string;
+          cad?: { jobId: string; stlUrl: string; threemfUrl: string };
+        };
         commands: { message: string }[];
       };
       status: { print: string; remainingHeightMm?: number; currentHeightMm?: number };
@@ -259,7 +338,15 @@ describe("machine API emergency reshape", () => {
     expect(body.lastReshape?.remainingHeightMm).toBeCloseTo(5.6);
     expect(body.lastReshape?.currentZ).toBeCloseTo(2.4);
     expect(body.lastReshape?.cadHandoff?.instruction).toBe(CAD_RESHAPE_INSTRUCTION);
+    expect(body.lastReshape?.cadUpper?.invoked).toBe(true);
+    expect(body.lastReshape?.cadUpper?.ok).toBe(true);
+    expect(body.lastReshape?.cadUpper?.result?.editMode).toBe("reshape-upper");
+    expect(body.lastReshape?.cadUpper?.result?.jobId).toBe("reshape-upper-job");
     expect(body.lastReshape?.reslice?.sendGcode).toBe(false);
+    expect(body.lastReshape?.reslice?.cad?.jobId).toBe("reshape-upper-job");
+    expect(body.lastReshape?.reslice?.cad?.stlUrl).toBe("/api/jobs/reshape-upper-job/model.stl");
+    expect(body.lastReshape?.reslice?.cad?.threemfUrl).toBe("/api/jobs/reshape-upper-job/model.3mf");
+    expect(cadCalls).toHaveLength(1);
     expect(body.lastReshape?.reslice?.printerProfile).toBe("P2S");
     expect(body.lastReshape?.commands.map((row) => row.message)).toEqual(["Paused."]);
     expect(body.status.print).toBe("paused");
@@ -388,6 +475,15 @@ describe("CadReshapeHandoff optionals from Print Control sources", () => {
     expect(result.cadHandoff?.currentZ).toBeNull();
     expect(result.cadHandoff?.layerHeightMm).toBeCloseTo(0.2);
     expect(result.cadHandoff).not.toHaveProperty("stumpCutPlaneBoundsMm");
+    expect(result.cadUpper?.invoked).toBe(true);
+    expect(result.cadUpper?.ok).toBe(false);
+    expect(result.cadUpper?.error).toMatch(/remainingLayers alone/i);
+    expect(result.cadUpper?.result).toBeUndefined();
+    expect(result.cadUpper?.resliceFeed).toBeUndefined();
+    expect(result.reslice).not.toHaveProperty("cad");
+    expect(result.reslice?.sendGcode).toBe(false);
+    expect(result.message).toMatch(/Reslice stub ready \(send gcode off\)/);
+    expect(result.sentResume).toBe(false);
   });
 
   it("fills optionals from the latest job through the machine API", async () => {
@@ -418,5 +514,90 @@ describe("CadReshapeHandoff optionals from Print Control sources", () => {
     expect(body.lastReshape?.cadHandoff?.previousCode).toContain("cube(24)");
     expect(body.lastReshape?.cadHandoff?.stumpCutPlaneBoundsMm).toEqual({ minX: 0, minY: 0, maxX: 24, maxY: 18 });
     expect(body.lastReshape?.cadHandoff?.layerHeightMm).toBeCloseTo(0.2);
+    expect(cadCalls[0]?.previousCode).toContain("cube(24)");
+  });
+});
+
+describe("CAD consumer wiring + scope", () => {
+  it("formats CAD upper status without a double period", () => {
+    expect(formatCadUpperStatus({ invoked: true, ok: true })).toBe("CAD upper is on the plate.");
+    expect(
+      formatCadUpperStatus({
+        invoked: true,
+        ok: false,
+        error: "CAD reshape upper needs remainingHeightMm > 0 from Print Control.",
+      }),
+    ).toBe("CAD refused: CAD reshape upper needs remainingHeightMm > 0 from Print Control.");
+    const stub = buildReslicePlanStub();
+    expect(formatResliceFeedStatus(stub)).toBe("Reslice stub ready (send gcode off).");
+    expect(
+      formatResliceFeedStatus({
+        ...stub,
+        cad: {
+          jobId: "reshape-upper-job",
+          language: "openscad",
+          scadUrl: "/scad",
+          stlUrl: "/stl",
+          threemfUrl: "/3mf",
+          remainingHeightMm: 5.6,
+          currentZ: 2.4,
+          sitOnCutPlane: true,
+        },
+      }),
+    ).toBe("Reslice feed attached (reshape-upper-job; STL/3MF; send gcode off).");
+  });
+
+  it("does not import etch, Agent Smith, or Ollama on the Print Control reshape path", async () => {
+    const files = [
+      "lib/machine/reshape.ts",
+      "lib/machine/reshape-cad.ts",
+      "lib/machine/reshape-plan.ts",
+    ];
+    for (const file of files) {
+      const src = await readFile(file, "utf8");
+      expect(src).not.toMatch(/from ["'][^"']*(etch|relief|ollama|agent-smith|image-import|pipeline)/i);
+    }
+    const consumer = await readFile("lib/machine/reshape-cad.ts", "utf8");
+    expect(consumer).toMatch(/runCadReshapeUpper/);
+    expect(consumer).toMatch(/cadFeedForReslice/);
+    expect(consumer).toMatch(/cad-reshape/);
+  });
+
+  it("keeps Perfect / Still bad from stealing CAD prompts", () => {
+    expect(looksLikeDoctorFeedback("perfect")).toBe("perfect");
+    expect(looksLikeDoctorFeedback("still bad")).toBe("still-bad");
+    expect(looksLikeDoctorFeedback("a perfect cube")).toBeUndefined();
+    expect(looksLikePrintDoctorComplaint("a perfect cube")).toBe(false);
+  });
+
+  it("invokes the CAD consumer from the Machine-panel checkbox and never resumes", async () => {
+    const machine = getSharedMachine() as MockMachineAdapter;
+    await machine.connect();
+    machine.injectRemainingHeight({ remainingHeightMm: 4, currentHeightMm: 3 });
+
+    const response = await POST(
+      new Request("http://localhost/api/machine", {
+        method: "POST",
+        body: JSON.stringify({ complaint: "reshape the rest", reshapeRemaining: true }),
+      }),
+    );
+    const body = (await response.json()) as {
+      lastReshape?: {
+        attempted: boolean;
+        sentResume: boolean;
+        cadUpper?: { invoked: boolean; ok: boolean };
+        commands: { message: string }[];
+      };
+      status: { print: string };
+    };
+
+    expect(body.lastReshape?.attempted).toBe(true);
+    expect(body.lastReshape?.cadUpper?.invoked).toBe(true);
+    expect(body.lastReshape?.cadUpper?.ok).toBe(true);
+    expect(body.lastReshape?.sentResume).toBe(false);
+    expect(body.lastReshape?.commands.every((row) => !/resumed/i.test(row.message))).toBe(true);
+    expect(body.status.print).toBe("paused");
+    expect(JSON.stringify(body)).not.toMatch(/"type"\s*:\s*"resume"/);
+    expect(cadCalls).toHaveLength(1);
   });
 });

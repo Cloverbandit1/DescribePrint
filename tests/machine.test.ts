@@ -14,10 +14,10 @@ import {
 import { defaultPrinter } from "@/lib/printers";
 
 describe("machine adapter stubs", () => {
-  it("defaults to the mock adapter and reserves bambu-lan", () => {
+  it("defaults to the mock adapter; bambu-lan is registered but not selected", () => {
     expect(defaultAdapterId()).toBe("mock");
     expect(listMachineAdapters()).toContain("mock");
-    expect(listMachineAdapters()).not.toContain(RESERVED_BAMBU_LAN_ADAPTER_ID);
+    expect(listMachineAdapters()).toContain(RESERVED_BAMBU_LAN_ADAPTER_ID);
     expect(createMachineAdapter().id).toBe("mock");
   });
 

@@ -4,6 +4,8 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EXAMPLE_PROMPTS } from "@/lib/fixtures";
 import type { HealthReport, HealthTone } from "@/lib/health-types";
+import type { MachineApiResponse } from "@/lib/machine/api";
+import type { MidPrintCommand } from "@/lib/machine/types";
 import { diagnosePrintComplaint, looksLikePrintDoctorComplaint, type PrintDoctorResult } from "@/lib/print-doctor";
 import { defaultPrinter, filamentPreset, type PrinterProfile } from "@/lib/printers";
 import { formatMm } from "@/lib/units";
@@ -748,7 +750,64 @@ function ChatBubble({ item }: { item: ChatItem }) {
 function MachinePanel({ printer, doctor }: { printer: PrinterProfile; doctor: PrintDoctorResult | null }) {
   const [plateW, plateD, plateH] = printer.buildVolumeMm;
   const preset = filamentPreset(printer.defaultFilament, printer);
-  const slots = Array.from({ length: printer.ams.slotsPerUnit }, (_, i) => i + 1);
+  const fallbackSlots = Array.from({ length: printer.ams.slotsPerUnit }, (_, i) => i + 1);
+  const [machine, setMachine] = useState<MachineApiResponse | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [nozzleInput, setNozzleInput] = useState("");
+  const [bedInput, setBedInput] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const response = await fetch("/api/machine", { cache: "no-store" });
+        if (!response.ok) return;
+        const data = (await response.json()) as MachineApiResponse;
+        if (!cancelled) setMachine(data);
+      } catch {
+        // Stay on the disconnected stub — CAD path must not depend on LAN.
+      }
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 4_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const sendCommand = async (command: MidPrintCommand) => {
+    setBusy(true);
+    try {
+      const response = await fetch("/api/machine", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command }),
+      });
+      const data = (await response.json()) as MachineApiResponse & { error?: string };
+      if (response.ok) setMachine(data);
+    } catch {
+      // Keep last status. Command errors are shown from lastCommand when present.
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const live = machine?.live === true;
+  const status = machine?.status;
+  const connected = live && status?.connection === "connected";
+  const connectionLabel = !live
+    ? "Disconnected · LAN later"
+    : status?.connection === "connected"
+      ? status.print === "idle"
+        ? "Connected · idle"
+        : `Connected · ${status.print}`
+      : status?.connection === "connecting"
+        ? "Connecting…"
+        : status?.message
+          ? `Disconnected · ${status.message}`
+          : "Disconnected";
+  const amsSlots = live && status ? status.amsSlots : [];
 
   return (
     <div className="rounded-md border border-line bg-panel-2 p-2.5 text-[11px] leading-relaxed text-muted">
@@ -757,25 +816,149 @@ function MachinePanel({ printer, doctor }: { printer: PrinterProfile; doctor: Pr
       <div className="mt-1">
         Default printer · {plateW} × {plateD} × {plateH} mm · {printer.nozzleMm} mm nozzle
       </div>
-      <div className="mt-2 flex items-center gap-1.5" role="status" aria-label="Printer disconnected, LAN later">
-        <span className="h-1.5 w-1.5 rounded-full bg-muted" aria-hidden="true" />
-        Disconnected · LAN later
+      <div
+        className="mt-2 flex items-center gap-1.5"
+        role="status"
+        aria-label={live ? connectionLabel : "Printer disconnected, LAN later"}
+      >
+        <span
+          className={`h-1.5 w-1.5 rounded-full ${
+            connected ? "bg-ok" : status?.connection === "error" ? "bg-danger" : "bg-muted"
+          }`}
+          aria-hidden="true"
+        />
+        {connectionLabel}
       </div>
-      <div className="mt-2">AMS {printer.ams.slotsPerUnit} slots</div>
-      <div className="mt-1 flex gap-1" aria-label="AMS slots unloaded">
-        {slots.map((slot) => (
-          <div
-            key={slot}
-            className="flex h-7 w-7 items-center justify-center rounded border border-dashed border-line text-[10px]"
-            title={`AMS ${slot} empty`}
-          >
-            {slot}
+      {connected ? (
+        <div className="mt-2 space-y-0.5">
+          <div>
+            Nozzle {Math.round(status?.nozzleTempC ?? 0)}/{Math.round(status?.nozzleTargetC ?? 0)} °C · Bed{" "}
+            {Math.round(status?.bedTempC ?? 0)}/{Math.round(status?.bedTargetC ?? 0)} °C
           </div>
-        ))}
+          <div>
+            {status?.layer != null && status.totalLayers != null
+              ? `Layer ${status.layer}/${status.totalLayers}`
+              : "Layer —"}
+            {status?.progressPercent != null ? ` · ${Math.round(status.progressPercent)}%` : ""}
+            {status?.speedPercent != null ? ` · ${Math.round(status.speedPercent)}% speed` : ""}
+          </div>
+        </div>
+      ) : null}
+      <div className="mt-2">AMS {printer.ams.slotsPerUnit} slots</div>
+      <div className="mt-1 flex gap-1" aria-label={connected ? "AMS slots" : "AMS slots unloaded"}>
+        {(connected && amsSlots.length
+          ? amsSlots
+          : fallbackSlots.map((slot) => ({ slot, present: false as const, filamentType: undefined as string | undefined, colorHex: undefined as string | undefined, remainingPercent: undefined as number | undefined }))
+        ).map((slot) => {
+          const title = slot.present
+            ? `AMS ${slot.slot} ${slot.filamentType ?? ""}${slot.remainingPercent != null ? ` ${slot.remainingPercent}%` : ""}`
+            : `AMS ${slot.slot} empty`;
+          return (
+            <div
+              key={slot.slot}
+              className={`flex h-7 w-7 items-center justify-center rounded border text-[10px] ${
+                slot.present ? "" : "border-dashed border-line"
+              }`}
+              style={
+                slot.present && slot.colorHex
+                  ? { background: slot.colorHex, color: "#111", borderColor: slot.colorHex }
+                  : undefined
+              }
+              title={title.trim()}
+            >
+              {slot.slot}
+            </div>
+          );
+        })}
       </div>
       <div className="mt-2">
         Auto {preset.name}: {preset.nozzleC} °C / {preset.bedC} °C bed
       </div>
+      {connected ? (
+        <div className="mt-2 space-y-1.5 border-t border-line pt-2">
+          <div className="flex flex-wrap gap-1">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void sendCommand({ type: "pause" })}
+              className="studio-btn studio-btn-ghost h-7 px-2 text-[11px]"
+            >
+              Pause
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void sendCommand({ type: "resume" })}
+              className="studio-btn studio-btn-ghost h-7 px-2 text-[11px]"
+            >
+              Resume
+            </button>
+            {[50, 100, 124].map((percent) => (
+              <button
+                key={percent}
+                type="button"
+                disabled={busy}
+                onClick={() => void sendCommand({ type: "set-speed", percent })}
+                className="studio-btn studio-btn-ghost h-7 px-2 text-[11px]"
+              >
+                {percent}%
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-1">
+            <label className="flex items-center gap-1">
+              Nozzle
+              <input
+                type="number"
+                inputMode="numeric"
+                className="h-7 w-14 rounded border border-line bg-panel px-1 text-[11px]"
+                value={nozzleInput}
+                placeholder={String(status?.nozzleTargetC ?? preset.nozzleC)}
+                onChange={(event) => setNozzleInput(event.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              disabled={busy || !nozzleInput}
+              onClick={() => void sendCommand({ type: "set-nozzle-temp", celsius: Number(nozzleInput) })}
+              className="studio-btn studio-btn-ghost h-7 px-2 text-[11px]"
+            >
+              Set
+            </button>
+            <label className="flex items-center gap-1">
+              Bed
+              <input
+                type="number"
+                inputMode="numeric"
+                className="h-7 w-14 rounded border border-line bg-panel px-1 text-[11px]"
+                value={bedInput}
+                placeholder={String(status?.bedTargetC ?? preset.bedC)}
+                onChange={(event) => setBedInput(event.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              disabled={busy || !bedInput}
+              onClick={() => void sendCommand({ type: "set-bed-temp", celsius: Number(bedInput) })}
+              className="studio-btn studio-btn-ghost h-7 px-2 text-[11px]"
+            >
+              Set
+            </button>
+          </div>
+          {machine?.lastCommand ? (
+            <div>
+              {machine.lastCommand.message}
+              {machine.lastCommand.physicalSteps?.length ? (
+                <ul className="mt-1 list-disc pl-4">
+                  {machine.lastCommand.physicalSteps.map((step) => (
+                    <li key={step}>{step}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       {doctor ? (
         <div className="mt-2 border-t border-line pt-2">
           <div className="font-medium text-ink">{doctor.title}</div>

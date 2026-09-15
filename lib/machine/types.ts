@@ -52,6 +52,8 @@ export type CommandResult = {
   ok: boolean;
   pausedFirst: boolean;
   message: string;
+  /** Simple hands-on steps when LAN/software cannot complete the command. */
+  physicalSteps?: string[];
 };
 
 export type DesignFilament = {

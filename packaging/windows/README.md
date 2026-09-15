@@ -127,7 +127,7 @@ One click:
 - or Desktop `\AllosWorstation\Start DescribePrint.bat` (OneDrive-safe detector; calls that cmd)
 - or `npm run start:windows`
 
-The Start script copies `.env.local` if needed, `npm install`s on first launch, and runs `npm run dev` on [http://localhost:3000](http://localhost:3000).
+The Start script copies `.env.local` if needed, `npm install`s on first launch, prints the **LAN URL + QR** (optional Tailscale `100.x` preferred when present), and runs `npm run dev` on **`0.0.0.0:3000`**. This PC still opens [http://localhost:3000](http://localhost:3000). An iPhone on the same Wi‑Fi uses `http://<lan-ip>:3000` (Add to Home Screen / PWA). Allow Node on **Private** networks; do not port-forward. Ollama stays `127.0.0.1:11434`. See the main README iPhone / Tailscale sections.
 
 ## Health
 

@@ -5,9 +5,10 @@
   "license": "MIT",
   "description": "Describe anything → printable 3D model (STL/3MF)",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --hostname 0.0.0.0",
     "build": "next build",
-    "start": "next start",
+    "start": "next start --hostname 0.0.0.0",
+    "lan:url": "node scripts/print-lan-access.mjs",
     "setup": "node scripts/setup.mjs",
     "setup:windows": "node scripts/install-allos.mjs --layout current",
     "start:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/Start-DescribePrint.ps1",

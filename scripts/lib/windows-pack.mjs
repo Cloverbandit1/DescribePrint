@@ -185,6 +185,9 @@ export function requiredPortableFiles(root) {
     "lib/health-preflight.ts",
     "scripts/health-preflight.mjs",
     "scripts/ensure-env-local.mjs",
+    "scripts/print-lan-access.mjs",
+    "scripts/lib/lan-access.mjs",
+    "scripts/lib/qr-ascii.mjs",
     "scripts/install-openscad-portable.mjs",
     "vendor/openscad/README.md",
   ].map((rel) => path.join(root, rel));
@@ -229,6 +232,10 @@ or the OpenSCAD binary (large / separate license).
 Local AI: Ollama at 127.0.0.1:11434  MODEL=qwen2.5-coder:32b
   ollama pull qwen2.5-coder:32b
   (lighter: qwen2.5-coder:14b or qwen2.5-coder:7b — set MODEL in .env.local)
+
+Start prints a LAN URL + QR for iPhone on the same Wi-Fi (0.0.0.0:3000).
+Optional Tailscale: QR prefers the 100.x address when Tailscale is up.
+Ollama stays on 127.0.0.1:11434. Do not port-forward to the public internet.
 
 NEVER delete, retarget, or replace Agent Smith models
 (smith-minicpm5, openbmb/minicpm5-*, …). Do not change Ollama's port.

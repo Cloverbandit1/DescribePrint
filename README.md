@@ -131,9 +131,30 @@ Near one-click from the repo folder:
 
 1. Install [Node.js LTS](https://nodejs.org) if needed.
 2. Double-click `Start-DescribePrint.cmd` (or run `npm run start:windows`). Desktop shortcuts should `call Start-DescribePrint.cmd` — that entry stays stable.
-3. The script copies `.env.local` if missing, runs `npm install` on first launch, runs a **preflight health check** (Ollama reachable + configured `MODEL` + OpenSCAD via `resolveOpenscad`), then opens [http://localhost:3000](http://localhost:3000).
+3. The script copies `.env.local` if missing, runs `npm install` on first launch, runs a **preflight health check** (Ollama reachable + configured `MODEL` + OpenSCAD via `resolveOpenscad`), prints the **LAN URL + QR** (Tailscale `100.x` URL is preferred for the QR when Tailscale is up), then opens [http://localhost:3000](http://localhost:3000).
 
 Missing Node/npm is a hard stop. Missing OpenSCAD or `MODEL` (or Ollama not running) is a **warning** — Start still launches the app so one-click is preserved; generate/compile will fail until those are fixed. Tips may say `ollama pull <MODEL>` only. Do not change the Ollama port. Leave Agent Smith models untouched.
+
+### iPhone on the same Wi‑Fi (LAN, no App Store)
+
+The phone is the same DescribePrint app (PWA / Add to Home Screen). It talks to Next.js on the PC. **Ollama stays on the host at `127.0.0.1:11434`** — the phone never calls Ollama directly, and Start does not expose Ollama to LAN.
+
+1. On Smith or the laptop, run `Start-DescribePrint.cmd` (or `npm run start:windows` / `npm run dev`). The Next.js / `next start` server binds **`0.0.0.0:3000`** so it is reachable on the private LAN. This is **not** meant for the public internet — do not port-forward 3000, and do not change the Ollama port.
+2. On the iPhone, join the **same Wi‑Fi**. Open `http://<host-lan-ip>:3000` (Start prints the URL and a terminal QR). `npm run lan:url` reprints it.
+3. **Windows Firewall:** allow **Node.js** on **Private** networks the first time Windows asks, or add an inbound allow for TCP 3000 on the Private profile. Block Public. Do not open the app to the internet.
+4. In iOS Safari: **Share → Add to Home Screen**. The web app manifest uses `display: standalone` plus an Apple touch icon. The service worker caches the app shell offline; **describe / generate / import / Print doctor still need the PC** on LAN (or Tailscale).
+5. **HTTP on LAN is the default** (fastest local-first path, no cloud, no extra certs). Describe and preview work over `http://`. Photo import uses `<input type="file" accept="image/*" capture="environment">` (camera roll / Camera app) — that path does **not** need `getUserMedia`. If a future in-page live camera needs a [secure context](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts) on a LAN IP, use Tailscale HTTPS later or a local cert (mkcert); it is not required for this host pack.
+
+No App Store listing and no cloud account are required.
+
+### Optional: iPhone away from home (Tailscale)
+
+LAN stays the everyday path. For remote-away access, use a **private mesh** — prefer **Tailscale** (WireGuard is also fine). Do **not** require a public cloud tunnel or a router port-forward for core use.
+
+1. Install [Tailscale](https://tailscale.com) on Smith or the laptop **and** on the iPhone. Sign both into the **same account** (or tailnet).
+2. Start DescribePrint on the PC as usual (`0.0.0.0:3000`). Start prints a `http://<tailscale-ip>:3000` URL when it can run `tailscale ip -4` or see a `100.64.0.0/10` address; the QR prefers that address. If Tailscale is not installed, Start fails soft and shows LAN only.
+3. On the phone, open that `100.x` URL (or Add to Home Screen — same PWA). Same app, still no App Store.
+4. **Firewall / exposure:** bind stays `0.0.0.0` so the process can accept Tailscale-interface traffic, but Tailscale exposure is **mesh-only** (your tailnet), not the public internet. No port-forward. Ollama remains `127.0.0.1:11434` on the host.
 
 First-time machine prep (once):
 
@@ -182,10 +203,10 @@ ollama pull qwen2.5-coder:32b
 # 3) App
 npm run setup                             # .env.local + npm install if needed
 npm test
-npm run dev
+npm run dev                               # binds 0.0.0.0:3000 (LAN / optional Tailscale)
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Confirm the **Local AI** chip (click for OpenSCAD + model tips).
+On this PC open [http://localhost:3000](http://localhost:3000). On an iPhone on the same Wi‑Fi, use the LAN URL Start prints (`npm run lan:url`). Confirm the **Local AI** chip (click for OpenSCAD + model tips). Ollama stays on `127.0.0.1:11434`.
 
 Headless servers sometimes need a virtual display:
 

@@ -1,11 +1,11 @@
 {
   "meta": {
-    "version": "1.0.0",
+    "version": "1.1.0",
     "kind": "describeprint-knowledge-pack",
     "updated": "2026-09-15",
     "curated": true,
     "live_web_crawl": false,
-    "notes": "In-repo curated stub for SMART_PIPELINE. Not a live web crawl, not official licensed measurements, not a RAG product. Typical fan-print / display-scale proportions and print-tech cross-links only."
+    "notes": "In-repo curated stub for SMART_PIPELINE. Not a live web crawl, not official licensed measurements, not a RAG product. Typical fan-print / display-scale proportions and print-tech cross-links only. v1.1 adds more helmets/armor/props plus nozzle, clearance, and technique entries that point at printers.ts / joints.ts."
   },
   "characters": [
     {
@@ -219,6 +219,563 @@
       "sources": [
         "Curated display/1:1 bands from common FDM prop hilts (in-repo stub)."
       ]
+    },
+    {
+      "id": "mandalorian-helmet",
+      "name": "mandalorian helmet",
+      "category": "helmet",
+      "wearableCategory": "helmet_mask",
+      "aliases": [
+        "mandalorian helmet",
+        "mando helmet",
+        "beskar helmet",
+        "t visor helmet",
+        "t-visor helmet"
+      ],
+      "reference_mm": { "x": 235, "y": 280, "z": 270 },
+      "printable_mm": { "x": 170, "y": 200, "z": 195 },
+      "features": [
+        {
+          "name": "dome",
+          "kind": "shell",
+          "dims_mm": { "w": 170, "d": 195, "h": 105, "wall": 2.4 },
+          "notes": "Rounded dome. Display scale unless the user asked 1:1 / wearable."
+        },
+        {
+          "name": "t_visor",
+          "kind": "opening",
+          "dims_mm": { "w": 95, "h": 55, "bar": 14, "depth": 16 },
+          "notes": "T-visor recess or through opening. Keep the stem and brow ≥ 2.5 mm; do not knife-edge the rim."
+        },
+        {
+          "name": "cheek",
+          "kind": "plate",
+          "dims_mm": { "w": 155, "d": 70, "h": 85, "wall": 2.4 },
+          "notes": "Lower cheek / jaw. Optional rangefinder boss uses joints.ts hinge if the user asks it to flip."
+        },
+        {
+          "name": "rangefinder",
+          "kind": "boss",
+          "dims_mm": { "w": 18, "d": 36, "h": 70 },
+          "notes": "Right-side stalk. Union ≥ 1.6 mm or a documented hinge — do not float it."
+        }
+      ],
+      "notes": [
+        "Typical fan-print T-visor lid — not official licensed geometry.",
+        "1:1 (~235×280×270 mm) misses P2S on Y and Z; display scale is the default plan."
+      ],
+      "sources": [
+        "Curated display/1:1 bands from common FDM cosplay helmet prints (in-repo stub).",
+        "Wearable fit: lib/wearable-sizes.ts helmet_mask chart (EN 960-style head circ)."
+      ]
+    },
+    {
+      "id": "batman-cowl",
+      "name": "batman cowl",
+      "category": "helmet",
+      "wearableCategory": "helmet_mask",
+      "aliases": [
+        "batman cowl",
+        "batman helmet",
+        "bat cowl",
+        "dark knight cowl"
+      ],
+      "reference_mm": { "x": 220, "y": 250, "z": 310 },
+      "printable_mm": { "x": 160, "y": 180, "z": 210 },
+      "features": [
+        {
+          "name": "cowl",
+          "kind": "shell",
+          "dims_mm": { "w": 160, "d": 180, "h": 160, "wall": 2.4 },
+          "notes": "Skin-tight cowl shell. Display scale. Keep wall ≥ 1.6 mm."
+        },
+        {
+          "name": "ears",
+          "kind": "fin",
+          "dims_mm": { "w": 18, "d": 28, "h": 70, "wall": 2.0 },
+          "notes": "Paired ears. Print with the cowl or as separate dowels; tips stay ≥ 1.6 mm, not blades."
+        },
+        {
+          "name": "eye_slits",
+          "kind": "opening",
+          "dims_mm": { "w": 42, "h": 16, "depth": 8 },
+          "notes": "Each eye white / slit. Through-cut ≥ 2.5 mm; leave a printable rim."
+        },
+        {
+          "name": "jaw",
+          "kind": "collar",
+          "dims_mm": { "w": 145, "d": 70, "h": 40, "wall": 2.0 },
+          "notes": "Lower jaw / neck. Wearable 1:1 uses the helmet_mask chart, not this display OD."
+        }
+      ],
+      "notes": [
+        "Typical fan-print bat cowl — not official licensed geometry.",
+        "1:1 (~220×250×310 mm) misses P2S Z because of the ears; display scale is the default plan."
+      ],
+      "sources": [
+        "Curated display/1:1 bands from common FDM cosplay helmet prints (in-repo stub).",
+        "Wearable fit: lib/wearable-sizes.ts helmet_mask chart."
+      ]
+    },
+    {
+      "id": "clone-helmet",
+      "name": "clone helmet",
+      "category": "helmet",
+      "wearableCategory": "helmet_mask",
+      "aliases": [
+        "clone helmet",
+        "clone trooper helmet",
+        "phase 2 helmet",
+        "phase ii helmet",
+        "rex helmet"
+      ],
+      "reference_mm": { "x": 230, "y": 275, "z": 275 },
+      "printable_mm": { "x": 165, "y": 198, "z": 200 },
+      "features": [
+        {
+          "name": "dome",
+          "kind": "shell",
+          "dims_mm": { "w": 165, "d": 190, "h": 100, "wall": 2.4 },
+          "notes": "Phase-2 style dome. Display scale."
+        },
+        {
+          "name": "visor",
+          "kind": "opening",
+          "dims_mm": { "w": 125, "h": 32, "depth": 14 },
+          "notes": "Brow visor band — through or deep recess; rim ≥ 2.5 mm."
+        },
+        {
+          "name": "fin",
+          "kind": "fin",
+          "dims_mm": { "w": 14, "d": 70, "h": 55, "wall": 2.0 },
+          "notes": "Center mohawk fin. Union to the dome; do not knife-edge the crest."
+        },
+        {
+          "name": "cheek_tubes",
+          "kind": "boss",
+          "dims_mm": { "w": 22, "d": 55, "h": 28 },
+          "notes": "Side aerator / comm tubes. Hollow optional; wall ≥ 1.6 mm."
+        }
+      ],
+      "notes": [
+        "Typical fan-print clone lid — not official licensed geometry.",
+        "Prompt 'clone trooper helmet' may also match the generic trooper-lid alias; prefer 'clone helmet' / 'phase 2 helmet' when you need this entry alone.",
+        "1:1 (~230×275×275 mm) exceeds P2S Y/Z; display scale is the default plan."
+      ],
+      "sources": [
+        "Curated display/1:1 bands from common FDM cosplay helmet prints (in-repo stub).",
+        "Wearable fit: lib/wearable-sizes.ts helmet_mask chart."
+      ]
+    },
+    {
+      "id": "knight-helmet",
+      "name": "knight helmet",
+      "category": "helmet",
+      "wearableCategory": "helmet_mask",
+      "aliases": [
+        "knight helmet",
+        "great helm",
+        "crusader helmet",
+        "medieval helmet",
+        "sallet helmet"
+      ],
+      "reference_mm": { "x": 230, "y": 270, "z": 320 },
+      "printable_mm": { "x": 165, "y": 190, "z": 215 },
+      "features": [
+        {
+          "name": "skull",
+          "kind": "shell",
+          "dims_mm": { "w": 165, "d": 190, "h": 130, "wall": 2.4 },
+          "notes": "Great-helm / sallet skull. Display scale."
+        },
+        {
+          "name": "visor",
+          "kind": "plate",
+          "dims_mm": { "w": 150, "d": 80, "h": 70, "wall": 2.4 },
+          "notes": "Hinged or fused visor. If the user asks it to flip, use joints.ts hinge clearances — do not union the pin."
+        },
+        {
+          "name": "sights",
+          "kind": "opening",
+          "dims_mm": { "w": 90, "h": 8, "depth": 10 },
+          "notes": "Eye slit. Keep ≥ 2.5 mm if through-cut."
+        },
+        {
+          "name": "bevor",
+          "kind": "collar",
+          "dims_mm": { "w": 160, "d": 85, "h": 55, "wall": 2.4 },
+          "notes": "Chin / neck plate. Wearable 1:1 uses the helmet_mask chart."
+        }
+      ],
+      "notes": [
+        "Typical fan-print knight helm — not a museum scan or licensed prop.",
+        "1:1 (~230×270×320 mm) misses P2S Y/Z; display scale is the default plan."
+      ],
+      "sources": [
+        "Curated display/1:1 bands from common FDM cosplay helmet prints (in-repo stub).",
+        "Wearable fit: lib/wearable-sizes.ts helmet_mask chart."
+      ]
+    },
+    {
+      "id": "mando-chest",
+      "name": "mandalorian chest",
+      "category": "armor",
+      "wearableCategory": "torso_armor",
+      "aliases": [
+        "mandalorian chest",
+        "mando chest",
+        "beskar chest",
+        "mando armor",
+        "mandalorian armor"
+      ],
+      "reference_mm": { "x": 340, "y": 160, "z": 380 },
+      "printable_mm": { "x": 200, "y": 85, "z": 220 },
+      "features": [
+        {
+          "name": "plastron",
+          "kind": "plate",
+          "dims_mm": { "w": 200, "d": 12, "h": 140, "wall": 2.4 },
+          "notes": "Upper chest plate. Display scale. Keep ≥ 2.0 mm so it does not print as a film."
+        },
+        {
+          "name": "diamond",
+          "kind": "plate",
+          "dims_mm": { "w": 70, "d": 8, "h": 70 },
+          "notes": "Center diamond / lozenge. Union proud of the plastron, not a knife-edge inlay."
+        },
+        {
+          "name": "ab_plate",
+          "kind": "plate",
+          "dims_mm": { "w": 170, "d": 10, "h": 80 },
+          "notes": "Lower abdomen plate. Optional split at the waist if 1:1 exceeds the bed."
+        },
+        {
+          "name": "shoulder_attach",
+          "kind": "boss",
+          "dims_mm": { "w": 28, "d": 12, "h": 20 },
+          "notes": "Strap / buckle bosses. Holes ≥ 2.5 mm; 0.3 mm clearance if they take hardware."
+        }
+      ],
+      "notes": [
+        "Typical fan-print beskar-style chest — not official licensed geometry.",
+        "1:1 (~340×160×380 mm) misses P2S on X and Z; display scale is the default, or split / designate a larger stub machine.",
+        "Wearable girth comes from the torso_armor chart (ISO 8559-style chest), not these plate envelopes."
+      ],
+      "sources": [
+        "Curated display/1:1 bands from common FDM cosplay armor prints (in-repo stub).",
+        "Wearable fit: lib/wearable-sizes.ts torso_armor chart."
+      ]
+    },
+    {
+      "id": "iron-man-gauntlet",
+      "name": "iron-man gauntlet",
+      "category": "armor",
+      "wearableCategory": "gauntlet",
+      "aliases": [
+        "iron man gauntlet",
+        "iron-man gauntlet",
+        "stark gauntlet",
+        "repulsor gauntlet",
+        "mk gauntlet"
+      ],
+      "reference_mm": { "x": 120, "y": 95, "z": 280 },
+      "printable_mm": { "x": 80, "y": 62, "z": 180 },
+      "features": [
+        {
+          "name": "palm",
+          "kind": "shell",
+          "dims_mm": { "w": 80, "d": 32, "h": 95, "wall": 2.0 },
+          "notes": "Palm / back-of-hand shell. Display scale. Hollow if wearable."
+        },
+        {
+          "name": "fingers",
+          "kind": "shell",
+          "dims_mm": { "w": 16, "d": 18, "h": 70, "wall": 1.6 },
+          "notes": "Finger sleeves as one fused mitt unless the user asks for joints — then joints.ts hinge/pin, not a fused blob."
+        },
+        {
+          "name": "wrist_cuff",
+          "kind": "collar",
+          "dims_mm": { "od": 78, "h": 40, "wall": 2.4 },
+          "notes": "Forearm cuff. Wearable 1:1 uses the gauntlet chart (hand circ), not this display OD."
+        },
+        {
+          "name": "repulsor",
+          "kind": "opening",
+          "dims_mm": { "d": 28, "depth": 6 },
+          "notes": "Palm disc recess. Keep a printable rim; optional through ≥ 2.5 mm."
+        }
+      ],
+      "notes": [
+        "Typical fan-print stark-style gauntlet — not official licensed geometry.",
+        "1:1 length (~280 mm) misses P2S Z if printed standing; lay it on X or use the 180 mm display scale.",
+        "Prompt 'iron man gauntlet' also hits the iron-man helmet alias ('iron man'); pack overall prefers the first match."
+      ],
+      "sources": [
+        "Curated display/1:1 bands from common FDM cosplay gauntlet prints (in-repo stub).",
+        "Wearable fit: lib/wearable-sizes.ts gauntlet chart (EN ISO 21420 hand sizes)."
+      ]
+    },
+    {
+      "id": "infinity-gauntlet",
+      "name": "infinity gauntlet",
+      "category": "armor",
+      "wearableCategory": "gauntlet",
+      "aliases": [
+        "infinity gauntlet",
+        "thanos gauntlet",
+        "infinity glove"
+      ],
+      "reference_mm": { "x": 140, "y": 110, "z": 320 },
+      "printable_mm": { "x": 88, "y": 70, "z": 190 },
+      "features": [
+        {
+          "name": "cuff",
+          "kind": "collar",
+          "dims_mm": { "od": 86, "h": 70, "wall": 2.4 },
+          "notes": "Gold forearm cuff. Display scale. Hollow if wearable."
+        },
+        {
+          "name": "knuckles",
+          "kind": "boss",
+          "dims_mm": { "w": 80, "d": 28, "h": 55 },
+          "notes": "Knuckle block that carries the gem sockets."
+        },
+        {
+          "name": "gem_sockets",
+          "kind": "opening",
+          "dims_mm": { "d": 18, "depth": 6 },
+          "notes": "Six disc recesses (four knuckles + thumb + back). Leave a printable rim; do not knife-edge bezels."
+        },
+        {
+          "name": "palm",
+          "kind": "shell",
+          "dims_mm": { "w": 88, "d": 36, "h": 90, "wall": 2.0 },
+          "notes": "Palm / back plate. Optional 1:1 uses the gauntlet chart."
+        }
+      ],
+      "notes": [
+        "Typical fan-print infinity-style gauntlet — not official licensed geometry.",
+        "1:1 (~140×110×320 mm) misses P2S Z standing; display scale is the default plan."
+      ],
+      "sources": [
+        "Curated display/1:1 bands from common FDM cosplay gauntlet prints (in-repo stub).",
+        "Wearable fit: lib/wearable-sizes.ts gauntlet chart."
+      ]
+    },
+    {
+      "id": "vambrace",
+      "name": "vambrace",
+      "category": "armor",
+      "wearableCategory": "bracer",
+      "aliases": [
+        "vambrace",
+        "bracer",
+        "forearm guard",
+        "arm guard",
+        "leather bracer"
+      ],
+      "reference_mm": { "x": 95, "y": 80, "z": 190 },
+      "printable_mm": { "x": 72, "y": 60, "z": 140 },
+      "features": [
+        {
+          "name": "shell",
+          "kind": "shell",
+          "dims_mm": { "w": 72, "d": 60, "h": 140, "wall": 2.4 },
+          "notes": "Open cuff / half-pipe. Display scale. Sit on z=0 on the split face for a clean bed."
+        },
+        {
+          "name": "wrist",
+          "kind": "collar",
+          "dims_mm": { "od": 62, "h": 18, "wall": 2.4 },
+          "notes": "Wrist end. Wearable 1:1 uses the bracer chart (wrist / forearm girth)."
+        },
+        {
+          "name": "strap_slots",
+          "kind": "opening",
+          "dims_mm": { "w": 22, "h": 4, "depth": 8 },
+          "notes": "Paired strap slots. Through ≥ 2.5 mm wide; 0.3 mm clearance if they take webbing hardware."
+        }
+      ],
+      "notes": [
+        "Generic fan-print bracer envelope — not a museum scan.",
+        "1:1 (~95×80×190 mm) fits P2S; still default to display unless the user asked wearable / 1:1."
+      ],
+      "sources": [
+        "Curated display/1:1 bands from common FDM cosplay bracer prints (in-repo stub).",
+        "Wearable fit: lib/wearable-sizes.ts bracer chart."
+      ]
+    },
+    {
+      "id": "cap-shield",
+      "name": "captain america shield",
+      "category": "prop",
+      "aliases": [
+        "captain america shield",
+        "cap shield",
+        "vibranium shield",
+        "star shield"
+      ],
+      "reference_mm": { "x": 610, "y": 610, "z": 12 },
+      "printable_mm": { "x": 200, "y": 200, "z": 8 },
+      "features": [
+        {
+          "name": "disc",
+          "kind": "plate",
+          "dims_mm": { "d": 200, "h": 8 },
+          "notes": "Round shield disc. Display scale that fits P2S. Sit on z=0 (face up)."
+        },
+        {
+          "name": "rings",
+          "kind": "plate",
+          "dims_mm": { "od": 200, "id": 48, "h": 1.2 },
+          "notes": "Concentric paint rings as 1.2 mm proud ribs — or omit and paint. Do not knife-edge the ring walls."
+        },
+        {
+          "name": "star",
+          "kind": "plate",
+          "dims_mm": { "w": 48, "h": 1.2, "d": 48 },
+          "notes": "Center star boss. Keep points ≥ 1.6 mm."
+        },
+        {
+          "name": "grip",
+          "kind": "boss",
+          "dims_mm": { "w": 90, "d": 22, "h": 28 },
+          "notes": "Rear strap / handle bosses. Optional; holes ≥ 2.5 mm."
+        }
+      ],
+      "notes": [
+        "Typical fan-print round shield — not official licensed geometry. 1:1 ~610 mm is a common 24 in prop band, not a studio spec.",
+        "1:1 (~610×610×12 mm) far exceeds P2S 256³; default to the 200 mm display disc or designate a larger stub machine / split."
+      ],
+      "sources": [
+        "Curated display/1:1 bands from common FDM prop shields (in-repo stub)."
+      ]
+    },
+    {
+      "id": "mjolnir",
+      "name": "mjolnir",
+      "category": "prop",
+      "aliases": [
+        "mjolnir",
+        "thor hammer",
+        "thor's hammer",
+        "thors hammer"
+      ],
+      "reference_mm": { "x": 145, "y": 145, "z": 380 },
+      "printable_mm": { "x": 72, "y": 72, "z": 200 },
+      "features": [
+        {
+          "name": "head",
+          "kind": "block",
+          "dims_mm": { "w": 72, "d": 48, "h": 42, "wall": 2.4 },
+          "notes": "Hammer head. Display scale. Hollow optional; wall ≥ 1.6 mm."
+        },
+        {
+          "name": "handle",
+          "kind": "cylinder",
+          "dims_mm": { "d": 18, "h": 130, "wall": 2.0 },
+          "notes": "Grip shaft. Sit pommel-down or lay on X if 1:1 misses Z."
+        },
+        {
+          "name": "pommel",
+          "kind": "cap",
+          "dims_mm": { "d": 24, "h": 16 },
+          "notes": "End cap. Optional 1/4-20 style boss is a 6.5 mm hole with 0.3 mm clearance."
+        },
+        {
+          "name": "wrap",
+          "kind": "rib",
+          "dims_mm": { "w": 3, "h": 1.2, "d": 18 },
+          "notes": "Leather-wrap ribs as 1.2 mm proud bands — decorative, not a knife-edge thread."
+        }
+      ],
+      "notes": [
+        "Typical fan-print short-handle hammer — not official licensed geometry.",
+        "1:1 length (~380 mm) misses P2S Z standing; default printable is 200 mm standing or lay the hammer on X."
+      ],
+      "sources": [
+        "Curated display/1:1 bands from common FDM prop hammers (in-repo stub)."
+      ]
+    },
+    {
+      "id": "wizard-staff",
+      "name": "wizard staff",
+      "category": "prop",
+      "aliases": [
+        "wizard staff",
+        "mage staff",
+        "wizard stave",
+        "magic staff"
+      ],
+      "reference_mm": { "x": 36, "y": 36, "z": 1500 },
+      "printable_mm": { "x": 28, "y": 28, "z": 240 },
+      "features": [
+        {
+          "name": "shaft",
+          "kind": "cylinder",
+          "dims_mm": { "d": 24, "h": 200, "wall": 2.4 },
+          "notes": "Hollow shaft segment. Display / one-bed piece. 1:1 is several segments with dowel joins."
+        },
+        {
+          "name": "crystal",
+          "kind": "crown",
+          "dims_mm": { "w": 28, "d": 28, "h": 40 },
+          "notes": "Head crystal / cage. Keep points ≥ 1.6 mm."
+        },
+        {
+          "name": "pommel",
+          "kind": "cap",
+          "dims_mm": { "d": 28, "h": 20 },
+          "notes": "Butt cap. Optional dowel bore 8 mm + 0.3 mm clearance for a multi-part kit."
+        }
+      ],
+      "notes": [
+        "Typical fan-print walking-staff envelope — not a licensed prop.",
+        "1:1 (~36×36×1500 mm) needs a planned split (dowel / pin, joints.ts multi-part) or a designated larger machine. Default is one 240 mm segment that fits P2S Z."
+      ],
+      "sources": [
+        "Curated display/1:1 bands from common FDM staff / cane prints (in-repo stub)."
+      ]
+    },
+    {
+      "id": "batarang",
+      "name": "batarang",
+      "category": "prop",
+      "aliases": [
+        "batarang",
+        "bat-a-rang",
+        "bat rang"
+      ],
+      "reference_mm": { "x": 250, "y": 180, "z": 8 },
+      "printable_mm": { "x": 160, "y": 110, "z": 6 },
+      "features": [
+        {
+          "name": "wings",
+          "kind": "plate",
+          "dims_mm": { "w": 160, "d": 110, "h": 6 },
+          "notes": "Bat-wing plate. Display scale. Sit flat on z=0."
+        },
+        {
+          "name": "grip",
+          "kind": "plate",
+          "dims_mm": { "w": 36, "d": 22, "h": 8 },
+          "notes": "Center grip thickening. Keep ≥ 1.6 mm so the waist does not snap."
+        },
+        {
+          "name": "tips",
+          "kind": "fin",
+          "dims_mm": { "w": 14, "d": 28, "h": 6 },
+          "notes": "Wing tips. Blunt to ≥ 1.6 mm — this is a display prop, not a blade."
+        }
+      ],
+      "notes": [
+        "Typical fan-print throwing-prop silhouette — not official licensed geometry. Tips stay blunt for printability and safety.",
+        "1:1 (~250×180×8 mm) still fits P2S XY; display 160 mm is the default unless the user asked 1:1."
+      ],
+      "sources": [
+        "Curated display/1:1 bands from common FDM prop prints (in-repo stub)."
+      ]
     }
   ],
   "tech": [
@@ -229,7 +786,8 @@
       "aliases": ["pla", "polylactic"],
       "crossLinks": { "filament": "pla" },
       "notes": [
-        "Default P2S everyday material. Use printers.ts PLA auto-best (advisory, not a LAN write)."
+        "Default P2S everyday material. Stiff display helmets and props; not for outdoor heat or load-bearing clips.",
+        "Use printers.ts PLA auto-best (advisory, not a LAN write)."
       ]
     },
     {
@@ -239,7 +797,7 @@
       "aliases": ["petg"],
       "crossLinks": { "filament": "petg" },
       "notes": [
-        "Tougher than PLA; strings if wet or a few degrees too hot. Dry the spool."
+        "Tougher than PLA for functional props and outdoor-ish parts; strings if wet or a few degrees too hot. Dry the spool."
       ]
     },
     {
@@ -249,7 +807,7 @@
       "aliases": ["nylon", "pa6", "pa12", "pa-cf", "pa filament", "pa"],
       "crossLinks": { "filament": "pa" },
       "notes": [
-        "Hygroscopic. P2S has no active chamber heater — keep the door closed. Advisory preset only."
+        "Hygroscopic — dry thoroughly. P2S has no active chamber heater; keep the door closed. Advisory preset only, not a LAN command."
       ]
     },
     {
@@ -259,7 +817,7 @@
       "aliases": ["abs"],
       "crossLinks": { "filament": "abs" },
       "notes": [
-        "P2S has no active chamber heater — keep the door closed and use internal circulation."
+        "P2S has no active chamber heater — keep the door closed and use internal circulation. Better heat resistance than PLA for sun-warmed props."
       ]
     },
     {
@@ -270,6 +828,32 @@
       "crossLinks": { "filament": "tpu" },
       "notes": [
         "Print slowly. Soft TPU can struggle through AMS feed paths. Keep walls ≥ 1.6 mm; do not knife-edge flex features."
+      ]
+    },
+    {
+      "id": "asa",
+      "name": "ASA",
+      "category": "material",
+      "aliases": ["asa", "asa filament"],
+      "notes": [
+        "UV-stable outdoor cousin of ABS. No dedicated FilamentId in printers.ts — plan the ABS auto-best (door closed, no active chamber heater) and say so.",
+        "Not a live material crawl. If the user only said ASA, still keep walls ≥ 1.6 mm and do not invent a new preset."
+      ]
+    },
+    {
+      "id": "cf-filled",
+      "name": "carbon-fiber filled",
+      "category": "material",
+      "aliases": [
+        "carbon fiber filament",
+        "carbon-fiber",
+        "cf filament",
+        "pla-cf",
+        "petg-cf"
+      ],
+      "notes": [
+        "Abrasive. Prefer a hardened nozzle; the P2S supported set is 0.2/0.4/0.6/0.8 mm (printers.ts).",
+        "No dedicated FilamentId — plan PLA or PETG auto-best from the base polymer the user named. Still 1.6 mm walls unless they insist thinner."
       ]
     },
     {
@@ -287,7 +871,51 @@
       "crossLinks": { "printer": "bambu-lab-p2s" },
       "planHints": { "layer_height_mm": 0.2, "nozzle_mm": 0.4 },
       "notes": [
-        "P2S default is a 0.4 mm nozzle and 0.2 mm advisory layer height (printers.ts). Walls stay ≥ 1.6 mm (4× nozzle)."
+        "P2S default is a 0.4 mm nozzle and 0.2 mm advisory layer height (printers.ts). Walls stay ≥ 1.6 mm (4× nozzle). Supported nozzles: 0.2 / 0.4 / 0.6 / 0.8 mm."
+      ]
+    },
+    {
+      "id": "nozzle-02",
+      "name": "0.2 mm nozzle",
+      "category": "nozzle",
+      "aliases": ["0.2 mm nozzle", "0.2mm nozzle", "fine nozzle"],
+      "crossLinks": { "printer": "bambu-lab-p2s" },
+      "planHints": { "layer_height_mm": 0.1, "nozzle_mm": 0.2, "min_wall_mm": 1.6 },
+      "notes": [
+        "P2S supports a 0.2 mm nozzle (printers.ts). Finer detail, slower. Walls still ≥ 1.6 mm unless the user insists thinner; min feature can approach 0.8 mm (2× nozzle)."
+      ]
+    },
+    {
+      "id": "nozzle-06",
+      "name": "0.6 mm nozzle",
+      "category": "nozzle",
+      "aliases": ["0.6 mm nozzle", "0.6mm nozzle"],
+      "crossLinks": { "printer": "bambu-lab-p2s" },
+      "planHints": { "layer_height_mm": 0.28, "nozzle_mm": 0.6, "min_wall_mm": 2.4 },
+      "notes": [
+        "P2S supports a 0.6 mm nozzle (printers.ts). Faster draft / large cosplay shells. Prefer walls ≥ 2.4 mm (4× 0.6)."
+      ]
+    },
+    {
+      "id": "nozzle-08",
+      "name": "0.8 mm nozzle",
+      "category": "nozzle",
+      "aliases": ["0.8 mm nozzle", "0.8mm nozzle"],
+      "crossLinks": { "printer": "bambu-lab-p2s" },
+      "planHints": { "layer_height_mm": 0.4, "nozzle_mm": 0.8, "min_wall_mm": 3.2 },
+      "notes": [
+        "P2S supports a 0.8 mm nozzle (printers.ts). Large props and armor plates. Prefer walls ≥ 3.2 mm (4× 0.8)."
+      ]
+    },
+    {
+      "id": "fine-layer",
+      "name": "0.12 mm layer",
+      "category": "layer",
+      "aliases": ["0.12 mm layer", "0.12mm layer", "fine layer", "0.1 mm layer"],
+      "crossLinks": { "printer": "bambu-lab-p2s" },
+      "planHints": { "layer_height_mm": 0.12, "nozzle_mm": 0.4 },
+      "notes": [
+        "Detail pass on the default 0.4 mm nozzle. Still keep walls ≥ 1.6 mm. Advisory only — not a slicer profile write."
       ]
     },
     {
@@ -343,6 +971,191 @@
       ],
       "notes": [
         "When 1:1 exceeds 256³, prefer a planned split or a designated larger stub machine over a crushed scale — unless the user asked for a miniature."
+      ]
+    },
+    {
+      "id": "min-wall",
+      "name": "minimum wall",
+      "category": "technique",
+      "aliases": [
+        "min wall",
+        "minimum wall",
+        "1.6 mm wall",
+        "1.6mm wall",
+        "thin wall"
+      ],
+      "crossLinks": { "printer": "bambu-lab-p2s" },
+      "planHints": { "min_wall_mm": 1.6, "nozzle_mm": 0.4 },
+      "notes": [
+        "printRules min wall is 1.6 mm (4× 0.4 mm nozzle). Min feature 0.8 mm (2×). Do not plan knife-edges."
+      ]
+    },
+    {
+      "id": "fit-clearance",
+      "name": "fit clearance",
+      "category": "joint",
+      "aliases": [
+        "fit clearance",
+        "press fit",
+        "0.3 mm clearance",
+        "0.3mm clearance"
+      ],
+      "planHints": { "clearance_mm": 0.3 },
+      "notes": [
+        "Ordinary press/snap fits stay 0.3 mm/side (printRules.clearanceMm). Joints that move use joints.ts, not this 0.3 mm band."
+      ]
+    },
+    {
+      "id": "min-hole",
+      "name": "minimum hole",
+      "category": "technique",
+      "aliases": [
+        "2.5 mm hole",
+        "2.5mm hole",
+        "minimum hole",
+        "min hole diameter"
+      ],
+      "planHints": { "clearance_mm": 0.3 },
+      "notes": [
+        "printRules minHoleMm is 2.5 mm on a 0.4 mm nozzle. Smaller stated holes get lifted unless the user insists."
+      ]
+    },
+    {
+      "id": "hinge-joint",
+      "name": "hinge joint",
+      "category": "joint",
+      "aliases": [
+        "hinge joint",
+        "hinge clearance",
+        "knuckle hinge",
+        "living hinge"
+      ],
+      "crossLinks": { "joints": true },
+      "notes": [
+        "Knuckle hinge from lib/joints.ts: PIP 0.4 mm radial / 0.5 mm axial; removable 0.5 / 0.6 mm. Bore = pin + 2×radial. Do not union the pin or lid."
+      ]
+    },
+    {
+      "id": "snap-fit",
+      "name": "snap-fit",
+      "category": "joint",
+      "aliases": [
+        "snap-fit",
+        "snap fit",
+        "snap joint",
+        "cantilever snap",
+        "snap hook"
+      ],
+      "crossLinks": { "joints": true },
+      "planHints": { "clearance_mm": 0.3, "min_wall_mm": 1.6 },
+      "notes": [
+        "Cantilever snap from lib/joints.ts: 0.3 mm/side gap, 1.6 mm beam (4× nozzle), flex in XY. Do not union hook and catch."
+      ]
+    },
+    {
+      "id": "ball-joint",
+      "name": "ball joint",
+      "category": "joint",
+      "aliases": ["ball joint", "ball-joint", "socket joint"],
+      "crossLinks": { "joints": true },
+      "notes": [
+        "Captive ball from lib/joints.ts: PIP 0.5 mm radial, removable 0.6 mm. Cavity = ball + 2×radial; neck < ball_d. Not a 3-axis gimbal."
+      ]
+    },
+    {
+      "id": "multi-part",
+      "name": "multi-part kit",
+      "category": "technique",
+      "aliases": [
+        "multi-part",
+        "multi part",
+        "print separately",
+        "removable kit",
+        "hand assembly"
+      ],
+      "crossLinks": { "joints": true },
+      "notes": [
+        "Separate solids, then assemble. joints.ts multi-part column: hinge/pin 0.5 mm radial / 0.6 mm axial. Prefer this over crushing 1:1 to fit the bed."
+      ]
+    },
+    {
+      "id": "tree-supports",
+      "name": "tree supports",
+      "category": "technique",
+      "aliases": [
+        "tree supports",
+        "support material",
+        "enable supports",
+        "need supports",
+        "organic supports"
+      ],
+      "notes": [
+        "Slicer supports for overhangs (helmet visors, cowl ears, hammer heads). Prefer orienting the part on z=0 to reduce them. Advisory note only — DescribePrint does not write a slicer profile."
+      ]
+    },
+    {
+      "id": "brim",
+      "name": "brim",
+      "category": "technique",
+      "aliases": ["brim", "bed brim", "mouse ears", "elephant foot"],
+      "notes": [
+        "Brim / mouse-ears help tall helmets and staffs stick. First-layer elephant foot can steal 0.2–0.4 mm from holes — keep min hole 2.5 mm and 0.3 mm fit clearance."
+      ]
+    },
+    {
+      "id": "print-orientation",
+      "name": "print orientation",
+      "category": "technique",
+      "aliases": [
+        "print orientation",
+        "print it flat",
+        "flat on the bed",
+        "lay it on its side"
+      ],
+      "crossLinks": { "printer": "bambu-lab-p2s" },
+      "notes": [
+        "Sit the part on z=0. Strength is best in XY; standing hilts/staffs/gauntlets that miss P2S Z should lay on X instead of being crushed."
+      ]
+    },
+    {
+      "id": "dry-filament",
+      "name": "dry filament",
+      "category": "technique",
+      "aliases": [
+        "dry filament",
+        "dry the spool",
+        "hygroscopic",
+        "wet filament"
+      ],
+      "notes": [
+        "PETG / PA / TPU (and wet PLA) string and under-extrude when wet. Dry the spool. Cross-link the named material's printers.ts preset when present — do not invent temps."
+      ]
+    },
+    {
+      "id": "bridging",
+      "name": "bridging",
+      "category": "technique",
+      "aliases": ["bridging", "bridge gap", "unsupported span"],
+      "notes": [
+        "Keep unsupported spans short on a 0.4 mm nozzle. Helmet visors and shield grips print more cleanly as recesses than long air bridges. Cooling follows the material preset (PLA high fan, PETG/ABS low)."
+      ]
+    },
+    {
+      "id": "ironing",
+      "name": "ironing",
+      "category": "technique",
+      "aliases": ["ironing", "iron the top"],
+      "notes": [
+        "Slicer top-surface ironing for plaques and shield faces. Advisory only — not a LAN / profile write. Still keep walls ≥ 1.6 mm."
+      ]
+    },
+    {
+      "id": "vase-mode",
+      "name": "vase mode",
+      "category": "technique",
+      "aliases": ["vase mode", "spiral vase", "vase-mode"],
+      "notes": [
+        "Single-wall spiral. Conflicts with the 1.6 mm (4× nozzle) wall rule — only if the user insists, and say so. Not a slicer write."
       ]
     }
   ]

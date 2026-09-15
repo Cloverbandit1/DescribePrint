@@ -188,6 +188,23 @@ export {
   type PrintEstimateInput,
   type PrintEstimateVolumeSource,
 } from "./print-estimate";
+export {
+  PROJECT_PACK_EMPTY_ERROR,
+  PROJECT_PACK_FILES,
+  PROJECT_PACK_NOTE,
+  SHOPPING_SEARCH_TERMS,
+  ProjectPackError,
+  assertCanBuildProjectPack,
+  buildProjectPack,
+  buildProjectStepsMarkdown,
+  buildShoppingLinksJson,
+  buildShoppingLinksMarkdown,
+  canBuildProjectPack,
+  shoppingLineFor,
+  shoppingLinksFor,
+  type ProjectPackInput,
+  type ShoppingLinkStub,
+} from "./project-pack";
 export { mapDesignFilamentsToAms } from "./ams";
 export {
   MACHINE_RESHAPE_STORAGE_KEY,

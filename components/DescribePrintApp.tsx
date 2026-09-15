@@ -743,10 +743,23 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
             {result ? (
               <ResultPanel result={result} showDetails={showDetails} onToggleDetails={() => setShowDetails((v) => !v)} />
             ) : (
-              <p className="rounded-md border border-dashed border-line px-2.5 py-2 text-[11px] text-muted">
-                Nothing on the plate yet. Describe a part, import STL/3MF or a photo, or pick a wearable size, then
-                Print. Files are sized for the P2S; oversized photo solids suggest another machine.
-              </p>
+              <div className="space-y-2 rounded-md border border-dashed border-line px-2.5 py-2 text-[11px] text-muted">
+                <p>
+                  Nothing on the plate yet. Describe a part, import STL/3MF or a photo, or pick a wearable size, then
+                  Print. Files are sized for the P2S; oversized photo solids suggest another machine.
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled
+                    title="Print something first — project pack needs a 3MF on the plate"
+                    className="studio-btn studio-btn-ghost inline-flex h-8 px-3 opacity-40"
+                  >
+                    Download pack
+                  </button>
+                  <span>Print something first</span>
+                </div>
+              </div>
             )}
           </div>
 
@@ -1690,6 +1703,13 @@ function ResultPanel({
         </a>
         <a href={result.printPresetUrl} className="studio-btn studio-btn-ghost inline-flex h-8 px-3">
           Print settings
+        </a>
+        <a
+          href={result.projectPackUrl}
+          className="studio-btn studio-btn-ghost inline-flex h-8 px-3"
+          title="Project pack (stub) · 3MF + steps + shopping links"
+        >
+          Download pack
         </a>
         <button type="button" onClick={onToggleDetails} className="ml-auto text-[11px] text-muted underline-offset-2 hover:underline">
           {showDetails ? "Hide details" : "Details"}

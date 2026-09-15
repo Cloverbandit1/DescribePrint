@@ -196,6 +196,8 @@ export type GenerateResult = {
   /** Advisory P2S auto-best snapshot written into 3MF + sidecar JSON. */
   printPreset: PrintPresetSummary;
   printPresetUrl: string;
+  /** One-click stub zip: 3MF + STL + steps + shopping links. */
+  projectPackUrl: string;
   /** True only when a known fork is still open — not set on ordinary prompts. */
   needs_user_choice?: boolean;
   /** Selectable chips for the open fork(s). Empty when generate can just proceed. */

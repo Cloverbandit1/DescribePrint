@@ -13,6 +13,7 @@ import {
 import { compileOpenScad } from "@/lib/compile";
 import { CAD_RESHAPE_INSTRUCTION, buildCadReshapeHandoff, buildReslicePlanStub } from "@/lib/machine/reshape-plan";
 import { runGeneratePipeline } from "@/lib/pipeline";
+import { printPresetSummary } from "@/lib/printers";
 import { sanitizeOpenScad } from "@/lib/sanitize";
 import { makeAxisAlignedBoxMesh, writeBinaryStl } from "@/lib/stl";
 
@@ -311,6 +312,9 @@ describe("runCadReshapeUpper + generate pipeline", () => {
       stlUrl: "/api/jobs/job-1/model.stl",
       threemfUrl: "/api/jobs/job-1/model.3mf",
       scadUrl: "/api/jobs/job-1/model.scad",
+      printPreset: printPresetSummary("pla"),
+      printPresetUrl: "/api/jobs/job-1/model.print.json",
+      projectPackUrl: "/api/jobs/job-1/model.pack.zip",
       report: {
         triangleCount: 12,
         volumeMm3: 1,

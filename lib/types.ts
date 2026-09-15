@@ -1,11 +1,12 @@
 import type { AppliedDesignChoice, DesignOptionGroup } from "./design-options";
 import type { MachineDesignation } from "./alternate-machines";
 import type { ColorRegion } from "./color-regions";
+import type { AmsSlotPlan } from "./machine/types";
 import type { CadReshapeHandoff, StumpCutPlaneBoundsMm } from "./machine/reshape-plan";
 import type { FilamentId, PrintPresetSummary } from "./printers";
 
 export type { AppliedDesignChoice, DesignOption, DesignOptionGroup, DesignOptionGroupId } from "./design-options";
-export type { ColorRegion, FilamentId, MachineDesignation, PrintPresetSummary };
+export type { AmsSlotPlan, ColorRegion, FilamentId, MachineDesignation, PrintPresetSummary };
 export type { CadReshapeHandoff, StumpCutPlaneBoundsMm };
 
 export type ImageRasterFormat = "png" | "jpeg" | "webp";
@@ -222,6 +223,8 @@ export type GenerateResult = {
   printPresetUrl: string;
   /** One-click stub zip: 3MF + STL + steps + shopping links. */
   projectPackUrl: string;
+  /** AMS tray handoff written into 3MF metadata (omit unused trays). */
+  amsSlotPlan?: AmsSlotPlan;
   /** True only when a known fork is still open — not set on ordinary prompts. */
   needs_user_choice?: boolean;
   /** Selectable chips for the open fork(s). Empty when generate can just proceed. */

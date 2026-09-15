@@ -7,7 +7,7 @@
  */
 
 import JSZip from "jszip";
-import type { ColorRegion } from "../color-regions";
+import { regionsToDesignFilaments, type ColorRegion } from "../color-regions";
 import {
   defaultPrinter,
   filamentPreset,
@@ -17,6 +17,8 @@ import {
   type FilamentId,
   type PrintPresetSummary,
 } from "../printers";
+import { amsSlotPlanSidecarJson, buildAmsSlotPlan } from "./ams";
+import type { AmsSlotPlan } from "./types";
 import type { PrintabilityReport } from "../types";
 import {
   estimatePrintFromReport,
@@ -37,6 +39,7 @@ export const PROJECT_PACK_FILES = {
   shoppingJson: "shopping.json",
   preset: "print_preset.json",
   estimate: "estimate.json",
+  amsPlan: "ams_slot_plan.json",
 } as const;
 
 /** Search placeholders only — not store URLs or affiliate claims. */
@@ -59,6 +62,7 @@ export type ProjectPackInput = {
   colorRegions?: ColorRegion[] | null;
   fileName?: string | null;
   material?: FilamentId | string | null;
+  amsSlotPlan?: AmsSlotPlan | null;
 };
 
 export type ShoppingLinkStub = {
@@ -100,6 +104,15 @@ export function assertCanBuildProjectPack(input: ProjectPackInput | null | undef
 function resolvePreset(input: ProjectPackInput): PrintPresetSummary {
   if (input.printPreset) return input.printPreset;
   return printPresetSummary(input.material);
+}
+
+export function resolveProjectAmsSlotPlan(input: ProjectPackInput): AmsSlotPlan {
+  if (input.amsSlotPlan?.slots.length) return input.amsSlotPlan;
+  const preset = resolvePreset(input);
+  return buildAmsSlotPlan({
+    material: preset.material,
+    design: regionsToDesignFilaments(input.colorRegions ?? []),
+  });
 }
 
 function uniqueMaterials(input: ProjectPackInput, preset: PrintPresetSummary): FilamentId[] {
@@ -217,13 +230,21 @@ export function buildProjectStepsMarkdown(input: ProjectPackInput): string {
   );
   if (preset.notes) lines.push(`- Material note: ${preset.notes}`);
 
-  lines.push("", "## AMS slot hints (export metadata, not a live mapping)");
-  if (regions.length === 0) {
+  const slotPlan = resolveProjectAmsSlotPlan(input);
+  lines.push("", "## AMS slot plan (export metadata, not a LAN command)");
+  if (slotPlan.slots.length === 0) {
     lines.push(`- Slot 1: ${preset.name}`);
   } else {
-    for (const region of regions) {
-      const filament = (normalizeFilamentId(region.filament) ?? preset.material).toUpperCase();
-      lines.push(`- Slot ${region.amsSlot}: ${region.name} · ${region.colorName} · ${filament}`);
+    for (const slot of slotPlan.slots) {
+      const color = slot.color ? ` · ${slot.color}` : "";
+      const design = slot.designId ? ` · ${slot.designId}` : "";
+      lines.push(`- AMS ${slot.index + 1}: ${slot.material.toUpperCase()}${color}${design} (${slot.source})`);
+    }
+    if (regions.length) {
+      for (const region of regions) {
+        const filament = (normalizeFilamentId(region.filament) ?? preset.material).toUpperCase();
+        lines.push(`- Object ${region.name}: ${region.colorName} · ${filament} · region AMS ${region.amsSlot}`);
+      }
     }
   }
 
@@ -259,6 +280,7 @@ export async function buildProjectPack(input: ProjectPackInput): Promise<Buffer>
   zip.file(PROJECT_PACK_FILES.shopping, buildShoppingLinksMarkdown({ ...input, printPreset: preset }));
   zip.file(PROJECT_PACK_FILES.shoppingJson, `${JSON.stringify(buildShoppingLinksJson({ ...input, printPreset: preset }), null, 2)}\n`);
   zip.file(PROJECT_PACK_FILES.preset, printPresetSidecarJson(preset));
+  zip.file(PROJECT_PACK_FILES.amsPlan, amsSlotPlanSidecarJson(resolveProjectAmsSlotPlan({ ...input, printPreset: preset })));
   if (estimate) {
     zip.file(PROJECT_PACK_FILES.estimate, `${JSON.stringify(estimate, null, 2)}\n`);
   }

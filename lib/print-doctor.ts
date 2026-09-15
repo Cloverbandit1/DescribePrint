@@ -45,6 +45,9 @@ export type PrintDoctorResult = {
   reshape?: EmergencyRemainingReshapePlan;
   /** True when chat asked to switch to a material's auto-best table. */
   appliedPreset?: boolean;
+  /** True when chat asked to put a role (accent/body) on an AMS tray. */
+  appliedSlotPlan?: boolean;
+  slotPlanAssignment?: { index: number; role?: string };
 };
 
 export function withAutofix(result: PrintDoctorResult, autofix: PrintDoctorAutofix): PrintDoctorResult {
@@ -88,6 +91,12 @@ const DEFECT_RULES: DefectRule[] = [
     id: "emergency-reshape",
     title: "Emergency remaining-layer reshape",
     re: EMERGENCY_RESHAPE_RE,
+    confidence: "high",
+  },
+  {
+    id: "ams-slot-assign",
+    title: "AMS slot plan",
+    re: /\b(?:use|assign|put)\s+ams\s*(?:#|slot\s*)?\d+\s+for\s+\w+/i,
     confidence: "high",
   },
   {
@@ -191,6 +200,23 @@ export function looksLikeMaterialPresetRequest(text: string): boolean {
   return MATERIAL_PRESET_RE.test(text.trim());
 }
 
+const AMS_SLOT_PLAN_RE = /\b(?:use|assign|put)\s+ams\s*(?:#|slot\s*)?(\d+)\s+for\s+(\w+)/i;
+
+export function looksLikeAmsSlotPlanRequest(text: string): boolean {
+  return AMS_SLOT_PLAN_RE.test(text.trim());
+}
+
+export function extractAmsSlotPlanAssignment(
+  text: string,
+): { index: number; role: string } | undefined {
+  const match = text.match(AMS_SLOT_PLAN_RE);
+  if (!match) return undefined;
+  const slot = Number(match[1]);
+  const role = (match[2] ?? "").trim().toLowerCase();
+  if (!Number.isInteger(slot) || slot < 1 || slot > 20 || !role) return undefined;
+  return { index: slot - 1, role };
+}
+
 export function looksLikePrintDoctorComplaint(text: string): boolean {
   const cleaned = text.trim();
   if (!cleaned) return false;
@@ -198,7 +224,8 @@ export function looksLikePrintDoctorComplaint(text: string): boolean {
     DEFECT_RULES.some((rule) => rule.re.test(cleaned)) ||
     DOCTOR_HINT.test(cleaned) ||
     isEmergencyReshapeRequest(cleaned) ||
-    looksLikeMaterialPresetRequest(cleaned)
+    looksLikeMaterialPresetRequest(cleaned) ||
+    looksLikeAmsSlotPlanRequest(cleaned)
   );
 }
 
@@ -393,6 +420,17 @@ function buildFixes(defectId: string, material: FilamentId): { fixes: PrintDocto
           "Reprint a small test cube before a long job.",
         ],
       };
+    case "ams-slot-assign":
+      return {
+        fixes: [
+          setting("Update the AMS slot plan. Advisory export metadata only — not a LAN command.", "amsSlot", "plan"),
+          physical("Load that tray if the printer is disconnected. The 3MF keeps the mapping."),
+        ],
+        steps: [
+          "The slot plan is written into 3MF metadata and the project-pack sidecar.",
+          "This does not send filament-change commands over LAN.",
+        ],
+      };
     case "material-preset": {
       const summary = printPresetSummary(material);
       return {
@@ -459,6 +497,10 @@ function diagnosisFor(defectId: string, material: FilamentId, amsSlot?: number):
       return "You asked to reshape the unprinted remainder. When RESHAPE_REMAINING is on, Print Control pauses and emits a CAD-handoff + reslice plan. Resume is manual. CAD Core owns the new mesh. When the flag is off this stays a later option — no pause and no live plan.";
     case "wet-filament":
       return "Popping or fuzzy walls usually mean moisture. Dry the spool before chasing more temperature changes.";
+    case "ams-slot-assign":
+      return amsSlot != null
+        ? `Use AMS ${amsSlot} for that filament in the slot plan. Advisory metadata only — not sent over LAN.`
+        : "Updated the AMS slot plan. Advisory metadata only — not sent over LAN.";
     case "material-preset":
       return `Applied ${material.toUpperCase()} auto-best settings for the P2S (advisory — not sent over LAN).`;
     default:
@@ -492,6 +534,7 @@ export function diagnosePrintComplaint(request: PrintDoctorRequest): PrintDoctor
   const fallback = sessionMaterial ?? printer.defaultFilament;
   const material = inferMaterial(`${request.material ?? ""} ${complaint}`, fallback);
   const amsSlot = extractAmsSlot(complaint);
+  const slotAssignment = extractAmsSlotPlanAssignment(complaint);
   const rule = matchDefect(complaint);
   const materialSwitch = !rule && looksLikeMaterialPresetRequest(complaint);
   const defectId = rule?.id ?? (materialSwitch ? "material-preset" : "unknown");
@@ -500,13 +543,15 @@ export function diagnosePrintComplaint(request: PrintDoctorRequest): PrintDoctor
   return {
     defectId,
     title: rule?.title ?? (materialSwitch ? "Auto-best settings" : "Print problem"),
-    diagnosis: diagnosisFor(defectId, material, amsSlot),
+    diagnosis: diagnosisFor(defectId, material, slotAssignment ? slotAssignment.index + 1 : amsSlot),
     confidence: rule?.confidence ?? (materialSwitch ? "high" : "low"),
     printerId,
     material,
-    amsSlot,
+    amsSlot: slotAssignment ? slotAssignment.index + 1 : amsSlot,
     fixes,
     physicalSteps: steps,
     appliedPreset: materialSwitch,
+    appliedSlotPlan: defectId === "ams-slot-assign",
+    ...(slotAssignment ? { slotPlanAssignment: slotAssignment } : {}),
   };
 }

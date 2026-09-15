@@ -172,8 +172,16 @@ Priority order from the product owner (not in V0):
 3. **Articulated / functional assemblies** — real joints with print clearances, multi-part export, and material-aware thickness/strength so moving parts (e.g. robot arms) don’t break.
 4. **Print doctor** — user describes print defects (e.g. stringing with nylon PA); the system diagnoses likely causes for the **selected printer/material** (default **Bambu Lab P2S**) and proposes or auto-applies setting fixes; then a feedback loop (still bad vs perfect). In-app only — not a separate slicer or DCC.
 5. **Image import as starting point** — user uploads a **single photo**; the system infers/generates the **backside and unseen geometry** into a **full 3D printable solid** (not a front-only relief). Output is a clean, watertight-ish mesh ready to print. By default, use light intelligence to **repair** broken or damaged parts (fill cracks, restore missing chunks). Do **not** preserve wear unless the user asks to keep it.
+6. **Auto calibration assistant** — guided calibration for the **Bambu Lab P2S** and later machines (bed, flow, offset, and related checks) from the web UI.
+7. **Part library + remix** — save successful prints and remix them (change a dimension, restyle, reuse a proven fixture) instead of starting from a blank description.
+8. **Tolerance / fit wizard** — pick snap, press, loose, or hinge fit; the system applies print-aware clearances for the selected printer/material.
+9. **Failure replay from a phone photo** — upload a photo of a failed print; the system reconstructs what went wrong and proposes a repaired model and/or settings (pairs with Print doctor).
+10. **Digital twin of the printer** — live status, queue, AMS, and ETA in the DescribePrint UI (no separate slicer required).
+11. **Generative lattice / lightweighting** — infill-as-geometry: lighter parts that still print and stay strong enough for the chosen use.
+12. **Compliance / safety checks for wearables and props** — flag sharp edges, occlusion, skin-contact, and similar risks before export.
+13. **Multi-machine farm mode** — send jobs across more than one printer, with queue and status in-app.
 
-V0 stays **describe → CAD → STL/3MF**. Image import and Print doctor are after V0.
+V0 stays **describe → CAD → STL/3MF**. Image import, Print doctor, and items 6–13 are after V0. Local AI (`qwen2.5-coder:7b` on the default Ollama server) remains the generate path; do not retarget Agent Smith models.
 
 All of the above ship **inside the web UI** (preview + printable export). None of them assume Blender or another DCC after the fact.
 

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { MachineDesignation } from "./alternate-machines";
 import { defaultColorRegion, type ColorRegion } from "./color-regions";
 import { printPresetSummary, type PrintPresetSummary } from "./printers";
+import { formatStrengthPreviewNote } from "./strength-preview";
 import type {
   GenerateResult,
   ImageImportMeta,
@@ -107,6 +108,9 @@ export function resetJobs(): void {
 }
 
 export function toGenerateResult(job: StoredJob): GenerateResult {
+  const strengthNote = formatStrengthPreviewNote(job.report.strengthPreview);
+  const notes = [...job.notes];
+  if (strengthNote && !notes.includes(strengthNote)) notes.push(strengthNote);
   return {
     jobId: job.id,
     language: "openscad",
@@ -122,7 +126,7 @@ export function toGenerateResult(job: StoredJob): GenerateResult {
     wearableSize: job.wearableSize,
     wearableCategory: job.wearableCategory,
     editMode: job.editMode,
-    notes: job.notes,
+    notes,
     colorRegions: job.colorRegions,
     imageImport: job.imageImport ?? null,
     machineDesignation: job.machineDesignation ?? null,

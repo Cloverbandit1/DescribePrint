@@ -170,6 +170,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
   const [showDetails, setShowDetails] = useState(false);
   const [workspace, setWorkspace] = useState<WorkspaceTab>("prepare");
   const [cameraView, setCameraView] = useState<CameraView>("iso");
+  const [showStrengthHeatmap, setShowStrengthHeatmap] = useState(true);
   const [theme, setTheme] = useState<ViewerTheme>("dark");
   const [wideLayout, setWideLayout] = useState(true);
   const scroller = useRef<HTMLDivElement>(null);
@@ -644,26 +645,41 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
 
         <section className="relative order-1 flex min-h-0 flex-col bg-canvas lg:order-none">
           <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between p-2.5">
-            <div className="pointer-events-auto flex overflow-hidden rounded-md border border-line bg-panel/90 shadow-sm backdrop-blur">
-              {(
-                [
-                  ["iso", "Iso"],
-                  ["top", "Top"],
-                  ["front", "Front"],
-                  ["left", "Left"],
-                ] as const
-              ).map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setCameraView(id)}
-                  className={`h-7 px-2.5 text-[11px] font-medium ${
-                    cameraView === id ? "bg-accent text-accent-ink" : "text-muted hover:bg-panel-2 hover:text-ink"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
+            <div className="pointer-events-auto flex items-center gap-1.5">
+              <div className="flex overflow-hidden rounded-md border border-line bg-panel/90 shadow-sm backdrop-blur">
+                {(
+                  [
+                    ["iso", "Iso"],
+                    ["top", "Top"],
+                    ["front", "Front"],
+                    ["left", "Left"],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setCameraView(id)}
+                    className={`h-7 px-2.5 text-[11px] font-medium ${
+                      cameraView === id ? "bg-accent text-accent-ink" : "text-muted hover:bg-panel-2 hover:text-ink"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                disabled={!result}
+                title="Heuristic strength preview — not FEA"
+                onClick={() => setShowStrengthHeatmap((on) => !on)}
+                className={`h-7 rounded-md border px-2.5 text-[11px] font-medium shadow-sm backdrop-blur ${
+                  result && showStrengthHeatmap
+                    ? "border-accent/50 bg-accent text-accent-ink"
+                    : "border-line bg-panel/90 text-muted hover:bg-panel-2 hover:text-ink disabled:opacity-40"
+                }`}
+              >
+                Strength
+              </button>
             </div>
             <div className="rounded-md border border-line bg-panel/90 px-2 py-1 text-[10px] text-muted backdrop-blur">
               Plate 1 · {plateW} × {plateD} mm
@@ -678,6 +694,8 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
               theme={theme}
               showGizmo={wideLayout}
               packOutlines={packOutlines}
+              heatmap={Boolean(result) && showStrengthHeatmap}
+              triangleScores={result?.report.strengthPreview?.triangleScores}
             />
           </div>
         </section>
@@ -1025,6 +1043,11 @@ function ChatBubble({
       </div>
       {item.result.machineDesignation?.exceedsCurrentPrinter ? (
         <div className="mt-1.5 text-[13px] text-warn">{item.result.machineDesignation.message}</div>
+      ) : null}
+      {item.result.report.strengthPreview?.issues.length ? (
+        <div className="mt-1.5 text-[12px] text-muted">
+          Heuristic strength: {item.result.report.strengthPreview.issues[0]?.message}. Not FEA.
+        </div>
       ) : null}
       {item.result.needs_user_choice && item.result.options?.length && onPickOption ? (
         <div className="mt-2">
@@ -1745,6 +1768,21 @@ function ResultPanel({
             </li>
           ))}
         </ul>
+      ) : null}
+      {report.strengthPreview ? (
+        <div className="rounded-md border border-line bg-panel-2 p-2.5">
+          <div className="studio-label mb-1">Strength preview</div>
+          <p className="text-[11px] leading-relaxed text-muted">{report.strengthPreview.disclaimer}</p>
+          {report.strengthPreview.issues.length ? (
+            <ul className="mt-1.5 space-y-1 text-xs text-warn">
+              {report.strengthPreview.issues.map((issue) => (
+                <li key={`${issue.kind}-${issue.message}`}>{issue.message}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-1.5 text-xs text-muted">No high-risk heuristic regions on this mesh.</p>
+          )}
+        </div>
       ) : null}
       {showDetails ? (
         <div className="space-y-2 rounded-md border border-line bg-panel-2 p-2.5">

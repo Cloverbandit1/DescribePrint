@@ -161,6 +161,28 @@ export type BoundingBoxMm = {
   size: [number, number, number];
 };
 
+export type StrengthPreviewKind = "thin-wall" | "stress-concentration" | "overhang" | "tiny-section";
+
+export type StrengthPreviewIssue = {
+  kind: StrengthPreviewKind;
+  message: string;
+  score: number;
+  thicknessMm?: number;
+  positionMm: [number, number, number];
+};
+
+/** Heuristic weakness overlay — not FEA. */
+export type StrengthPreview = {
+  method: "heuristic";
+  fea: false;
+  disclaimer: string;
+  triangleCount: number;
+  maxScore: number;
+  meanScore: number;
+  issues: StrengthPreviewIssue[];
+  triangleScores: number[];
+};
+
 export type PrintabilityReport = {
   triangleCount: number;
   volumeMm3: number;
@@ -169,6 +191,8 @@ export type PrintabilityReport = {
   watertight: boolean;
   issues: MeshIssue[];
   units: "mm";
+  /** Present after mesh-check. Omitted on hand-built test reports. */
+  strengthPreview?: StrengthPreview;
 };
 
 export type GenerateResult = {
@@ -234,6 +258,8 @@ export type Mesh = {
  *   displaycolor + extruder/AMS slot metadata. OpenSCAD compiles one mesh;
  *   color bodies are split via named region_* modules / color() groups.
  *   Import preserves 3MF colors when present. Not live AMS / machine control.
+ * - Heuristic strength preview heatmap (thickness / concave / overhang /
+ *   tiny-section). Not FEA.
  *
  * Still later:
  * - describe-to-modify already sends previousPrompt/previousCode on CAD follow-ups

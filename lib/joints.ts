@@ -4,13 +4,25 @@
  * Defaults are for the V0 Bambu Lab P2S stub (0.4 mm nozzle, FDM PLA-class).
  * Radial values are per-side: bore_d = pin_d + 2 × radial_mm.
  *
- * Hinge and pin emit real OpenSCAD. Ball and snap are honest stubs:
- * plan + documented gaps only — not a full gimbal / living-hinge library.
+ * Hinge, pin, ball, and snap emit real OpenSCAD. This is not a full gimbal /
+ * living-hinge / multi-tooth snap library — each type has one printable fixture.
  */
 import { defaultPrinter, type PrinterProfile } from "./printers";
 
 /** Matches printRules().clearanceMm — general press/snap per-side gap. */
 export const GENERAL_FIT_MM = 0.3;
+
+/** Default ball diameter (mm). Larger than minPin so the neck can stay captive. */
+export const BALL_DEFAULT_D_MM = 10;
+
+/**
+ * Cantilever deflection thickness (mm). Same band as printRules min wall
+ * (4× 0.4 mm nozzle). Not a clearance-table change — the beam must flex
+ * without printing as a knife-edge.
+ */
+export function snapBeamThicknessMm(printer: PrinterProfile = defaultPrinter()): number {
+  return round2(Math.max(1.6, printer.nozzleMm * 4));
+}
 
 export const JOINT_TYPES = ["hinge", "pin", "ball", "snap"] as const;
 export type JointType = (typeof JOINT_TYPES)[number];
@@ -29,7 +41,7 @@ export type JointClearance = {
   axialMm: number;
   /** Smallest recommended pin / knuckle shaft (mm). */
   minPinMm: number;
-  /** Hinge/pin are real CSG. Ball/snap are clearance stubs. */
+  /** Hinge, pin, ball, and snap emit real CSG fixtures. */
   implemented: boolean;
   notes: string;
 };
@@ -104,8 +116,9 @@ function round2(n: number): number {
  * - General fits stay 0.3 mm/side in printRules.
  * - Print-in-place pin/hinge: 0.4 mm radial (typical 0.3–0.5), 0.5 mm axial.
  * - Removable / multi-part: 0.5 mm radial, 0.6 mm axial (hand assembly).
- * - Snap: 0.3 mm/side (existing press/snap band). Stub geometry.
- * - Ball: 0.5 mm PIP / 0.6 mm removable. Stub socket, not a 3-axis gimbal.
+ * - Snap: 0.3 mm/side (existing press/snap band). Cantilever beam 1.6 mm
+ *   (4× nozzle) — table radial/axial unchanged; thickness is printability.
+ * - Ball: 0.5 mm PIP / 0.6 mm removable. Captive socket (neck < ball), not a 3-axis gimbal.
  */
 export function jointClearance(
   type: JointType,
@@ -119,7 +132,7 @@ export function jointClearance(
   const pipAxial = 0.5;
   const removableAxial = 0.6;
   const minPinMm = round2(Math.max(4, nozzle * 10));
-  const implemented = type === "hinge" || type === "pin";
+  const beamT = snapBeamThicknessMm(printer);
 
   if (type === "snap") {
     const radialMm = fit;
@@ -130,9 +143,9 @@ export function jointClearance(
       diameterDeltaMm: round2(radialMm * 2),
       axialMm: intent === "print-in-place" ? pipAxial : removableAxial,
       minPinMm,
-      implemented: false,
+      implemented: true,
       notes:
-        "Stub: cantilever / clip with this per-side gap. Not a living-hinge or multi-tooth snap library.",
+        `Cantilever snap (annular bead+groove is the codegen alternate): ${beamT} mm beam, ${radialMm} mm/side gap. Flex in XY. Do not union hook and catch.`,
     };
   }
 
@@ -145,9 +158,11 @@ export function jointClearance(
       diameterDeltaMm: round2(radialMm * 2),
       axialMm: radialMm,
       minPinMm,
-      implemented: false,
+      implemented: true,
       notes:
-        "Stub: sphere in a socket with this radial gap. Not a captured 3-axis gimbal or spring retainer.",
+        intent === "print-in-place"
+          ? `Captive ball in socket: cavity = ball + 2×${radialMm} mm; neck < ball_d. Separate solids. Not a 3-axis gimbal.`
+          : `Open cup + ball printed beside it: cavity = ball + 2×${radialMm} mm. Assemble after print.`,
     };
   }
 
@@ -300,9 +315,9 @@ export function formatJointConstraints(printer: PrinterProfile = defaultPrinter(
   return [
     `Joints (only when the user asks for motion / a moving assembly — otherwise one fused solid):`,
     `- Prefer print-in-place. Hinge/pin radial ${hingePip.radialMm} mm/side (bore = pin + ${hingePip.diameterDeltaMm} mm), axial ${hingePip.axialMm} mm, min pin ${hingePip.minPinMm} mm. Removable kits use ${hingeMulti.radialMm} mm radial / ${hingeMulti.axialMm} mm axial.`,
-    `- Pin joints use the same numbers (${pinPip.radialMm} / ${pinPip.axialMm} mm). Snap stub ${snap.radialMm} mm/side. Ball stub ${ball.radialMm} mm radial.`,
-    `- Print-in-place MUST be separate solids with those gaps — do not union the pin, lid, or rotor into a fused blob.`,
-    `- Ball and snap are stubs: simplified socket or cantilever with the documented gap, not a full mechanism library.`,
+    `- Pin joints use the same numbers (${pinPip.radialMm} / ${pinPip.axialMm} mm). Snap ${snap.radialMm} mm/side with a ${snapBeamThicknessMm(printer)} mm cantilever beam (flex in XY). Ball ${ball.radialMm} mm radial, captive neck < ball_d.`,
+    `- Print-in-place MUST be separate solids with those gaps — do not union the pin, lid, rotor, ball, or snap hook into a fused blob.`,
+    `- Ball: real CSG sphere + spherical socket (captive PIP default; open cup beside the ball when multi-part). Snap: real CSG cantilever hook + catch (or annular bead + groove). Not a full gimbal / living-hinge / multi-tooth library.`,
   ].join("\n");
 }
 
@@ -509,8 +524,192 @@ rotor_and_pin();
 `;
 }
 
+/**
+ * Print-in-place ball joint: spherical socket + captive ball/stem.
+ * Multi-part: open cup on the bed, ball printed beside it.
+ */
+export function ballFixtureScad(spec: JointClearance = jointClearance("ball", "print-in-place")): string {
+  const radial = spec.radialMm;
+  const axial = spec.axialMm;
+  const ball = BALL_DEFAULT_D_MM;
+  const cavity = ball + spec.diameterDeltaMm;
+  const wall = 2.4;
+  const stem = spec.minPinMm;
+  const outer = cavity + wall * 2;
+  const pip = spec.intent === "print-in-place";
+  const neck = pip ? stem + spec.diameterDeltaMm : cavity;
+  const socketW = 20;
+  const socketD = 16;
+  const socketH = wall + cavity + wall;
+  const cx = socketW / 2;
+  const cy = socketD / 2;
+  const cz = wall + cavity / 2;
+  const stemLen = socketD / 2 + 14;
+  const parkX = socketW + 10;
+
+  if (!pip) {
+    const cupR = outer / 2;
+    const axisZ = cupR;
+    return `${scadHeader("multi-part ball joint", spec)}$fn = 48;
+radial_mm = ${radial};
+axial_mm = ${axial};
+ball_d = ${ball};
+cavity_d = ${cavity};
+wall = ${wall};
+stem_d = ${stem};
+outer_d = ${outer};
+axis_z = ${axisZ};
+park_x = ${parkX};
+
+module socket() {
+  difference() {
+    union() {
+      cylinder(h = wall, d = outer_d + 6);
+      translate([0, 0, axis_z])
+        sphere(d = outer_d);
+    }
+    translate([0, 0, axis_z])
+      sphere(d = cavity_d);
+    translate([0, 0, axis_z])
+      cylinder(h = outer_d, d = cavity_d);
+    translate([-40, -40, -20])
+      cube([80, 80, 20]);
+  }
+}
+
+module ball_and_stem() {
+  translate([park_x, 0, ball_d / 2]) {
+    sphere(d = ball_d);
+    rotate([-90, 0, 0])
+      cylinder(h = ${stemLen}, d = stem_d);
+  }
+}
+
+// Separate solids — ball is parked beside the open cup. Do not union.
+socket();
+ball_and_stem();
+`;
+  }
+
+  return `${scadHeader("print-in-place ball joint", spec)}$fn = 48;
+radial_mm = ${radial};
+axial_mm = ${axial};
+ball_d = ${ball};
+cavity_d = ${cavity};
+wall = ${wall};
+stem_d = ${stem};
+neck_d = ${neck};
+socket_w = ${socketW};
+socket_d = ${socketD};
+socket_h = ${socketH};
+cx = ${cx};
+cy = ${cy};
+cz = ${cz};
+
+module socket() {
+  difference() {
+    union() {
+      cube([socket_w, socket_d, socket_h]);
+      translate([cx, cy, cz])
+        rotate([-90, 0, 0])
+          cylinder(h = socket_d / 2 + 6, d = neck_d + wall * 2);
+    }
+    translate([cx, cy, cz])
+      sphere(d = cavity_d);
+    translate([cx, cy - 1, cz])
+      rotate([-90, 0, 0])
+        cylinder(h = socket_d / 2 + 10, d = neck_d);
+  }
+}
+
+module ball_and_stem() {
+  translate([cx, cy, cz]) {
+    sphere(d = ball_d);
+    rotate([-90, 0, 0])
+      cylinder(h = ${stemLen}, d = stem_d);
+  }
+}
+
+// Separate solids — captive ball inside the socket. Do not union.
+socket();
+ball_and_stem();
+`;
+}
+
+/**
+ * Cantilever snap: catch plate with a window + hooked beam (flex in XY).
+ * Print-in-place prints the head already through the window.
+ * Multi-part parks the hook beside the catch; head overhang is smaller so it can snap through.
+ */
+export function snapFixtureScad(spec: JointClearance = jointClearance("snap", "print-in-place")): string {
+  const radial = spec.radialMm;
+  const axial = spec.axialMm;
+  const beamT = snapBeamThicknessMm();
+  const beamH = 8;
+  const beamL = 20;
+  const plateT = 3;
+  const padL = 4;
+  const pip = spec.intent === "print-in-place";
+  const overhang = pip ? 1.6 : 0.8;
+  const windowW = round2(beamT + radial * 2);
+  const windowH = round2(beamH + radial * 2);
+  const beamX = 4;
+  const beamZ = 2;
+  const plateY = 14;
+  const headY = round2(plateY + plateT + axial);
+  const headW = round2(beamT + overhang * 2);
+  const headX = round2(beamX - overhang);
+  const windowX = round2(beamX - radial);
+  const windowZ = round2(beamZ - radial);
+  const parkX = pip ? 0 : 22;
+  const catchW = 14;
+  const catchH = 12;
+
+  return `${scadHeader(pip ? "print-in-place snap-fit clip" : "multi-part snap-fit clip", spec)}$fn = 48;
+radial_mm = ${radial};
+axial_mm = ${axial};
+beam_t = ${beamT};
+beam_h = ${beamH};
+beam_l = ${beamL};
+overhang = ${overhang};
+window_w = ${windowW};
+window_h = ${windowH};
+
+module catch_body() {
+  difference() {
+    union() {
+      translate([0, ${plateY}, 0])
+        cube([${catchW}, ${plateT}, ${catchH}]);
+      // Foot behind the head so it cannot fuse to the beam.
+      translate([0, ${headY + 3 + radial}, 0])
+        cube([${catchW}, 8, 2.4]);
+    }
+    translate([${windowX}, ${plateY - 0.4}, ${windowZ}])
+      cube([window_w, ${plateT + 0.8}, window_h]);
+  }
+}
+
+module snap_hook() {
+  translate([${parkX}, 0, 0]) {
+    translate([${beamX}, 0, 0])
+      cube([beam_t, ${padL}, 2.4]);
+    translate([${beamX}, 0, ${beamZ}])
+      cube([beam_t, beam_l, beam_h]);
+    translate([${headX}, ${headY}, ${beamZ}])
+      cube([${headW}, 3, beam_h]);
+  }
+}
+
+// Separate solids — do not union. Hook flexes in X (XY plane).
+catch_body();
+snap_hook();
+`;
+}
+
 export const HINGE_FIXTURE_PROMPT = "hinged box lid print-in-place";
 export const PIN_FIXTURE_PROMPT = "print-in-place pin joint";
+export const BALL_FIXTURE_PROMPT = "print-in-place ball joint";
+export const SNAP_FIXTURE_PROMPT = "snap-fit clip";
 
 export function isHingeFixturePrompt(prompt: string): boolean {
   const text = prompt.toLowerCase();
@@ -526,4 +725,24 @@ export function isPinFixturePrompt(prompt: string): boolean {
     (text.includes("pin joint") || (text.includes("pin") && text.includes("joint"))) &&
     (text.includes("print-in-place") || text.includes("print in place") || text.includes("captured"))
   );
+}
+
+export function isBallFixturePrompt(prompt: string): boolean {
+  const text = prompt.toLowerCase();
+  return (
+    text.includes("ball joint") ||
+    text.includes("ball-joint") ||
+    text.includes("ball-and-socket") ||
+    text.includes("ball and socket") ||
+    text.includes("socket joint")
+  );
+}
+
+export function isSnapFixturePrompt(prompt: string): boolean {
+  const text = prompt.toLowerCase();
+  return /\bsnap(?:\s|-)?(?:fit|joint|hook|clip)\b/.test(text);
+}
+
+export function fixtureClearanceIntent(prompt: string): ClearanceIntent {
+  return inferClearanceIntent(prompt) ?? "print-in-place";
 }

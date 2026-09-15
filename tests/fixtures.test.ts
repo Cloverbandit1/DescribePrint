@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { matchConversationFixture, matchFixture, shouldUseFixture } from "@/lib/fixtures";
-import { HINGE_FIXTURE_PROMPT, PIN_FIXTURE_PROMPT } from "@/lib/joints";
+import { BALL_FIXTURE_PROMPT, HINGE_FIXTURE_PROMPT, PIN_FIXTURE_PROMPT, SNAP_FIXTURE_PROMPT } from "@/lib/joints";
 import { sanitizeOpenScad } from "@/lib/sanitize";
 import { toMillimeters } from "@/lib/units";
 
@@ -15,7 +15,7 @@ describe("fixtures + units", () => {
     expect(fixture?.code).toMatch(/color\("red"\)/);
   });
 
-  it("matches hinge and pin print-in-place fixtures with sanitizable OpenSCAD", () => {
+  it("matches hinge, pin, ball, and snap print-in-place fixtures with sanitizable OpenSCAD", () => {
     const hinge = matchFixture(HINGE_FIXTURE_PROMPT);
     expect(hinge?.id).toBe("hinged-box-lid");
     expect(sanitizeOpenScad(hinge!.code).ok).toBe(true);
@@ -26,6 +26,18 @@ describe("fixtures + units", () => {
     expect(pin?.id).toBe("pin-joint");
     expect(sanitizeOpenScad(pin!.code).ok).toBe(true);
     expect(pin?.code).toContain("module rotor_and_pin()");
+
+    const ball = matchFixture(BALL_FIXTURE_PROMPT);
+    expect(ball?.id).toBe("ball-joint");
+    expect(sanitizeOpenScad(ball!.code).ok).toBe(true);
+    expect(ball?.code).toMatch(/radial_mm = 0\.5/);
+    expect(ball?.code).toContain("module ball_and_stem()");
+
+    const snap = matchFixture(SNAP_FIXTURE_PROMPT);
+    expect(snap?.id).toBe("snap-fit");
+    expect(sanitizeOpenScad(snap!.code).ok).toBe(true);
+    expect(snap?.code).toContain("module snap_hook()");
+    expect(matchFixture("ball joint as two pieces")?.code).toContain("park_x");
     expect(matchFixture("20mm cube with 5mm hole")?.id).toBe("cube-with-hole");
   });
 
@@ -68,6 +80,18 @@ describe("fixtures + units", () => {
     expect(edited?.id).toBe("plain-cube");
     expect(edited?.code).toContain("cube(20");
     expect(edited?.code).not.toContain("hole_d");
+  });
+
+  it("keeps ball and snap fixtures across a chat follow-up", () => {
+    const ball = matchFixture(BALL_FIXTURE_PROMPT);
+    const ballEdit = matchConversationFixture("make it a bit stronger", BALL_FIXTURE_PROMPT, ball!.code);
+    expect(ballEdit?.id).toBe("ball-joint");
+    expect(ballEdit?.code).toContain("module ball_and_stem()");
+
+    const snap = matchFixture(SNAP_FIXTURE_PROMPT);
+    const snapEdit = matchConversationFixture("keep the same clip", SNAP_FIXTURE_PROMPT, snap!.code);
+    expect(snapEdit?.id).toBe("snap-fit");
+    expect(snapEdit?.code).toContain("module snap_hook()");
   });
 
   it("still treats a full new description as a new design", () => {

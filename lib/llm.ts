@@ -85,7 +85,7 @@ Printable engineering
 - Minimum wall thickness 1.6 mm (1.2 mm only if the user insists and the feature is short).
 - Through-holes diameter >= 2.5 mm unless the user asks smaller; add 0.3–0.4 mm clearance on holes meant to fit a real fastener or shaft.
 - Snap / press / sliding fits: leave 0.2–0.4 mm clearance per side. Do not design interference that cannot print.
-- Joints only when the user asks for a hinge, pin, ball, snap, or other moving assembly. Prefer print-in-place: emit SEPARATE solids with named radial_mm / axial_mm gaps — never union the pin, lid, or rotor into a fused blob. Removable multi-part kits use the larger documented clearances. Hinge and pin must be real CSG (knuckles + captured pin, or cheeks + rotor/pin). Ball and snap are stubs: a socket or cantilever with the documented gap, not a full gimbal / living-hinge library.
+- Joints only when the user asks for a hinge, pin, ball, snap, or other moving assembly. Prefer print-in-place: emit SEPARATE solids with named radial_mm / axial_mm gaps — never union the pin, lid, rotor, ball, or snap hook into a fused blob. Removable multi-part kits use the larger documented clearances. Hinge and pin must be real CSG (knuckles + captured pin, or cheeks + rotor/pin). Ball must be real CSG: a sphere in a spherical socket, captive by default (neck diameter < ball_d, cavity = ball + 2×radial_mm). Snap must be real CSG: a cantilever hook + catch lip (beam ≥ 1.6 mm, flex in XY) or an annular bead + groove, with the documented gap — never fuse hook and catch.
 - Avoid zero-thickness faces, knife edges, and non-manifold boolean leftovers. Difference() cutters should fully pierce the host solid (overshoot by 0.2–1 mm).
 - Prefer fillets/chamfers only when they stay printable (no tiny unsupported overhangs).
 - If the request is mechanically ambiguous, pick everyday real-world dimensions and still emit a printable part.
@@ -111,7 +111,7 @@ Schema:
 
 Rules:
 - Millimeters only. Real-world dimensions. One piece first unless the user clearly asks for an assembly / multi-part kit or a moving joint.
-- Joints: omit the joints array unless the user asks for a hinge, pin, ball, snap, or other motion. Prefer print-in-place (one print, separate solids with radial/axial gaps). Use multi-part only when they ask for separate / removable pieces. Hinge and pin are real; ball and snap are clearance stubs.
+- Joints: omit the joints array unless the user asks for a hinge, pin, ball, snap, or other motion. Prefer print-in-place (one print, separate solids with radial/axial gaps). Use multi-part only when they ask for separate / removable pieces. Hinge, pin, ball, and snap are real CSG (captive ball-in-socket; cantilever or annular snap). Not a full gimbal / living-hinge library.
 - If the user names colors or materials, fill color_regions (named body or painted feature, hex, optional pla/petg/abs/tpu). ams_slot is 1–4 export metadata, not a live printer. Omit color_regions when no color is mentioned.
 - Every feature must attach to the main solid unless it is a planned joint member. Through-holes fully pierce (overshoot 0.2–1 mm).
 - min_wall_mm >= 1.6 unless the user insists thinner. clearance_mm ~ 0.3 for ordinary fits; for joints use the documented radial_mm. Sit the part on z=0.
@@ -174,7 +174,7 @@ export function classifyCompileIssue(
       opts.importedMesh
         ? "A second solid is usually a unioned cutter. difference() the hole; keep one connected imported part."
         : opts.printInPlace
-          ? "Print-in-place joints are separate solids. Do not union the pin, lid, or rotor. Keep the documented radial_mm / axial_mm gaps."
+          ? "Print-in-place joints are separate solids. Do not union the pin, lid, rotor, ball, or snap hook. Keep the documented radial_mm / axial_mm gaps."
           : "Union every body into one connected solid; add a 1.6+ mm bridge if pieces must stay attached.",
     );
   }
@@ -376,7 +376,7 @@ export function buildUserPrompt(input: {
     parts.push(`Design plan (follow these features and millimeters):\n${JSON.stringify(input.plan)}`);
     if (input.plan.joints?.length) {
       parts.push(
-        `Joints: emit separate solids with radial_mm / axial_mm from the plan. Prefer print-in-place. Do not union moving members. Hinge and pin must be real CSG; ball and snap are stubs with those gaps.`,
+        `Joints: emit separate solids with radial_mm / axial_mm from the plan. Prefer print-in-place. Do not union moving members. Hinge, pin, ball, and snap must be real CSG (captive socket + ball, or cantilever/annular snap with a 1.6 mm beam).`,
       );
     }
   }

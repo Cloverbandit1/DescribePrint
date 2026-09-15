@@ -94,6 +94,10 @@ describe("LLM prompt", () => {
     expect(prompt).toMatch(/never union/i);
     expect(planSystemPrompt()).toMatch(/"type":"hinge\|pin\|ball\|snap"/);
     expect(planSystemPrompt()).toMatch(/omit the joints array unless/i);
+    expect(prompt).toMatch(/captive by default/i);
+    expect(prompt).toMatch(/cantilever hook/i);
+    expect(planSystemPrompt()).toMatch(/real CSG/i);
+    expect(planSystemPrompt()).not.toMatch(/clearance stubs/);
   });
 
   it("embeds a design plan in the codegen prompt", () => {
@@ -114,6 +118,26 @@ describe("LLM prompt", () => {
     expect(prompt).toContain("Design plan");
     expect(prompt).toContain("phone stand");
     expect(prompt).toContain("76");
+
+    const jointed = buildUserPrompt({
+      prompt: "print-in-place ball joint",
+      sizeNote: "",
+      plan: {
+        object: "ball joint",
+        one_piece: true,
+        units: "mm",
+        features: [{ name: "socket" }],
+        holes: [],
+        min_wall_mm: 1.6,
+        clearance_mm: 0.5,
+        sit_on_z0: true,
+        joints: [{ type: "ball", intent: "print-in-place", radial_mm: 0.5, axial_mm: 0.5 }],
+        clearance_intent: "print-in-place",
+      },
+    });
+    expect(jointed).toMatch(/real CSG/i);
+    expect(jointed).toMatch(/captive socket \+ ball/i);
+    expect(jointed).not.toMatch(/stubs with those gaps/);
   });
 
   it("feeds compiler errors back with structured repair instructions", () => {
@@ -293,6 +317,31 @@ describe("LLM prompt", () => {
     expect(hinged.clearance_intent).toBe("print-in-place");
     expect(hinged.joints?.[0]).toMatchObject({ type: "hinge", radial_mm: 0.4, axial_mm: 0.5 });
     expect(hinged.clearance_mm).toBe(0.4);
+
+    const fromBallJson = parseCadPlan(
+      JSON.stringify({
+        object: "ball",
+        features: [{ name: "socket" }],
+        holes: [],
+        min_wall_mm: 1.6,
+        clearance_mm: 0.5,
+        joints: [{ type: "ball", intent: "print-in-place", radial_mm: 0.5, axial_mm: 0.5 }],
+      }),
+    );
+    const ball = normalizeCadPlan(fromBallJson!, { prompt: "print-in-place ball joint" });
+    expect(ball.joints?.[0]).toMatchObject({ type: "ball", radial_mm: 0.5, axial_mm: 0.5 });
+    const fromSnapJson = parseCadPlan(
+      JSON.stringify({
+        object: "clip",
+        features: [{ name: "hook" }],
+        holes: [],
+        min_wall_mm: 1.6,
+        clearance_mm: 0.3,
+        joints: [{ type: "snap", intent: "print-in-place", radial_mm: 0.3, axial_mm: 0.5 }],
+      }),
+    );
+    const snap = normalizeCadPlan(fromSnapJson!, { prompt: "snap-fit clip" });
+    expect(snap.joints?.[0]).toMatchObject({ type: "snap", radial_mm: 0.3 });
 
     const colored = parseCadPlan(
       JSON.stringify({

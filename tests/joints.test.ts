@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  BALL_DEFAULT_D_MM,
+  BALL_FIXTURE_PROMPT,
+  SNAP_FIXTURE_PROMPT,
+  ballFixtureScad,
   defaultJointClearances,
   formatClearanceTableMarkdown,
   formatJointConstraints,
@@ -11,6 +15,8 @@ import {
   normalizeCadJoints,
   parseCadJoints,
   pinFixtureScad,
+  snapBeamThicknessMm,
+  snapFixtureScad,
   wantsMotion,
 } from "@/lib/joints";
 import { defaultPrinter } from "@/lib/printers";
@@ -39,10 +45,13 @@ describe("joint clearances (P2S 0.4 mm nozzle)", () => {
     expect(hingeKit.radialMm).toBeGreaterThan(hingePip.radialMm);
 
     expect(snap.radialMm).toBe(0.3);
-    expect(snap.implemented).toBe(false);
+    expect(snap.implemented).toBe(true);
+    expect(snapBeamThicknessMm()).toBe(1.6);
     expect(ball.radialMm).toBe(0.5);
-    expect(ball.implemented).toBe(false);
+    expect(ball.implemented).toBe(true);
+    expect(jointClearance("ball", "multi-part").radialMm).toBe(0.6);
     expect(defaultJointClearances()).toHaveLength(8);
+    expect(defaultJointClearances().every((spec) => spec.implemented)).toBe(true);
   });
 
   it("only infers joints when the prompt asks for motion", () => {
@@ -59,8 +68,11 @@ describe("joint clearances (P2S 0.4 mm nozzle)", () => {
     expect(inferClearanceIntent("print-in-place pin joint")).toBe("print-in-place");
     expect(inferClearanceIntent("moving assembly")).toBe("print-in-place");
     expect(inferClearanceIntent("hinged box as two pieces")).toBe("multi-part");
-    expect(inferJointType("ball joint")).toBe("ball");
-    expect(inferJointType("snap fit clip")).toBe("snap");
+    expect(inferJointType(BALL_FIXTURE_PROMPT)).toBe("ball");
+    expect(inferClearanceIntent(BALL_FIXTURE_PROMPT)).toBe("print-in-place");
+    expect(inferJointType(SNAP_FIXTURE_PROMPT)).toBe("snap");
+    expect(inferClearanceIntent(SNAP_FIXTURE_PROMPT)).toBe("print-in-place");
+    expect(inferClearanceIntent("ball joint as two pieces")).toBe("multi-part");
   });
 
   it("parses and normalizes plan joints, stripping them when no motion is requested", () => {
@@ -86,6 +98,14 @@ describe("joint clearances (P2S 0.4 mm nozzle)", () => {
       true,
     );
     expect(hasPrintInPlaceJoints({ joints: [], clearance_intent: undefined })).toBe(false);
+
+    const ball = normalizeCadJoints([], BALL_FIXTURE_PROMPT);
+    expect(ball.joints[0]).toMatchObject({ type: "ball", intent: "print-in-place", radial_mm: 0.5 });
+    const snap = normalizeCadJoints([], SNAP_FIXTURE_PROMPT);
+    expect(snap.joints[0]).toMatchObject({ type: "snap", intent: "print-in-place", radial_mm: 0.3 });
+    expect(normalizeCadJoints([{ type: "ball", intent: "print-in-place", radial_mm: 0.5, axial_mm: 0.5 }], "a sturdy tray")).toEqual({
+      joints: [],
+    });
   });
 
   it("embeds P2S joint numbers in prompt text and the markdown table", () => {
@@ -94,9 +114,14 @@ describe("joint clearances (P2S 0.4 mm nozzle)", () => {
     expect(formatJointConstraints()).toMatch(/do not union/i);
     expect(formatClearanceTableMarkdown()).toMatch(/\| hinge \| print-in-place \| 0\.40 \|/);
     expect(formatClearanceTableMarkdown()).toMatch(/\| pin \| print-in-place \| 0\.40 \|/);
+    expect(formatClearanceTableMarkdown()).toMatch(/\| ball \| print-in-place \| 0\.50 \|/);
+    expect(formatClearanceTableMarkdown()).toMatch(/\| snap \| print-in-place \| 0\.30 \|/);
+    expect(formatClearanceTableMarkdown()).not.toMatch(/honest stub/);
+    expect(formatJointConstraints()).toMatch(/1\.6 mm cantilever/);
+    expect(formatJointConstraints()).toMatch(/captive neck/);
   });
 
-  it("emits hinge and pin fixtures with documented named clearances", () => {
+  it("emits hinge, pin, ball, and snap fixtures with documented named clearances", () => {
     const hinge = hingeFixtureScad();
     expect(hinge).toMatch(/radial_mm = 0\.4/);
     expect(hinge).toMatch(/axial_mm = 0\.5/);
@@ -112,5 +137,33 @@ describe("joint clearances (P2S 0.4 mm nozzle)", () => {
     expect(pin).toMatch(/bore_d = 4\.8/);
     expect(pin).toContain("module stator()");
     expect(pin).toContain("module rotor_and_pin()");
+
+    const ball = ballFixtureScad();
+    expect(ball).toMatch(/radial_mm = 0\.5/);
+    expect(ball).toMatch(`ball_d = ${BALL_DEFAULT_D_MM}`);
+    expect(ball).toMatch(/cavity_d = 11/);
+    expect(ball).toMatch(/neck_d = 5/);
+    expect(ball).toContain("module socket()");
+    expect(ball).toContain("module ball_and_stem()");
+    expect(ball).toMatch(/do not union/i);
+    expect(ball).not.toContain("park_x");
+
+    const ballKit = ballFixtureScad(jointClearance("ball", "multi-part"));
+    expect(ballKit).toMatch(/radial_mm = 0\.6/);
+    expect(ballKit).toMatch(/cavity_d = 11\.2/);
+    expect(ballKit).toContain("park_x");
+    expect(ballKit).toMatch(/do not union/i);
+
+    const snap = snapFixtureScad();
+    expect(snap).toMatch(/radial_mm = 0\.3/);
+    expect(snap).toMatch(/beam_t = 1\.6/);
+    expect(snap).toContain("module catch_body()");
+    expect(snap).toContain("module snap_hook()");
+    expect(snap).toMatch(/do not union/i);
+    expect(snap).toMatch(/flexes in X/i);
+
+    const snapKit = snapFixtureScad(jointClearance("snap", "multi-part"));
+    expect(snapKit).toMatch(/overhang = 0\.8/);
+    expect(snapKit).toMatch(/translate\(\[22, 0, 0\]\)/);
   });
 });

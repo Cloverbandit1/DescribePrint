@@ -196,6 +196,27 @@ describe("generate pipeline (local AI + fixtures)", () => {
       const trayUser = trayMessages[1]?.content ?? "";
       expect(trayUser).toMatch(/"one_piece":true/);
       expect(trayUser).not.toMatch(/"type":"hinge"/);
+
+      mockedChat.mockClear();
+      const ballPlan = JSON.stringify({
+        object: "ball joint",
+        one_piece: false,
+        units: "mm",
+        features: [{ name: "socket", kind: "ball" }],
+        holes: [],
+        min_wall_mm: 1.6,
+        clearance_mm: 0.5,
+        joints: [{ type: "ball", intent: "print-in-place", radial_mm: 0.5, axial_mm: 0.5 }],
+        clearance_intent: "print-in-place",
+        sit_on_z0: true,
+      });
+      mockedChat.mockResolvedValueOnce(ballPlan).mockResolvedValueOnce(GOOD_SCAD);
+      await runGeneratePipeline({ prompt: "print-in-place ball joint" });
+      const [ballMessages] = mockedChat.mock.calls[1] as unknown as [{ role: string; content: string }[]];
+      const ballUser = ballMessages[1]?.content ?? "";
+      expect(ballUser).toMatch(/"type":"ball"/);
+      expect(ballUser).toMatch(/real CSG/i);
+      expect(ballUser).not.toMatch(/stubs with those gaps/);
     });
   });
 

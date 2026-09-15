@@ -1,11 +1,19 @@
 import { colorRegionsFromPrompt } from "./color-regions";
 import {
+  BALL_FIXTURE_PROMPT,
   HINGE_FIXTURE_PROMPT,
   PIN_FIXTURE_PROMPT,
+  SNAP_FIXTURE_PROMPT,
+  ballFixtureScad,
+  fixtureClearanceIntent,
   hingeFixtureScad,
+  isBallFixturePrompt,
   isHingeFixturePrompt,
   isPinFixturePrompt,
+  isSnapFixturePrompt,
+  jointClearance,
   pinFixtureScad,
+  snapFixtureScad,
 } from "./joints";
 import { toMillimeters } from "./units";
 import type { Unit } from "./types";
@@ -125,6 +133,24 @@ export function matchFixture(
     return { id: "pin-joint", title: "Print-in-place pin joint", code: pinFixtureScad() };
   }
 
+  if (isBallFixturePrompt(text)) {
+    const intent = fixtureClearanceIntent(text);
+    return {
+      id: "ball-joint",
+      title: intent === "multi-part" ? "Multi-part ball joint" : "Print-in-place ball joint",
+      code: ballFixtureScad(jointClearance("ball", intent)),
+    };
+  }
+
+  if (isSnapFixturePrompt(text)) {
+    const intent = fixtureClearanceIntent(text);
+    return {
+      id: "snap-fit",
+      title: intent === "multi-part" ? "Multi-part snap-fit clip" : "Print-in-place snap-fit clip",
+      code: snapFixtureScad(jointClearance("snap", intent)),
+    };
+  }
+
   if ((text.includes("cube") && (text.includes("hole") || text.includes("bore"))) || text.includes("cube with")) {
     const size = hinted ?? numberAt(text, /(\d+(?:\.\d+)?)\s*mm\s+cube/, 20);
     const hole = numberAt(text, /(\d+(?:\.\d+)?)\s*mm\s+(?:hole|bore)/, 5);
@@ -217,9 +243,13 @@ export function matchConversationFixture(
       ? "hinged-box-lid"
       : /module\s+rotor_and_pin\s*\(/.test(previousCode ?? "")
         ? "pin-joint"
-        : /module\s+region_letters\s*\(/.test(previousCode ?? "")
-          ? "two-color-plaque"
-          : Number.isFinite(fromCode.hole)
+        : /module\s+ball_and_stem\s*\(/.test(previousCode ?? "")
+          ? "ball-joint"
+          : /module\s+snap_hook\s*\(/.test(previousCode ?? "")
+            ? "snap-fit"
+            : /module\s+region_letters\s*\(/.test(previousCode ?? "")
+              ? "two-color-plaque"
+              : Number.isFinite(fromCode.hole)
             ? "cube-with-hole"
             : Number.isFinite(fromCode.tilt)
               ? "phone-stand"
@@ -282,6 +312,24 @@ export function matchConversationFixture(
     return { id: "pin-joint", title: "Print-in-place pin joint", code: pinFixtureScad() };
   }
 
+  if (baseId === "ball-joint") {
+    const intent = fixtureClearanceIntent(`${previousPrompt ?? ""} ${prompt}`);
+    return {
+      id: "ball-joint",
+      title: intent === "multi-part" ? "Multi-part ball joint" : "Print-in-place ball joint",
+      code: ballFixtureScad(jointClearance("ball", intent)),
+    };
+  }
+
+  if (baseId === "snap-fit") {
+    const intent = fixtureClearanceIntent(`${previousPrompt ?? ""} ${prompt}`);
+    return {
+      id: "snap-fit",
+      title: intent === "multi-part" ? "Multi-part snap-fit clip" : "Print-in-place snap-fit clip",
+      code: snapFixtureScad(jointClearance("snap", intent)),
+    };
+  }
+
   if (baseId === "phone-stand") {
     const nextTilt = Number.isFinite(tilt)
       ? tilt
@@ -328,4 +376,6 @@ export const EXAMPLE_PROMPTS = [
   "red 40mm plaque with black letters",
   HINGE_FIXTURE_PROMPT,
   PIN_FIXTURE_PROMPT,
+  BALL_FIXTURE_PROMPT,
+  SNAP_FIXTURE_PROMPT,
 ] as const;

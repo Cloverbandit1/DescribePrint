@@ -4,7 +4,7 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { compileOpenScad, withTempDir } from "@/lib/compile";
 import { defaultFixture, matchFixture } from "@/lib/fixtures";
-import { HINGE_FIXTURE_PROMPT, PIN_FIXTURE_PROMPT } from "@/lib/joints";
+import { BALL_FIXTURE_PROMPT, HINGE_FIXTURE_PROMPT, PIN_FIXTURE_PROMPT, SNAP_FIXTURE_PROMPT } from "@/lib/joints";
 import { buildImportedMeshWrapper, parseImportHoleSpec } from "@/lib/import-hole";
 import { boundingBoxMm, checkMesh, countSolidComponents, hasHardMeshFailure } from "@/lib/mesh-check";
 import { resolveOpenscad } from "@/lib/openscad";
@@ -117,6 +117,38 @@ describe("OpenSCAD compile path", () => {
 
   it.skipIf(!hasOpenscad())("compiles the print-in-place pin fixture to a printable mesh", async () => {
     const fixture = matchFixture(PIN_FIXTURE_PROMPT);
+    expect(fixture).not.toBeNull();
+    const sanitized = sanitizeOpenScad(fixture!.code);
+    expect(sanitized.ok).toBe(true);
+    if (!sanitized.ok) return;
+
+    await withTempDir(async (dir) => {
+      const compiled = await compileOpenScad(sanitized.code, dir);
+      const report = checkMesh(parseStl(compiled.stl));
+      expect(hasHardMeshFailure(report)).toBe(false);
+      expect(report.volumeMm3).toBeGreaterThan(0);
+      expect(countSolidComponents(parseStl(compiled.stl))).toBeGreaterThan(1);
+    });
+  });
+
+  it.skipIf(!hasOpenscad())("compiles the print-in-place ball fixture to a printable mesh", async () => {
+    const fixture = matchFixture(BALL_FIXTURE_PROMPT);
+    expect(fixture).not.toBeNull();
+    const sanitized = sanitizeOpenScad(fixture!.code);
+    expect(sanitized.ok).toBe(true);
+    if (!sanitized.ok) return;
+
+    await withTempDir(async (dir) => {
+      const compiled = await compileOpenScad(sanitized.code, dir);
+      const report = checkMesh(parseStl(compiled.stl));
+      expect(hasHardMeshFailure(report)).toBe(false);
+      expect(report.volumeMm3).toBeGreaterThan(0);
+      expect(countSolidComponents(parseStl(compiled.stl))).toBeGreaterThan(1);
+    });
+  });
+
+  it.skipIf(!hasOpenscad())("compiles the snap-fit fixture to a printable mesh", async () => {
+    const fixture = matchFixture(SNAP_FIXTURE_PROMPT);
     expect(fixture).not.toBeNull();
     const sanitized = sanitizeOpenScad(fixture!.code);
     expect(sanitized.ok).toBe(true);

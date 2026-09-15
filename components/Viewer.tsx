@@ -2,8 +2,9 @@
 
 import { Center, ContactShadows, GizmoHelper, GizmoViewport, OrbitControls } from "@react-three/drei";
 import { Canvas, useLoader, useThree } from "@react-three/fiber";
-import { Suspense, useLayoutEffect, useMemo } from "react";
-import { BoxGeometry, BufferAttribute, CanvasTexture, Color, RepeatWrapping, SRGBColorSpace } from "three";
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { BoxGeometry, BufferAttribute, CanvasTexture, Color, RepeatWrapping, SRGBColorSpace, TOUCH } from "three";
+import { nextViewerZoomFactor, viewerTouchMode } from "@/lib/mobile-client";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import { heatmapLegendStops, heatmapRgb, previewStrength } from "@/lib/strength-preview";
 import type { Mesh } from "@/lib/types";
@@ -256,13 +257,17 @@ function PackOutlines({
   );
 }
 
-function CameraRig({ view }: { view: CameraView }) {
+function CameraRig({ view, zoomFactor }: { view: CameraView; zoomFactor: number }) {
   const camera = useThree((state) => state.camera);
   const controls = useThree((state) => state.controls);
+  const lastView = useRef<CameraView>(view);
 
   useLayoutEffect(() => {
     const preset = VIEW_PRESETS[view];
-    camera.position.set(...preset.position);
+    const viewChanged = lastView.current !== view;
+    if (viewChanged) lastView.current = view;
+    const factor = viewChanged ? 1 : zoomFactor;
+    camera.position.set(preset.position[0] * factor, preset.position[1] * factor, preset.position[2] * factor);
     camera.lookAt(...preset.target);
     camera.updateProjectionMatrix();
     if (controls && "target" in controls && "update" in controls) {
@@ -270,7 +275,7 @@ function CameraRig({ view }: { view: CameraView }) {
       orbit.target.set(...preset.target);
       orbit.update();
     }
-  }, [view, camera, controls]);
+  }, [view, zoomFactor, camera, controls]);
 
   return null;
 }
@@ -330,6 +335,7 @@ export function Viewer({
   triangleScores,
   previewTint = null,
   colorRegions = [],
+  touchFriendly = false,
 }: {
   stlUrl: string | null;
   view?: CameraView;
@@ -342,15 +348,29 @@ export function Viewer({
   triangleScores?: number[];
   previewTint?: string | null;
   colorRegions?: Array<{ id: string; name: string; colorName: string; colorHex: string; amsSlot?: number }>;
+  touchFriendly?: boolean;
 }) {
   const background = theme === "dark" ? "#242424" : "#d2d2d2";
+  const [zoomFactor, setZoomFactor] = useState(1);
+  const touch = viewerTouchMode(touchFriendly);
+
+  useEffect(() => {
+    setZoomFactor(1);
+  }, [view]);
 
   return (
-    <div className="relative h-full min-h-[240px] w-full overflow-hidden bg-canvas">
+    <div
+      className={`relative h-full w-full overflow-hidden bg-canvas ${
+        touchFriendly ? "viewer-touch min-h-[160px]" : "min-h-[240px]"
+      }`}
+    >
       <Canvas
         shadows
         camera={{ position: VIEW_PRESETS.iso.position, fov: 32, near: 0.1, far: 4000 }}
         gl={{ antialias: true }}
+        onCreated={({ gl }) => {
+          gl.domElement.style.touchAction = "none";
+        }}
       >
         <color attach="background" args={[background]} />
         <hemisphereLight
@@ -381,8 +401,19 @@ export function Viewer({
           <PackOutlines plateMm={plateMm} outlines={packOutlines} theme={theme} />
         </Suspense>
         <ContactShadows opacity={theme === "dark" ? 0.32 : 0.2} scale={plateMm} blur={2.1} far={50} />
-        <OrbitControls makeDefault enableDamping dampingFactor={0.08} target={VIEW_PRESETS.iso.target} />
-        <CameraRig view={view} />
+        <OrbitControls
+          makeDefault
+          enableDamping={touch.enableDamping}
+          dampingFactor={0.08}
+          enableRotate={touch.enableRotate}
+          enableZoom={touch.enableZoom}
+          enablePan={touch.enablePan}
+          minDistance={40}
+          maxDistance={900}
+          touches={{ ONE: TOUCH.ROTATE, TWO: TOUCH.DOLLY_PAN }}
+          target={VIEW_PRESETS.iso.target}
+        />
+        <CameraRig view={view} zoomFactor={zoomFactor} />
         {showGizmo ? (
           <GizmoHelper alignment="bottom-right" margin={[56, 56]}>
             <GizmoViewport
@@ -392,12 +423,39 @@ export function Viewer({
           </GizmoHelper>
         ) : null}
       </Canvas>
+      {touchFriendly ? (
+        <div className="absolute bottom-3 right-3 z-10 flex flex-col gap-1.5">
+          <button
+            type="button"
+            className="studio-btn studio-btn-ghost inline-flex h-11 w-11 text-lg"
+            aria-label="Zoom in"
+            onClick={() => setZoomFactor((current) => nextViewerZoomFactor(current, "in"))}
+          >
+            +
+          </button>
+          <button
+            type="button"
+            className="studio-btn studio-btn-ghost inline-flex h-11 w-11 text-lg"
+            aria-label="Zoom out"
+            onClick={() => setZoomFactor((current) => nextViewerZoomFactor(current, "out"))}
+          >
+            −
+          </button>
+        </div>
+      ) : null}
       {stlUrl && heatmap ? <StrengthLegend theme={theme} /> : null}
       {stlUrl && colorRegions.length ? <RegionColorOverlay regions={colorRegions} /> : null}
       {!stlUrl ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-12 flex justify-center px-4">
           <p className="rounded-md bg-bg/70 px-3 py-1.5 text-xs text-muted backdrop-blur-sm">
             Empty plate — describe a part or import STL/3MF, then Print.
+          </p>
+        </div>
+      ) : null}
+      {touchFriendly && stlUrl ? (
+        <div className="pointer-events-none absolute bottom-3 left-3 z-10 lg:hidden">
+          <p className="rounded-md bg-bg/70 px-2.5 py-1 text-[10px] text-muted backdrop-blur-sm">
+            Drag to orbit · pinch to zoom
           </p>
         </div>
       ) : null}

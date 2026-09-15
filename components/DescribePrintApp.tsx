@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type RefObject } from "react";
 import {
   applyDesignChoiceToPrompt,
   resolveDesignOptions,
@@ -147,6 +147,7 @@ import {
   usePartLibrary,
   type SavedPart,
 } from "@/lib/part-library";
+import { filePickerAttrs, type FilePickerKind } from "@/lib/mobile-client";
 import type { CameraView, PackOutline, ViewerTheme } from "./Viewer";
 
 const EMPTY_AMS_SLOTS: AmsSlotStatus[] = [];
@@ -281,6 +282,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
   const [keepWear, setKeepWear] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const photoInput = useRef<HTMLInputElement>(null);
+  const cameraInput = useRef<HTMLInputElement>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [workspace, setWorkspace] = useState<WorkspaceTab>("prepare");
   const [cameraView, setCameraView] = useState<CameraView>("iso");
@@ -946,6 +948,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       setBusy(false);
       if (fileInput.current) fileInput.current.value = "";
       if (photoInput.current) photoInput.current.value = "";
+      if (cameraInput.current) cameraInput.current.value = "";
       scrollToEnd();
     }
   }
@@ -1047,36 +1050,18 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       }}
       onImport={() => fileInput.current?.click()}
       onImportPhoto={() => photoInput.current?.click()}
+      onImportCamera={() => cameraInput.current?.click()}
       optionGroups={pendingOptionGroups}
       onPickOption={pickDesignOption}
     />
   );
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-bg text-ink">
-      <input
-        ref={fileInput}
-        type="file"
-        accept=".stl,.3mf,.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp,model/stl,application/vnd.ms-package.3dmanufacturing-3dmodel+xml"
-        className="hidden"
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (file) void importMeshFile(file);
-        }}
-      />
-      <input
-        ref={photoInput}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="hidden"
-        aria-label="Import photo"
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (file) void importMeshFile(file);
-        }}
-      />
-      <header className="z-20 flex h-11 shrink-0 items-center gap-3 border-b border-line bg-panel px-3">
+    <div className="studio-shell flex h-dvh flex-col overflow-hidden bg-bg text-ink">
+      <ImportFileInput inputRef={fileInput} kind="any" onFile={importMeshFile} />
+      <ImportFileInput inputRef={photoInput} kind="photo" onFile={importMeshFile} />
+      <ImportFileInput inputRef={cameraInput} kind="camera" onFile={importMeshFile} />
+      <header className="studio-topbar z-20 flex h-11 shrink-0 items-center gap-3 border-b border-line bg-panel px-3">
         <div className="flex min-w-0 items-center gap-2.5">
           <StudioMark />
           <div className="min-w-0">
@@ -1121,12 +1106,15 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
         </div>
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-rows-[minmax(200px,1fr)_auto] lg:grid-cols-[minmax(340px,400px)_minmax(0,1fr)_260px] lg:grid-rows-1">
+      <div
+        className="studio-workspace grid min-h-0 flex-1 grid-rows-[minmax(200px,1fr)_auto] lg:grid-cols-[minmax(340px,400px)_minmax(0,1fr)_260px] lg:grid-rows-1"
+        data-tab={workspace}
+      >
         <section
-          className={`min-h-0 flex-col border-line bg-panel lg:border-r ${
+          className={`studio-chat min-h-0 flex-col border-line bg-panel lg:border-r ${
             workspace === "preview" && !wideLayout
               ? "hidden"
-              : `flex ${workspace === "prepare" ? "order-2 max-h-[58vh] border-t lg:order-none lg:max-h-none lg:border-t-0" : ""}`
+              : `flex ${workspace === "prepare" ? "order-2 border-t lg:order-none lg:border-t-0" : ""}`
           }`}
         >
           <div className="flex items-center justify-between border-b border-line px-3 py-2">
@@ -1140,7 +1128,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
                   type="button"
                   onClick={undoPlate}
                   disabled={busy || !canUndo(history)}
-                  className="text-[11px] text-muted underline-offset-2 hover:underline disabled:opacity-40"
+                  className="studio-chip px-2 text-[11px] text-muted underline-offset-2 hover:underline disabled:opacity-40"
                 >
                   Undo
                 </button>
@@ -1149,7 +1137,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
                 <button
                   type="button"
                   onClick={() => setShowHistory((open) => !open)}
-                  className="text-[11px] text-muted underline-offset-2 hover:underline"
+                  className="studio-chip px-2 text-[11px] text-muted underline-offset-2 hover:underline"
                   aria-expanded={showHistory}
                 >
                   History
@@ -1170,7 +1158,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
                 <button
                   type="button"
                   onClick={resetConversation}
-                  className="text-[11px] text-muted underline-offset-2 hover:underline"
+                  className="studio-chip px-2 text-[11px] text-muted underline-offset-2 hover:underline"
                 >
                   Clear chat
                 </button>
@@ -1240,9 +1228,9 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
           <div className="border-t border-line bg-panel">{composer}</div>
         </section>
 
-        <section className="relative order-1 flex min-h-0 flex-col bg-canvas lg:order-none">
+        <section className="studio-plate relative order-1 flex min-h-0 flex-col bg-canvas lg:order-none">
           <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between p-2.5">
-            <div className="pointer-events-auto flex items-center gap-1.5">
+            <div className="pointer-events-auto flex max-w-[calc(100%-5.5rem)] flex-wrap items-center gap-1.5">
               <div className="flex overflow-hidden rounded-md border border-line bg-panel/90 shadow-sm backdrop-blur">
                 {(
                   [
@@ -1256,7 +1244,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
                     key={id}
                     type="button"
                     onClick={() => setCameraView(id)}
-                    className={`h-7 px-2.5 text-[11px] font-medium ${
+                    className={`studio-touch h-7 px-2.5 text-[11px] font-medium ${
                       cameraView === id ? "bg-accent text-accent-ink" : "text-muted hover:bg-panel-2 hover:text-ink"
                     }`}
                   >
@@ -1269,7 +1257,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
                 disabled={!result}
                 title="Heuristic strength preview — not FEA"
                 onClick={() => setShowStrengthHeatmap((on) => !on)}
-                className={`h-7 rounded-md border px-2.5 text-[11px] font-medium shadow-sm backdrop-blur ${
+                className={`studio-touch h-7 rounded-md border px-2.5 text-[11px] font-medium shadow-sm backdrop-blur ${
                   result && showStrengthHeatmap && !explodeView
                     ? "border-accent/50 bg-accent text-accent-ink"
                     : "border-line bg-panel/90 text-muted hover:bg-panel-2 hover:text-ink disabled:opacity-40"
@@ -1326,12 +1314,13 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
               triangleScores={explodeView ? undefined : result?.report.strengthPreview?.triangleScores}
               previewTint={result ? previewTintHex(result.colorRegions ?? []) : null}
               colorRegions={result ? namedColorRegions(result.colorRegions) : []}
+              touchFriendly={!wideLayout}
             />
           </div>
         </section>
 
         <aside
-          className={`min-h-0 flex-col border-line bg-panel ${
+          className={`studio-print min-h-0 flex-col border-line bg-panel ${
             workspace === "prepare" ? "hidden lg:flex lg:border-l" : "flex border-t lg:border-l lg:border-t-0"
           } ${workspace === "preview" ? "order-2 lg:order-none" : ""}`}
         >
@@ -1643,6 +1632,59 @@ function VersionHistoryList({
   );
 }
 
+function ImportFileInput({
+  inputRef,
+  kind,
+  onFile,
+}: {
+  inputRef: RefObject<HTMLInputElement | null>;
+  kind: FilePickerKind;
+  onFile: (file: File) => void;
+}) {
+  const attrs = filePickerAttrs(kind);
+  const onChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      void onFile(file);
+      event.target.value = "";
+    }
+  };
+  if (kind === "camera") {
+    return (
+      <input
+        ref={inputRef}
+        type="file"
+        accept={attrs.accept}
+        capture="environment"
+        className="hidden"
+        aria-label="Take photo"
+        onChange={onChange}
+      />
+    );
+  }
+  if (kind === "photo") {
+    return (
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        aria-label="Import photo"
+        onChange={onChange}
+      />
+    );
+  }
+  return (
+    <input
+      ref={inputRef}
+      type="file"
+      accept=".stl,.3mf,.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp,model/stl,application/vnd.ms-package.3dmanufacturing-3dmodel+xml"
+      className="hidden"
+      onChange={onChange}
+    />
+  );
+}
+
 function ChatComposer({
   prompt,
   onPromptChange,
@@ -1665,6 +1707,7 @@ function ChatComposer({
   onFollowUp,
   onImport,
   onImportPhoto,
+  onImportCamera,
   optionGroups,
   onPickOption,
 }: {
@@ -1689,12 +1732,13 @@ function ChatComposer({
   onFollowUp: (value: string) => void;
   onImport: () => void;
   onImportPhoto: () => void;
+  onImportCamera?: () => void;
   optionGroups: DesignOptionGroup[];
   onPickOption: (group: DesignOptionGroup, option: DesignOption) => void;
 }) {
   return (
     <form
-      className="p-3"
+      className="studio-composer p-3"
       onSubmit={(e) => {
         e.preventDefault();
         onSubmit();
@@ -1712,7 +1756,7 @@ function ChatComposer({
               key={chip}
               type="button"
               onClick={() => onFollowUp(chip)}
-              className="rounded-full border border-line bg-panel-2 px-2.5 py-1 text-[11px] text-muted hover:border-accent/50 hover:text-ink"
+              className="studio-chip rounded-full border border-line bg-panel-2 px-2.5 py-1 text-[11px] text-muted hover:border-accent/50 hover:text-ink"
             >
               {chip}
             </button>
@@ -1736,17 +1780,39 @@ function ChatComposer({
         placeholder={placeholder}
         className="studio-field resize-none px-2.5 py-2 text-sm"
       />
-      <div className="mt-2 flex items-center gap-2">
+      <div className="mt-2 flex flex-wrap items-center gap-2">
         <button type="submit" disabled={!canSubmit} className="studio-btn studio-btn-primary inline-flex h-8 px-3.5">
           {busy ? "Working…" : actionLabel}
         </button>
         <button
           type="button"
           onClick={onToggleAdvanced}
-          className="text-[11px] text-muted underline-offset-2 hover:underline"
+          className="studio-btn studio-btn-ghost inline-flex h-8 px-3 text-[11px] text-muted"
         >
           {showAdvanced ? "Hide options" : "More options"}
         </button>
+        {onImportPhoto ? (
+          <button
+            type="button"
+            onClick={onImportPhoto}
+            disabled={busy}
+            title="Choose a photo from the camera roll"
+            className="studio-btn studio-btn-ghost studio-mobile-only inline-flex h-8 px-3 text-[11px]"
+          >
+            Photo
+          </button>
+        ) : null}
+        {onImportCamera ? (
+          <button
+            type="button"
+            onClick={onImportCamera}
+            disabled={busy}
+            title="Take a photo with the rear camera"
+            className="studio-btn studio-btn-ghost studio-mobile-only inline-flex h-8 px-3 text-[11px]"
+          >
+            Camera
+          </button>
+        ) : null}
         {hasCustomUserProfile(userProfile) ? (
           <span className="hidden text-[10px] text-muted sm:inline">
             Profile: {formatUserProfileSummary(userProfile)}
@@ -1757,7 +1823,7 @@ function ChatComposer({
           onClick={onImport}
           disabled={busy}
           title="STL, 3MF, or a photo (PNG / JPG / WebP)"
-          className="ml-auto text-[11px] text-muted underline-offset-2 hover:underline disabled:opacity-40"
+          className="studio-btn studio-btn-ghost ml-auto inline-flex h-8 px-3 text-[11px] disabled:opacity-40"
         >
           Import file
         </button>
@@ -1951,7 +2017,7 @@ function ChatBubble({
                   type="button"
                   disabled={disabled}
                   onClick={() => onDoctorFeedback("perfect", "perfect")}
-                  className="studio-btn studio-btn-ghost h-6 px-2 text-[11px]"
+                  className="studio-btn studio-btn-ghost studio-chip h-6 px-2 text-[11px]"
                   aria-label="Perfect — remember this fix"
                 >
                   Perfect
@@ -1960,7 +2026,7 @@ function ChatBubble({
                   type="button"
                   disabled={disabled}
                   onClick={() => onDoctorFeedback("still-bad", "still bad")}
-                  className="studio-btn studio-btn-ghost h-6 px-2 text-[11px]"
+                  className="studio-btn studio-btn-ghost studio-chip h-6 px-2 text-[11px]"
                   aria-label="Still bad — try the next cause"
                 >
                   Still bad
@@ -1974,7 +2040,7 @@ function ChatBubble({
                     type="button"
                     disabled={disabled}
                     onClick={() => onCameraChip(chip.phrase)}
-                    className="studio-btn studio-btn-ghost h-6 px-2 text-[11px]"
+                    className="studio-btn studio-btn-ghost studio-chip h-6 px-2 text-[11px]"
                     aria-label={chip.ariaLabel}
                   >
                     {chip.label}
@@ -2046,7 +2112,7 @@ function DesignOptionChips({
                 disabled={disabled}
                 title={option.description}
                 onClick={() => onPick(group, option)}
-                className="min-h-8 rounded-full border border-accent/45 bg-accent/10 px-3 py-1 text-[12px] font-medium text-ink hover:border-accent hover:bg-accent/20 disabled:opacity-40"
+                className="studio-chip min-h-8 rounded-full border border-accent/45 bg-accent/10 px-3 py-1 text-[12px] font-medium text-ink hover:border-accent hover:bg-accent/20 disabled:opacity-40"
               >
                 {option.label}
               </button>
@@ -3079,11 +3145,13 @@ function EmptyState({ onPick }: { onPick: (value: string) => void }) {
   return (
     <div className="space-y-3">
       <p className="text-sm leading-relaxed text-muted">
-        Describe a part in plain language, or <span className="text-ink">import an STL/3MF or a photo</span>. If a
-        known fork is unclear, the chat offers a few chips — pick one, then <span className="text-ink">Print</span>.
-        Open <span className="text-ink">More options</span> for a one-off size or saved profile defaults (this device
-        only).         The plate is a Bambu Lab P2S (256 × 256 × 256 mm) by default. A print defect (stringing, AMS loop) or a
-        failed-print photo / caption (stub) goes to Print doctor instead of CAD.
+        Describe a part in plain language, or <span className="text-ink">import an STL/3MF or a photo</span>. On a
+        phone, <span className="text-ink">Photo</span> opens the camera roll and <span className="text-ink">Camera</span>{" "}
+        uses the rear camera. If a known fork is unclear, the chat offers a few chips — pick one, then{" "}
+        <span className="text-ink">Print</span>. Open <span className="text-ink">More options</span> for a one-off
+        size or saved profile defaults (this device only). The plate is a Bambu Lab P2S (256 × 256 × 256 mm) by
+        default. A print defect (stringing, AMS loop) or a failed-print photo / caption (stub) goes to Print
+        doctor instead of CAD.
       </p>
       <div className="studio-label">Try saying</div>
       <div className="space-y-1.5">
@@ -3092,7 +3160,7 @@ function EmptyState({ onPick }: { onPick: (value: string) => void }) {
             key={example}
             type="button"
             onClick={() => onPick(example)}
-            className="block w-full rounded-md border border-line bg-panel-2 px-2.5 py-2 text-left text-sm hover:border-accent/50"
+            className="studio-chip block w-full rounded-md border border-line bg-panel-2 px-2.5 py-2 text-left text-sm hover:border-accent/50"
           >
             {example}
           </button>
@@ -3315,7 +3383,7 @@ function WearableSizePicker({
               type="button"
               disabled={disabled || (!canApply && Boolean(applied))}
               onClick={() => onSelect(id)}
-              className={`h-7 min-w-8 rounded-md border px-2 text-[11px] font-semibold ${
+              className={`studio-chip h-7 min-w-8 rounded-md border px-2 text-[11px] font-semibold ${
                 active ? "border-accent bg-accent text-accent-ink" : "border-line bg-panel text-muted hover:text-ink"
               }`}
             >

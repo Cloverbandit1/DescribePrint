@@ -450,7 +450,11 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
     }
 
     if (looksLikePrintDoctorComplaint(cleaned)) {
+      const reshapePref = parseReshapeRemainingPref(
+        typeof window !== "undefined" ? window.localStorage.getItem(MACHINE_RESHAPE_STORAGE_KEY) : null,
+      );
       let diagnosis = diagnosePrintComplaint({ complaint: cleaned, printerId: printer.id, material });
+      setBusy(true);
       try {
         const response = await fetch("/api/machine", {
           method: "POST",
@@ -458,9 +462,10 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
           body: JSON.stringify({
             complaint: cleaned,
             material,
-            reshapeRemaining: parseReshapeRemainingPref(
-              typeof window !== "undefined" ? window.localStorage.getItem(MACHINE_RESHAPE_STORAGE_KEY) : null,
-            ),
+            reshapeRemaining: reshapePref,
+            jobId: result?.jobId,
+            previousCode: result?.code,
+            previousPrompt: designPrompt,
           }),
         });
         if (response.ok) {
@@ -469,6 +474,8 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
         }
       } catch {
         // Keep the local diagnosis if the machine API is down.
+      } finally {
+        setBusy(false);
       }
       if (diagnosis.defectId !== "mid-print-control") {
         diagnosis = applyStoredDoctorMemory(readDoctorMemory(), diagnosis);
@@ -483,11 +490,38 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
         if (next) setMaterial(next);
       }
       setDoctorResult(diagnosis);
-      setItems((prev) => [
-        ...prev,
-        { id: nid(), kind: "user", text: cleaned },
-        { id: nid(), kind: "doctor", result: diagnosis },
-      ]);
+      const cadUpper = diagnosis.reshape?.cadUpper?.ok ? diagnosis.reshape.cadUpper.result : undefined;
+      setItems((prev) => {
+        const nextItems: ChatItem[] = [
+          ...prev,
+          { id: nid(), kind: "user", text: cleaned },
+          { id: nid(), kind: "doctor", result: diagnosis },
+        ];
+        if (cadUpper) {
+          nextItems.push({ id: nid(), kind: "result", result: cadUpper });
+          setResult(cadUpper);
+          setDesignPrompt(cleaned);
+          setShowDetails(false);
+          setWorkspace("prepare");
+          setHistory((prevHistory) =>
+            pushVersion(prevHistory, {
+              kind: classifyPlateVersionKind({
+                hasPrevious: Boolean(result?.jobId),
+                source: cadUpper.source,
+                editMode: cadUpper.editMode,
+              }),
+              prompt: cleaned,
+              designPrompt: cleaned,
+              result: cadUpper,
+              thread: nextItems,
+              wearableSize: cadUpper.wearableSize ?? wearableSize,
+              wearableCategory: cadUpper.wearableCategory ?? wearableCategory,
+              appliedChoices,
+            }),
+          );
+        }
+        return nextItems;
+      });
       scrollToEnd();
       return;
     }
@@ -1454,6 +1488,11 @@ function ChatBubble({
                   : "Remaining height unknown"}
                 {result.reshape.currentZ != null ? ` above Z ${result.reshape.currentZ.toFixed(2)}` : ""}. Resume is
                 manual.
+                {result.reshape.cadUpper?.ok
+                  ? " CAD upper ready."
+                  : result.reshape.cadUpper?.invoked
+                    ? ` CAD refused: ${result.reshape.cadUpper.error ?? "unknown error"}.`
+                    : ""}
               </div>
             ) : null}
           </div>
@@ -1461,9 +1500,10 @@ function ChatBubble({
         {result.learned ? (
           <div className="mt-1 text-[11px] text-muted">Remembered for this printer + filament.</div>
         ) : null}
-        {(onDoctorFeedback && result.defectId !== "mid-print-control") || (onCameraChip && cameraChips?.length) ? (
+        {(onDoctorFeedback && result.defectId !== "mid-print-control" && !result.reshape?.attempted) ||
+        (onCameraChip && cameraChips?.length) ? (
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {onDoctorFeedback && result.defectId !== "mid-print-control" ? (
+            {onDoctorFeedback && result.defectId !== "mid-print-control" && !result.reshape?.attempted ? (
               <>
                 <button
                   type="button"
@@ -1507,6 +1547,7 @@ function ChatBubble({
   const { report } = item.result;
   const photo = item.result.editMode === "image-import";
   const imported = item.result.source === "imported-mesh";
+  const reshapeUpper = item.result.editMode === "reshape-upper";
   return (
     <div className="mr-4 rounded-md border border-ok/35 bg-ok/5 px-2.5 py-2 text-sm">
       <div className="font-medium">
@@ -1514,7 +1555,9 @@ function ChatBubble({
           ? photoPlateHeadline(item.result.imageImport)
           : imported
             ? "Imported mesh on the plate — describe an edit"
-            : "On the plate — keep talking to change it"}
+            : reshapeUpper
+              ? "Remaining upper on the plate — resume is manual"
+              : "On the plate — keep talking to change it"}
       </div>
       <div className="mt-1 text-muted">
         {formatMm(report.boundingBoxMm.size[0])} × {formatMm(report.boundingBoxMm.size[1])} ×{" "}
@@ -2136,6 +2179,11 @@ function MachinePanel({
             ? `remaining ${reshapePlan.remainingHeightMm.toFixed(2)} mm`
             : "remaining height unknown"}
           {reshapePlan.currentZ != null ? ` above Z ${reshapePlan.currentZ.toFixed(2)}` : ""}. Resume is manual.
+          {reshapePlan.cadUpper?.ok
+            ? " CAD upper ready."
+            : reshapePlan.cadUpper?.invoked
+              ? ` CAD refused: ${reshapePlan.cadUpper.error ?? "unknown error"}.`
+              : ""}
         </div>
       ) : reshapeOn ? (
         <div className="mt-1">reshape: stub · resume is manual</div>
@@ -2333,6 +2381,7 @@ function ResultPanel({
   const issues = report.issues;
   const photo = result.editMode === "image-import";
   const imported = result.source === "imported-mesh";
+  const reshapeUpper = result.editMode === "reshape-upper";
   const designation = result.machineDesignation;
   const colorRegions = result.colorRegions ?? [];
   const showColors = colorRegions.length > 1 || (colorRegions.length === 1 && colorRegions[0]?.colorName !== "default");
@@ -2354,7 +2403,15 @@ function ResultPanel({
       {result.notes.length > 0 ? (
         <div className="rounded-md border border-line bg-panel-2 p-2.5 text-[11px] leading-relaxed text-muted">
           <div className="studio-label mb-1">
-            {photo ? "Photo solid" : imported ? "Imported mesh" : showColors ? "Colors / size" : "Size"}
+            {photo
+              ? "Photo solid"
+              : imported
+                ? "Imported mesh"
+                : reshapeUpper
+                  ? "Remaining upper"
+                  : showColors
+                    ? "Colors / size"
+                    : "Size"}
           </div>
           {result.notes.map((note) => (
             <p key={note} className="mt-1">

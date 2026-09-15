@@ -1,6 +1,6 @@
 import { defaultPrinter, layerHeightMmFromPreset, type PrinterId } from "../printers";
 import { parseStl } from "../stl";
-import type { Mesh } from "../types";
+import type { GenerateResult, Mesh } from "../types";
 import { mapDesignFilamentsToAms } from "./ams";
 import type { CommandResult, FilamentPlan, LiveMachineStatus, RemainingLayerReshapePlan } from "./types";
 
@@ -59,6 +59,15 @@ export type ReslicePlanStub = {
   note: string;
 };
 
+/** Print Control surfaces this; CAD Core (`runCadReshapeUpper`) owns the mesh. */
+export type CadReshapeUpperOutcome = {
+  invoked: true;
+  ok: boolean;
+  error?: string;
+  /** Existing generate-result shape for the plate / preview path. */
+  result?: GenerateResult;
+};
+
 export type EmergencyRemainingReshapePlan = {
   attempted: boolean;
   enabled: boolean;
@@ -75,6 +84,7 @@ export type EmergencyRemainingReshapePlan = {
   remainingLayers: number | null;
   cadHandoff?: CadReshapeHandoff;
   reslice?: ReslicePlanStub;
+  cadUpper?: CadReshapeUpperOutcome;
   planner?: RemainingLayerReshapePlan;
   message: string;
   commands: CommandResult[];
@@ -265,4 +275,10 @@ export function formatEmergencyReshapeMessage(input: {
   const zBit = input.currentZ != null ? `current Z ${input.currentZ.toFixed(2)} mm` : "current Z unknown";
   const layerBit = input.remainingLayers != null ? `${input.remainingLayers} layer(s) left` : "layer count unknown";
   return `${pauseBit} ${heightBit}; ${zBit}; ${layerBit}. Redesign unprinted upper above Z. ${RESUME_IS_MANUAL}.`;
+}
+
+export function formatCadUpperStatus(upper?: CadReshapeUpperOutcome): string | undefined {
+  if (!upper?.invoked) return undefined;
+  if (upper.ok) return "CAD upper is on the plate.";
+  return `CAD refused: ${upper.error ?? "unknown error"}.`;
 }

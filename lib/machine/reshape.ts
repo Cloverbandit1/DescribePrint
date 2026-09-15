@@ -1,9 +1,11 @@
 import type { MachineAdapter } from "./adapter";
 import { envFlagEnabled, type ProcessEnvLike } from "./config";
+import { invokeCadReshapeUpperConsumer, resetCadReshapeUpperConsumer } from "./reshape-cad";
 import {
   buildCadReshapeHandoff,
   buildReslicePlanStub,
   emptyReshapePlan,
+  formatCadUpperStatus,
   formatEmergencyReshapeMessage,
   resolveHandoffLayerHeightMm,
   resolveHandoffPreviousCode,
@@ -58,6 +60,7 @@ export function rememberReshapePlan(plan: EmergencyRemainingReshapePlan | null):
 
 export function resetReshapeState(): void {
   lastPlan = null;
+  resetCadReshapeUpperConsumer();
 }
 
 function remainingFromHeights(current: number, total: number): number {
@@ -176,7 +179,8 @@ function plannerInputFromStatus(status: LiveMachineStatus): ReshapePlannerInput 
 
 /**
  * Diagnose-only unless RESHAPE_REMAINING (or the Machine-panel checkbox) is on.
- * When on: safe pause, emit a CAD-handoff + reslice plan, never resume.
+ * When on: safe pause, emit a CAD-handoff + reslice plan, invoke CAD Core's
+ * remaining-upper consumer, never resume.
  */
 export async function maybeEmergencyReshapeRemaining(opts: {
   adapter: MachineAdapter;
@@ -189,6 +193,7 @@ export async function maybeEmergencyReshapeRemaining(opts: {
   /** Current generate job when the client names one. Else the latest in-memory result. */
   jobId?: string;
   previousCode?: string;
+  previousPrompt?: string;
   /** Selected Machine-panel material. Not the doctor's inferred default. */
   material?: string;
 }): Promise<EmergencyRemainingReshapePlan> {
@@ -262,13 +267,27 @@ export async function maybeEmergencyReshapeRemaining(opts: {
     layerHeightMm,
   });
   const reslice = buildReslicePlanStub(after, after.printerId);
-  const message = formatEmergencyReshapeMessage({
-    paused,
-    pauseNeeded,
-    remainingHeightMm,
-    currentZ,
-    remainingLayers,
+  const cadUpper = await invokeCadReshapeUpperConsumer({
+    handoff: cadHandoff,
+    prompt: opts.complaint,
+    previousCode,
+    previousPrompt: opts.previousPrompt,
+    previousJobId: opts.jobId ?? job?.id,
+    reslice,
   });
+  const cadStatus = formatCadUpperStatus(cadUpper);
+  const message = [
+    formatEmergencyReshapeMessage({
+      paused,
+      pauseNeeded,
+      remainingHeightMm,
+      currentZ,
+      remainingLayers,
+    }),
+    cadStatus,
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   const plan: EmergencyRemainingReshapePlan = {
     attempted: true,
@@ -285,6 +304,7 @@ export async function maybeEmergencyReshapeRemaining(opts: {
     remainingLayers,
     cadHandoff,
     reslice,
+    cadUpper,
     planner,
     message,
     commands,
@@ -294,4 +314,5 @@ export async function maybeEmergencyReshapeRemaining(opts: {
 }
 
 export { RESUME_IS_MANUAL, LATER_OPTION as RESHAPE_LATER_OPTION };
-export type { CadReshapeHandoff, EmergencyRemainingReshapePlan, ReslicePlanStub, StumpCutPlaneBoundsMm } from "./reshape-plan";
+export { setCadReshapeUpperConsumerForTests } from "./reshape-cad";
+export type { CadReshapeHandoff, CadReshapeUpperOutcome, EmergencyRemainingReshapePlan, ReslicePlanStub, StumpCutPlaneBoundsMm } from "./reshape-plan";

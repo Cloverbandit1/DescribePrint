@@ -7,7 +7,7 @@ Default machine remains **Bambu Lab P2S** with one **AMS (4 slots)**.
 ## What this slice ships
 
 1. A richer P2S **profile** (volume, nozzles, AMS 4 slots, temp limits, PLA/PETG/PA/ABS/TPU auto-best tables) in [`lib/printers.ts`](../lib/printers.ts). The Machine panel material picker applies those tables as visible smart defaults. Export writes the same snapshot into 3MF metadata plus `describeprint.print.json`. Presets are **advisory** — they never send pause/resume/temp over LAN.
-2. A **pluggable machine adapter** interface, a **mock** adapter, and typed stubs for live status, AMS slots, mid-print commands, 3MF→AMS mapping, and a remaining-layer reshape **stub** (pause → CAD-handoff plan → reslice stub; never auto-resume).
+2. A **pluggable machine adapter** interface, a **mock** adapter, and typed stubs for live status, AMS slots, mid-print commands, 3MF→AMS mapping, and a remaining-layer reshape **stub** (pause → CAD-handoff → CAD remaining-upper consumer → reslice stub; never auto-resume).
 3. A **Print doctor** keyword/rule stub: plain-language defect or machine complaint → structured diagnosis + proposed setting or physical steps. No LLM and no LAN I/O.
 4. A **camera / failure-detect stub** (flag off by default), **AMS feed-loop autofix** (flag off by default), and **emergency remaining-layer reshape** (flag off by default).
 5. A **smart plate-packing stub** — largest-first shelf layout of current-job AABBs (or N copies) on the P2S 256×256 mm bed. Layout only; no LAN and no farm enqueue.
@@ -15,7 +15,7 @@ Default machine remains **Bambu Lab P2S** with one **AMS (4 slots)**.
 7. A **project pack export stub** — one zip with the current 3MF (and STL), template build steps, and vendor-agnostic shopping search terms. Empty plate disables the button.
 8. An **AMS slot plan** on 3MF export (and the project-pack sidecar): live trays when connected, otherwise the selected preset. The Machine panel shows slot → material/color and lets the user reassign trays.
 
-The Print column shows a compact **Machine** panel. Everyday path: toggle **LAN MQTT**, enter IP / serial / LAN access code (saved in the browser). Off stays disconnected / mock. On with incomplete fields stays mock and shows a short hint — no crash. Env `BAMBU_LAN_MQTT=1` plus creds is a headless/dev override. Live P2S/AMS status and tiny pause/resume/speed/temp controls appear when connected. Chat can route a complaint to Print doctor **without** calling the CAD generate path. STL/3MF export still works with no printer.
+The Print column shows a compact **Machine** panel. Everyday path: toggle **LAN MQTT**, enter IP / serial / LAN access code (saved in the browser). Off stays disconnected / mock. On with incomplete fields stays mock and shows a short hint — no crash. Env `BAMBU_LAN_MQTT=1` plus creds is a headless/dev override. Live P2S/AMS status and tiny pause/resume/speed/temp controls appear when connected. Chat can route a complaint to Print doctor **without** calling the CAD generate path, except the flagged remaining-layer reshape stub which invokes CAD Core’s existing reshape-upper consumer. STL/3MF export still works with no printer.
 
 ## What this slice does not ship
 
@@ -250,17 +250,18 @@ When **on**:
 
 1. Safe **pause** the live adapter (or record pause-needed on a disconnected mock). **Never resume.**
 2. Read live layer / height remaining. The mock can `injectRemainingHeight({ layer, totalLayers, remainingHeightMm })`.
-3. Emit a reshape **plan** (not CAD): remaining height H, current Z, pause confirmed, “redesign unprinted upper above Z”.
+3. Emit a reshape **plan**: remaining height H, current Z, pause confirmed, “redesign unprinted upper above Z”.
 4. Include a typed **CAD Core handoff** ([`lib/machine/reshape-plan.ts`](../lib/machine/reshape-plan.ts) — `CadReshapeHandoff`) and a **reslice stub** (P2S profile, AMS mapping, `sendGcode: false`).
-5. Show the compact plan in chat + Machine panel with **Resume is manual**.
+5. **Invoke CAD Core’s existing remaining-upper consumer** (`runCadReshapeUpper` / generate `cadHandoff` early-return). Print Control does not rewrite OpenSCAD. A refusal (for example missing `remainingHeightMm`) is shown as a clear error.
+6. Show the new upper on the existing generate plate / preview path when CAD succeeds. Compact plan in chat + Machine panel includes whether CAD succeeded. **Resume is manual.**
 
-When **off**, Print doctor may still mention reshape as a later option (spaghetti / layer-shift / the reshape phrase). It must **not** pause or emit a live plan (`remainingHeightMm` / `currentZ` / CAD handoff stay empty).
+When **off**, Print doctor may still mention reshape as a later option (spaghetti / layer-shift / the reshape phrase). It must **not** pause, call CAD, or emit a live plan (`remainingHeightMm` / `currentZ` / CAD handoff stay empty).
 
 [`lib/machine/reshape.ts`](../lib/machine/reshape.ts) is the orchestrator. Geometry still belongs to Allos CAD Core — this slice does not rewrite OpenSCAD, STL, or 3MF, and does not send gcode.
 
 #### CAD Core handoff (`CadReshapeHandoff`)
 
-For Bella / CAD Core. Print Control emits this; CAD Core consumes it later.
+For Bella / CAD Core. Print Control emits this and immediately invokes CAD Core’s consumer.
 
 | Field | Meaning |
 | --- | --- |
@@ -275,16 +276,14 @@ For Bella / CAD Core. Print Control emits this; CAD Core consumes it later.
 | `stumpCutPlaneBoundsMm` | Optional stump XY bounds at the cut plane (`{ minX, minY, maxX, maxY }` mm) when the job mesh intersects current Z. Omitted when that cut cannot be measured — do not guess from the last-part AABB |
 | `layerHeightMm` | Optional layer height (mm): live machine status if present, else the selected material preset (or the last job’s preset). CAD still will not invent `remainingHeightMm` from `remainingLayers` alone |
 
-Do **not** generate that mesh in Print Control.
-
-CAD Core consumes the handoff in [`lib/cad-reshape.ts`](../lib/cad-reshape.ts):
+Do **not** generate that mesh in Print Control. Call the existing consumer:
 
 ```ts
 import { runCadReshapeUpper, parseCadReshapeHandoff } from "@/lib/cad-reshape";
 await runCadReshapeUpper({ handoff, prompt, previousCode, fixture: true });
 ```
 
-Or `POST /api/generate` with `{ prompt, cadHandoff, previousCode?, fixture? }`. After an attempted emergency reshape, the next CAD chat turn sends `cadHandoff` from the doctor plan. The result is the remaining upper only (sits on the cut plane). `cadFeedForReslice` attaches `jobId` / STL / 3MF URLs onto the existing reslice stub (`sendGcode: false`). Resume stays manual.
+[`lib/machine/reshape-cad.ts`](../lib/machine/reshape-cad.ts) is that call from the doctor / reshape path. The generate pipeline still early-returns the same function when `cadHandoff` is set (`POST /api/generate`). The remaining upper sits on the cut plane. `cadFeedForReslice` attaches `jobId` / STL / 3MF URLs onto the existing reslice stub (`sendGcode: false`). Resume stays manual. Perfect / Still bad stay on other doctor replies — they do not steal CAD prompts such as “a perfect cube”.
 
 When the emergency path builds a handoff, Print Control fills those three optionals from real sources and **omits** them when unknown. `remainingHeightMm` / `currentZ` stay live/mock measurements only — never `remainingLayers × layerHeightMm`.
 

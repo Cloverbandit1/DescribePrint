@@ -32,13 +32,19 @@ import {
   maybeEmergencyReshapeRemaining,
   peekLastReshapePlan,
 } from "@/lib/machine/reshape";
+import {
+  parseMidPrintCommandPhrase,
+  sendMidPrintIfConnected,
+} from "@/lib/machine/mid-print-commands";
 import { getSharedMachine } from "@/lib/machine/runtime";
 import { getMachineUiSession, setMachineUiSession } from "@/lib/machine/session";
 import {
   diagnosisFromAmsHint,
   diagnosisFromCameraDetect,
   diagnosePrintComplaint,
+  midPrintFromCommandResult,
   withAutofix,
+  withMidPrint,
   withReshape,
 } from "@/lib/print-doctor";
 
@@ -150,7 +156,7 @@ export async function POST(request: Request) {
     if ((await machine.status()).connection !== "connected") {
       await machine.connect(creds ?? undefined);
     }
-    const lastCommand = await machine.send(command);
+    const lastCommand = await sendMidPrintIfConnected(machine, command);
     const status = await machine.status();
     return Response.json(payload(status, lastCommand), {
       headers: { "Cache-Control": "no-store" },
@@ -176,6 +182,17 @@ export async function POST(request: Request) {
           amsHint: status.amsHint,
         })
       : diagnosisFromAmsHint(status.amsHint, { remainingPercent: liveRemain, material: doctor.material });
+    const midPrintIntent = doctor.complaint ? parseMidPrintCommandPhrase(doctor.complaint) : null;
+    if (midPrintIntent && diagnosis) {
+      const lastCommand = await sendMidPrintIfConnected(machine, midPrintIntent.command);
+      const attempted = status.connection === "connected";
+      return Response.json(
+        payload(await machine.status(), lastCommand, {
+          diagnosis: withMidPrint(diagnosis, midPrintFromCommandResult(midPrintIntent, lastCommand, attempted)),
+        }),
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
     const patched = diagnosis && liveSlot != null ? { ...diagnosis, amsSlot: diagnosis.amsSlot ?? liveSlot } : diagnosis;
     const session = getMachineUiSession();
     const cameraDetect = isCameraDetectEnabled(process.env, session.cameraStub)

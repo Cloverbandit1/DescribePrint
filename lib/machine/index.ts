@@ -125,6 +125,18 @@ export {
   percentToBambuSpeedLevel,
   physicalStepsForCommand,
 } from "./bambu-protocol";
+export {
+  CONNECT_LAN_FIRST,
+  MID_PRINT_CONTROL_ID,
+  describeMidPrintIntent,
+  disconnectedMidPrintResult,
+  looksLikeMidPrintCommand,
+  mapSpeedLevelToPercent,
+  mapSpeedPercentToBambuTier,
+  parseMidPrintCommandPhrase,
+  sendMidPrintIfConnected,
+  type MidPrintIntent,
+} from "./mid-print-commands";
 export { redactSecrets, safeErrorMessage } from "./redact";
 export { getSharedMachine, isLiveMachineSelected, resetSharedMachine } from "./runtime";
 export {

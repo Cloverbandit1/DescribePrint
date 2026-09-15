@@ -1,6 +1,7 @@
 import "./mock";
 import "./bambu-lan";
 import { createMachineAdapter, defaultAdapterId, type MachineAdapter } from "./adapter";
+import { resetCameraDetectState } from "./camera";
 import { BAMBU_LAN_ADAPTER_ID, readLiveCredentials } from "./config";
 import { resetMachineUiSession } from "./session";
 
@@ -35,4 +36,5 @@ export function resetSharedMachine(): void {
   shared = null;
   sharedKey = "";
   resetMachineUiSession();
+  resetCameraDetectState();
 }

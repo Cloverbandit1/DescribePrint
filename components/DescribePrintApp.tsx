@@ -6,8 +6,26 @@ import { EXAMPLE_PROMPTS } from "@/lib/fixtures";
 import type { HealthReport, HealthTone } from "@/lib/health-types";
 import { MACHINE_RESHAPE_STORAGE_KEY, parseReshapeRemainingPref } from "@/lib/machine/reshape";
 import { useMachineMonitor } from "@/lib/machine/use-machine-monitor";
-import { diagnosePrintComplaint, looksLikePrintDoctorComplaint, type PrintDoctorResult } from "@/lib/print-doctor";
-import { defaultPrinter, filamentPreset, type PrinterProfile } from "@/lib/printers";
+import {
+  diagnosePrintComplaint,
+  looksLikeMaterialPresetRequest,
+  looksLikePrintDoctorComplaint,
+  type PrintDoctorResult,
+} from "@/lib/print-doctor";
+import {
+  coolingHintFor,
+  defaultPrinter,
+  filamentPickerLabel,
+  filamentPreset,
+  listFilamentPresets,
+  MATERIAL_SESSION_KEY,
+  normalizeFilamentId,
+  parseMaterialSession,
+  serializeMaterialSession,
+  speedTierFor,
+  type FilamentId,
+  type PrinterProfile,
+} from "@/lib/printers";
 import { formatMm, toMillimeters } from "@/lib/units";
 import {
   DEFAULT_WEARABLE_CATEGORY,
@@ -111,6 +129,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
   const [wideLayout, setWideLayout] = useState(true);
   const scroller = useRef<HTMLDivElement>(null);
   const printer = defaultPrinter();
+  const [material, setMaterial] = useState<FilamentId>(printer.defaultFilament);
 
   const sizeNumber = useMemo(() => {
     const n = Number(sizeHint);
@@ -123,7 +142,12 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       setTheme(stored);
       document.documentElement.dataset.theme = stored;
     }
+    setMaterial(parseMaterialSession(window.localStorage.getItem(MATERIAL_SESSION_KEY)));
   }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(MATERIAL_SESSION_KEY, serializeMaterialSession(material));
+  }, [material]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -166,13 +190,14 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
     const categoryForRequest = options?.wearableCategory ?? wearableCategory;
 
     if (looksLikePrintDoctorComplaint(cleaned)) {
-      let diagnosis = diagnosePrintComplaint({ complaint: cleaned, printerId: printer.id });
+      let diagnosis = diagnosePrintComplaint({ complaint: cleaned, printerId: printer.id, material });
       try {
         const response = await fetch("/api/machine", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             complaint: cleaned,
+            material,
             reshapeRemaining: parseReshapeRemainingPref(
               typeof window !== "undefined" ? window.localStorage.getItem(MACHINE_RESHAPE_STORAGE_KEY) : null,
             ),
@@ -186,6 +211,14 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
         // Keep the local diagnosis if the machine API is down.
       }
       setPrompt("");
+      const named = normalizeFilamentId(cleaned);
+      if (named || diagnosis.appliedPreset) {
+        const next = normalizeFilamentId(String(diagnosis.material)) ?? named;
+        if (next) setMaterial(next);
+      } else if (looksLikeMaterialPresetRequest(cleaned)) {
+        const next = normalizeFilamentId(String(diagnosis.material));
+        if (next) setMaterial(next);
+      }
       setDoctorResult(diagnosis);
       setItems((prev) => [
         ...prev,
@@ -227,6 +260,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
           previousSource,
           wearableSize: sizeForRequest,
           wearableCategory: categoryForRequest,
+          filament: material,
           fixture: process.env.NODE_ENV === "test" ? true : undefined,
           cadHandoff:
             !startFresh && doctorResult?.reshape?.attempted ? doctorResult.reshape.cadHandoff : undefined,
@@ -304,6 +338,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
     try {
       const form = new FormData();
       form.append("file", file);
+      form.append("filament", material);
       form.append("repair", keepWear ? "0" : "1");
       form.append("keepWear", keepWear ? "1" : "0");
       if (sizeNumber) form.append("targetMaxMm", String(toMillimeters(sizeNumber, units)));
@@ -546,7 +581,12 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
           </div>
 
           <div className="scrollbar-thin min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
-            <MachinePanel printer={printer} doctor={doctorResult} />
+            <MachinePanel
+              printer={printer}
+              doctor={doctorResult}
+              material={material}
+              onMaterialChange={setMaterial}
+            />
 
             <button
               type="button"
@@ -840,9 +880,21 @@ function ChatBubble({ item }: { item: ChatItem }) {
   );
 }
 
-function MachinePanel({ printer, doctor }: { printer: PrinterProfile; doctor: PrintDoctorResult | null }) {
+function MachinePanel({
+  printer,
+  doctor,
+  material,
+  onMaterialChange,
+}: {
+  printer: PrinterProfile;
+  doctor: PrintDoctorResult | null;
+  material: FilamentId;
+  onMaterialChange: (id: FilamentId) => void;
+}) {
   const [plateW, plateD, plateH] = printer.buildVolumeMm;
-  const preset = filamentPreset(printer.defaultFilament, printer);
+  const preset = filamentPreset(material, printer);
+  const speedTier = speedTierFor(preset);
+  const coolingHint = coolingHintFor(preset);
   const fallbackSlots = Array.from({ length: printer.ams.slotsPerUnit }, (_, i) => i + 1);
   const {
     prefs,
@@ -1033,9 +1085,25 @@ function MachinePanel({ printer, doctor }: { printer: PrinterProfile; doctor: Pr
           );
         })}
       </div>
-      <div className="mt-2">
-        Auto {preset.name}: {preset.nozzleC} °C / {preset.bedC} °C bed
+      <label className="mt-2 grid grid-cols-[4.5rem_1fr] items-center gap-x-1.5 text-ink" htmlFor="machine-material">
+        <span>Material</span>
+        <select
+          id="machine-material"
+          value={material}
+          onChange={(event) => onMaterialChange(event.target.value as FilamentId)}
+          className="studio-field h-6 px-1.5 text-[11px]"
+        >
+          {listFilamentPresets(printer).map((item) => (
+            <option key={item.id} value={item.id}>
+              {filamentPickerLabel(item)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="mt-1.5">
+        Auto-best {preset.name}: {preset.nozzleC} °C / {preset.bedC} °C bed · {speedTier} · {coolingHint}
       </div>
+      {preset.notes ? <div className="mt-0.5">{preset.notes}</div> : null}
       {connected ? (
         <div className="mt-2 space-y-1.5 border-t border-line pt-2">
           <div className="flex flex-wrap gap-1">
@@ -1185,6 +1253,9 @@ function ResultPanel({
         </a>
         <a href={result.threemfUrl} className="studio-btn studio-btn-ghost inline-flex h-8 px-3">
           Download 3MF
+        </a>
+        <a href={result.printPresetUrl} className="studio-btn studio-btn-ghost inline-flex h-8 px-3">
+          Print settings
         </a>
         <button type="button" onClick={onToggleDetails} className="ml-auto text-[11px] text-muted underline-offset-2 hover:underline">
           {showDetails ? "Hide details" : "Details"}

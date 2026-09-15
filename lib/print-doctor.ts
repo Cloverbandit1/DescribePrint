@@ -2,7 +2,9 @@ import type { EmergencyRemainingReshapePlan } from "./machine/reshape-plan";
 import {
   defaultPrinter,
   filamentPreset,
+  isFilamentId,
   normalizeFilamentId,
+  printPresetSummary,
   type FilamentId,
   type PrinterId,
 } from "./printers";
@@ -41,6 +43,8 @@ export type PrintDoctorResult = {
   physicalSteps: string[];
   autofix?: PrintDoctorAutofix;
   reshape?: EmergencyRemainingReshapePlan;
+  /** True when chat asked to switch to a material's auto-best table. */
+  appliedPreset?: boolean;
 };
 
 export function withAutofix(result: PrintDoctorResult, autofix: PrintDoctorAutofix): PrintDoctorResult {
@@ -175,13 +179,26 @@ const DEFECT_RULES: DefectRule[] = [
 const DOCTOR_HINT =
   /\b(stringing|warp(?:ing)?|ams|clog|jam|spaghetti|empty\s+bed|nozzle\s*scrape|layer\s*shift|under[-\s]?extrud|over[-\s]?extrud|elephant|first\s+layer|not stick|nozzle|bed temp|feed\/?unfeed|wisps?|blobs?|zits?|clicking|grinding)\b/i;
 
+const MATERIAL_WORD = "petg|nylon|pla|abs|tpu|pa(?:6|12|ht)?|pa-?cf";
+const MATERIAL_PRESET_RE = new RegExp(
+  String.raw`\b(?:use|apply|switch(?:\s+to)?|set)\b[\s\S]{0,28}\b(?:${MATERIAL_WORD})\b[\s\S]{0,16}\b(?:settings?|presets?|defaults?)\b` +
+    String.raw`|\bbest(?:\s+settings?)?\s+for\b[\s\S]{0,16}\b(?:${MATERIAL_WORD})\b` +
+    String.raw`|\b(?:${MATERIAL_WORD})\b[\s\S]{0,12}\b(?:settings?|presets?)\b`,
+  "i",
+);
+
+export function looksLikeMaterialPresetRequest(text: string): boolean {
+  return MATERIAL_PRESET_RE.test(text.trim());
+}
+
 export function looksLikePrintDoctorComplaint(text: string): boolean {
   const cleaned = text.trim();
   if (!cleaned) return false;
   return (
     DEFECT_RULES.some((rule) => rule.re.test(cleaned)) ||
     DOCTOR_HINT.test(cleaned) ||
-    isEmergencyReshapeRequest(cleaned)
+    isEmergencyReshapeRequest(cleaned) ||
+    looksLikeMaterialPresetRequest(cleaned)
   );
 }
 
@@ -376,6 +393,28 @@ function buildFixes(defectId: string, material: FilamentId): { fixes: PrintDocto
           "Reprint a small test cube before a long job.",
         ],
       };
+    case "material-preset": {
+      const summary = printPresetSummary(material);
+      return {
+        fixes: [
+          setting(
+            `Apply ${preset.name} auto-best: ${preset.nozzleC} °C nozzle / ${preset.bedC} °C bed.`,
+            "material",
+            preset.id,
+          ),
+          setting(
+            `Speed tier ${summary.speedTier} (~${preset.printSpeedMms} mm/s), ${summary.coolingHint}.`,
+            "speedTier",
+            summary.speedTier,
+          ),
+          physical(preset.notes ?? "Advisory defaults for the next slice — not sent to the printer."),
+        ],
+        steps: [
+          "These are panel + export defaults only. They are not pushed over LAN/MQTT.",
+          "Dry PA/PETG/ABS before a long job. Keep the P2S door closed for PA and ABS.",
+        ],
+      };
+    }
     default:
       return {
         fixes: [physical("Not enough detail to auto-apply a setting. Inspect the live job, then describe the defect.")],
@@ -420,6 +459,8 @@ function diagnosisFor(defectId: string, material: FilamentId, amsSlot?: number):
       return "You asked to reshape the unprinted remainder. When RESHAPE_REMAINING is on, Print Control pauses and emits a CAD-handoff + reslice plan. Resume is manual. CAD Core owns the new mesh. When the flag is off this stays a later option — no pause and no live plan.";
     case "wet-filament":
       return "Popping or fuzzy walls usually mean moisture. Dry the spool before chasing more temperature changes.";
+    case "material-preset":
+      return `Applied ${material.toUpperCase()} auto-best settings for the P2S (advisory — not sent over LAN).`;
     default:
       return "I could not match a specific P2S defect. Describe the symptom (stringing, warp, AMS loop, first layer) and the filament.";
   }
@@ -445,21 +486,27 @@ export function diagnosePrintComplaint(request: PrintDoctorRequest): PrintDoctor
   const printer = defaultPrinter();
   const printerId = request.printerId ?? printer.id;
   const complaint = request.complaint.trim();
-  const material = inferMaterial(`${request.material ?? ""} ${complaint}`, printer.defaultFilament);
+  const sessionMaterial = isFilamentId(String(request.material ?? ""))
+    ? (request.material as FilamentId)
+    : normalizeFilamentId(request.material);
+  const fallback = sessionMaterial ?? printer.defaultFilament;
+  const material = inferMaterial(`${request.material ?? ""} ${complaint}`, fallback);
   const amsSlot = extractAmsSlot(complaint);
   const rule = matchDefect(complaint);
-  const defectId = rule?.id ?? "unknown";
+  const materialSwitch = !rule && looksLikeMaterialPresetRequest(complaint);
+  const defectId = rule?.id ?? (materialSwitch ? "material-preset" : "unknown");
   const { fixes, steps } = buildFixes(defectId, material);
 
   return {
     defectId,
-    title: rule?.title ?? "Print problem",
+    title: rule?.title ?? (materialSwitch ? "Auto-best settings" : "Print problem"),
     diagnosis: diagnosisFor(defectId, material, amsSlot),
-    confidence: rule?.confidence ?? "low",
+    confidence: rule?.confidence ?? (materialSwitch ? "high" : "low"),
     printerId,
     material,
     amsSlot,
     fixes,
     physicalSteps: steps,
+    appliedPreset: materialSwitch,
   };
 }

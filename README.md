@@ -87,7 +87,7 @@ Default printer target: **Bambu Lab P2S** + one AMS (4 slots).
 
 | | Today | Later (in-app) |
 | --- | --- | --- |
-| Printer | P2S: 256 × 256 × 256 mm, **0.4 mm** nozzle (0.2 / 0.6 / 0.8), 1.75 mm filament, 300 °C / 110 °C limits, PLA/PETG/ABS/TPU auto-best tables | User can change printer and print settings in the web UI |
+| Printer | P2S: 256 × 256 × 256 mm, **0.4 mm** nozzle (0.2 / 0.6 / 0.8), 1.75 mm filament, 300 °C / 110 °C limits, PLA/PETG/PA/ABS/TPU auto-best tables | User can change printer and print settings in the web UI |
 | Output | STL + 3MF download (works disconnected) | Same, plus LAN connect / send — no separate slicer required |
 
 Profile data lives in [`lib/printers.ts`](lib/printers.ts). V0 does not ship Bambu Studio or Orca.
@@ -97,8 +97,8 @@ Profile data lives in [`lib/printers.ts`](lib/printers.ts). V0 does not ship Bam
 In-app P2S + AMS control. Architecture: [`docs/machine-control.md`](docs/machine-control.md). Not send-to-printer, not a farm, not Bambu Cloud.
 
 - **LAN MQTT (off by default):** in the Machine panel, turn **LAN MQTT** on and enter printer IP, serial, and the 8-digit LAN access code. Saved in the browser only. On the P2S enable **LAN Only** and **Developer Mode**. The adapter uses TLS MQTT on port 8883 (`bblp` + access code). Headless/dev can still set `BAMBU_LAN_MQTT=1` plus `BAMBU_HOST` / `BAMBU_SERIAL` / `BAMBU_ACCESS_CODE` in `.env.local` (overrides the panel). Never commit those values. Never log the access code.
-- **Machine panel** (Print column): LAN off stays disconnected / mock. Toggle + complete creds streams live connection, temps, layer/progress, and AMS slots (polls `/api/machine`). Connected printers keep the tiny pause / resume / speed / temp controls. CAD export still works with no printer.
-- **Print doctor:** type a defect or machine complaint in the existing chat (`stringing with PETG`, `AMS 2 keeps looping feed/unfeed`). A keyword stub returns a diagnosis plus proposed settings or physical steps. It does not call the CAD pipeline and does not need an LLM or a live printer.
+- **Machine panel** (Print column): pick a material (**PLA / PETG / PA / ABS / TPU**, default PLA) to apply compact auto-best defaults (nozzle/bed, speed tier, cooling hint). LAN off stays disconnected / mock. Toggle + complete creds streams live connection, temps, layer/progress, and AMS slots (polls `/api/machine`). Connected printers keep the tiny pause / resume / speed / temp controls. CAD export still works with no printer. Material presets are advisory + export metadata — they are **not** pushed over LAN/MQTT.
+- **Print doctor:** type a defect or machine complaint in the existing chat (`stringing with PETG`, `AMS 2 keeps looping feed/unfeed`), or ask for a material table (`use PETG settings`, `best for PA`). A keyword stub returns a diagnosis plus proposed settings or physical steps and can switch the selected material. It does not call the CAD pipeline and does not send surprise LAN commands.
 - **Mock adapter:** default and CI path — in-memory connection state, AMS mapping, pause-before-risky temp changes, remaining-layer reshape **stub** (flag off by default: pause → CAD-handoff plan → reslice stub, never auto-resume). CAD Core (`lib/cad-reshape.ts`) consumes `CadReshapeHandoff` and generates the unprinted upper only. An unhealthy LAN host fails safe (not connected, no crash, access code never logged).
 
 ## Why OpenSCAD (not build123d)
@@ -237,7 +237,7 @@ The first three match built-in single-body fixtures (used when `USE_FIXTURE` is 
 3. Sanitize / validate (no network, no filesystem escapes); run OpenSCAD in a subprocess with a timeout.
 4. Parse the STL; check non-empty, volume, triangle count, edge-manifold / watertight-ish.
 5. Preview in Three.js (`react-three-fiber`).
-6. Download **STL** and **3MF** (plus the `.scad` source). If the description names colors or materials, the 3MF carries **separate objects** with `basematerials` display colors and extruder / AMS 1–4 metadata so a slicer can assign filaments. No colors mentioned → one default object. This is CAD export, not live AMS control. OpenSCAD itself is one mesh; split bodies need `region_*` modules or `color()` groups (the two-color fixture does this). Importing a colored 3MF preserves those objects.
+6. Download **STL** and **3MF** (plus the `.scad` source and **Print settings** JSON). The selected Machine-panel material (PLA / PETG / PA / ABS / TPU) is written as advisory auto-best metadata on the 3MF and as `describeprint.print.json`. If the description names colors or materials, the 3MF also carries **separate objects** with `basematerials` display colors and extruder / AMS 1–4 metadata so a slicer can assign filaments. No colors mentioned → one default object. This is CAD export, not live AMS control. OpenSCAD itself is one mesh; split bodies need `region_*` modules or `color()` groups (the two-color fixture does this). Importing a colored 3MF preserves those objects.
 
 Printability report: bounding box (mm), volume, triangle count, manifold flag, and issues (empty mesh, zero volume, huge triangle count, oversized vs the P2S 256 mm bed, undersized / thin walls vs the 0.4 mm nozzle, off-bed, disconnected solids). Soft printability issues are fed back into CAD retries. Plans are normalized to one-piece, 1.6 mm walls, and through-holes unless the user clearly asks otherwise. Joints (`hinge` / `pin` / `ball` / `snap` plus `print-in-place` or `multi-part` clearance) are added only when the prompt asks for motion; otherwise the planner stays one fused solid.
 

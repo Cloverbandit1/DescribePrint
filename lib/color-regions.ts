@@ -35,7 +35,7 @@ export const NAMED_COLORS: Record<string, string> = {
 
 const COLOR_NAMES = Object.keys(NAMED_COLORS).sort((a, b) => b.length - a.length);
 const COLOR_ALT = COLOR_NAMES.join("|");
-const FILAMENT_ALT = "pla|petg|abs|tpu";
+const FILAMENT_ALT = "petg|nylon|pla|abs|tpu|pa";
 const FEATURE_ALT =
   "letters?|text|logo|inlay|accent|label|numbers?|icon|body|base|cube|plaque|plate|stand|knob|cap|stem|handle|lid|inset|face|rim|ring|button|bar";
 
@@ -119,6 +119,12 @@ export function defaultColorRegion(): ColorRegion {
 
 export function isDefaultOnlyRegions(regions: ColorRegion[]): boolean {
   return regions.length <= 1 && (regions[0]?.colorName ?? DEFAULT_COLOR_NAME) === DEFAULT_COLOR_NAME;
+}
+
+/** Stamp the Machine-panel material onto a default (uncolored) region. Named colors keep their own filament. */
+export function withSelectedFilament(regions: ColorRegion[], filament: FilamentId): ColorRegion[] {
+  if (!isDefaultOnlyRegions(regions)) return regions;
+  return regions.map((region) => ({ ...region, filament }));
 }
 
 function pushDraft(into: ColorRegionDraft[], draft: ColorRegionDraft) {

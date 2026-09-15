@@ -6,7 +6,7 @@ Default machine remains **Bambu Lab P2S** with one **AMS (4 slots)**.
 
 ## What this slice ships
 
-1. A richer P2S **profile** (volume, nozzles, AMS 4 slots, temp limits, PLA/PETG/ABS/TPU auto-best tables) in [`lib/printers.ts`](../lib/printers.ts).
+1. A richer P2S **profile** (volume, nozzles, AMS 4 slots, temp limits, PLA/PETG/PA/ABS/TPU auto-best tables) in [`lib/printers.ts`](../lib/printers.ts). The Machine panel material picker applies those tables as visible smart defaults. Export writes the same snapshot into 3MF metadata plus `describeprint.print.json`. Presets are **advisory** — they never send pause/resume/temp over LAN.
 2. A **pluggable machine adapter** interface, a **mock** adapter, and typed stubs for live status, AMS slots, mid-print commands, 3MF→AMS mapping, and a remaining-layer reshape **stub** (pause → CAD-handoff plan → reslice stub; never auto-resume).
 3. A **Print doctor** keyword/rule stub: plain-language defect or machine complaint → structured diagnosis + proposed setting or physical steps. No LLM and no LAN I/O.
 4. A **camera / failure-detect stub** (flag off by default), **AMS feed-loop autofix** (flag off by default), and **emergency remaining-layer reshape** (flag off by default).
@@ -117,7 +117,16 @@ Chat-first: a complaint hits `/api/machine` with `{ complaint }`. When the flag 
 - **setting** — proposed (and marked `autoApplicable` when a later adapter could apply them)
 - **physical** — simple hands-on steps when software cannot fix hardware
 
-No CAD rewrite. No LLM. Chat-first: “stringing with PETG” or “AMS 2 keeps looping feed/unfeed”.
+Chat can also say “use PETG settings” or “best for PA” to switch the Machine-panel material and apply that table. Those presets stay advisory (panel + export metadata). No CAD rewrite. No LLM. Chat-first: “stringing with PETG” or “AMS 2 keeps looping feed/unfeed”.
+
+### Auto-best material presets
+
+The Print column material picker (default **PLA**) reads [`P2S_FILAMENT_PRESETS`](../lib/printers.ts). **PA / nylon** is a P2S-safe table: higher nozzle/bed within 300 °C / 110 °C, low fan, dryer + closed-door notes. Choosing a material updates the compact defaults (temps, speed tier, cooling hint) and stamps the same snapshot onto:
+
+- 3MF model metadata (`DescribePrint:preset_*`) and `Metadata/print_preset.json`
+- an adjacent sidecar download (`describeprint.print.json`) next to STL/3MF
+
+No flag. No automatic LAN writes. Advanced knobs stay hidden.
 
 ### Multi-filament 3MF → AMS
 
@@ -195,7 +204,7 @@ Taken from Bambu’s published P2S specs / FAQ (see sources below):
 
 ## Tests
 
-`npm test` must pass **without** a physical printer. Coverage targets: profile tables, doctor diagnoses, AMS mapping, pause-before-risky, mock connection state machine, flag off = mock, UI toggle + incomplete creds = mock + hint, UI toggle + complete creds selects `bambu-lan` without setting the env flag, env override still works, live adapter + fake/unhealthy endpoint fails safe without leaking secrets, camera stub `detectFailure` (stub only), live poll + detect (flag off = no detect; flag on + mock `none` = `camera: ok`; injected spaghetti / scrape / empty-bed surfaces on the panel and doctor without auto-pause), AMS autofix flag off (no commands) vs flag on (pause then autofix or physical steps), remaining-layer reshape flag off (no pause, no live plan) vs flag on + injected remaining height (pause + plan, no resume, `remainingHeightMm` / `currentZ` present).
+`npm test` must pass **without** a physical printer. Coverage targets: profile tables (including PA), material session parse, doctor diagnoses + “use PETG settings” / “best for PA”, 3MF preset metadata / sidecar fields, AMS mapping, pause-before-risky, mock connection state machine, flag off = mock, UI toggle + incomplete creds = mock + hint, UI toggle + complete creds selects `bambu-lan` without setting the env flag, env override still works, live adapter + fake/unhealthy endpoint fails safe without leaking secrets, camera stub `detectFailure` (stub only), live poll + detect (flag off = no detect; flag on + mock `none` = `camera: ok`; injected spaghetti / scrape / empty-bed surfaces on the panel and doctor without auto-pause), AMS autofix flag off (no commands) vs flag on (pause then autofix or physical steps), remaining-layer reshape flag off (no pause, no live plan) vs flag on + injected remaining height (pause + plan, no resume, `remainingHeightMm` / `currentZ` present).
 
 ## Sources
 

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { MachineDesignation } from "./alternate-machines";
 import { defaultColorRegion, type ColorRegion } from "./color-regions";
+import { printPresetSummary, type PrintPresetSummary } from "./printers";
 import type {
   GenerateResult,
   ImageImportMeta,
@@ -30,9 +31,10 @@ export type StoredJob = {
   colorRegions: ColorRegion[];
   imageImport?: ImageImportMeta | null;
   machineDesignation?: MachineDesignation | null;
+  printPreset: PrintPresetSummary;
 };
 
-export type CreateJobInput = Omit<StoredJob, "id" | "createdAt"> & {
+export type CreateJobInput = Omit<StoredJob, "id" | "createdAt" | "printPreset"> & {
   source?: PartSource;
   fileName?: string | null;
   wearableSize?: WearableSizeId | null;
@@ -43,6 +45,7 @@ export type CreateJobInput = Omit<StoredJob, "id" | "createdAt"> & {
   colorRegions?: ColorRegion[];
   imageImport?: ImageImportMeta | null;
   machineDesignation?: MachineDesignation | null;
+  printPreset?: PrintPresetSummary | null;
 };
 
 const TTL_MS = 60 * 60 * 1000;
@@ -76,6 +79,7 @@ export function createJob(input: CreateJobInput): StoredJob {
     colorRegions: input.colorRegions?.length ? input.colorRegions : [defaultColorRegion()],
     imageImport: input.imageImport ?? null,
     machineDesignation: input.machineDesignation ?? null,
+    printPreset: input.printPreset ?? printPresetSummary("pla"),
     id: randomUUID(),
     createdAt: Date.now(),
   };
@@ -108,5 +112,7 @@ export function toGenerateResult(job: StoredJob): GenerateResult {
     colorRegions: job.colorRegions,
     imageImport: job.imageImport ?? null,
     machineDesignation: job.machineDesignation ?? null,
+    printPreset: job.printPreset,
+    printPresetUrl: `/api/jobs/${job.id}/model.print.json`,
   };
 }

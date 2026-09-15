@@ -144,7 +144,9 @@ export async function POST(request: Request) {
   if (doctor) {
     applyReshapeRemainingPref(doctor.reshapeRemaining);
     const machine = getSharedMachine();
-    const diagnosis = doctor.complaint ? diagnosePrintComplaint({ complaint: doctor.complaint }) : undefined;
+    const diagnosis = doctor.complaint
+      ? diagnosePrintComplaint({ complaint: doctor.complaint, material: doctor.material })
+      : undefined;
     const patched = diagnosis && doctor.slot != null ? { ...diagnosis, amsSlot: doctor.slot } : diagnosis;
     const status = await machine.status();
     const session = getMachineUiSession();

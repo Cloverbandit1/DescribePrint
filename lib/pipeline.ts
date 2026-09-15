@@ -5,8 +5,10 @@ import {
   defaultColorRegion,
   isDefaultOnlyRegions,
   mergeColorRegionSources,
+  withSelectedFilament,
   type ColorRegion,
 } from "./color-regions";
+import { printPresetSummary, type PrintPresetSummary } from "./printers";
 import { checkMesh, hasHardMeshFailure } from "./mesh-check";
 import { compileOpenScad, withTempDir } from "./compile";
 import { createJob, getJob, toGenerateResult, type StoredJob } from "./jobs";
@@ -115,10 +117,23 @@ function withMeshes(objects: ThreeMfObject[], meshes: Mesh[]): ThreeMfObject[] {
   return objects.map((object, index) => ({ ...object, mesh: meshes[index] ?? object.mesh }));
 }
 
+function presetFromRequest(filament?: string | null): PrintPresetSummary {
+  return printPresetSummary(filament);
+}
+
+function stampPresetFilament(objects: ThreeMfObject[], preset: PrintPresetSummary): ThreeMfObject[] {
+  const regions = withSelectedFilament(colorRegionsFromObjects(objects), preset.material);
+  return objects.map((object, index) => ({
+    ...object,
+    filament: regions[index]?.filament ?? object.filament ?? preset.material,
+  }));
+}
+
 async function artifactsFromObjects(
   objects: ThreeMfObject[],
   code: string,
   name = "DescribePrint",
+  printPreset: PrintPresetSummary = printPresetSummary("pla"),
 ): Promise<{
   stl: Buffer;
   threemf: Buffer;
@@ -126,7 +141,10 @@ async function artifactsFromObjects(
   code: string;
   colorRegions: ColorRegion[];
 }> {
-  const seated = withMeshes(objects, sitMeshesOnBed(objects.map((object) => object.mesh)));
+  const seated = stampPresetFilament(
+    withMeshes(objects, sitMeshesOnBed(objects.map((object) => object.mesh))),
+    printPreset,
+  );
   const combined = { triangles: seated.flatMap((object) => object.mesh.triangles) };
   const report = checkMesh(combined);
   if (hasHardMeshFailure(report)) {
@@ -137,7 +155,7 @@ async function artifactsFromObjects(
     throw new Error(`Mesh check failed: ${summary}`);
   }
   const stl = writeBinaryStl(combined, name);
-  const threemf = await meshesTo3mf(seated, name);
+  const threemf = await meshesTo3mf(seated, name, printPreset);
   return { stl, threemf, report, code, colorRegions: colorRegionsFromObjects(seated) };
 }
 
@@ -146,6 +164,7 @@ async function artifactsFromMesh(
   code: string,
   name = "DescribePrint",
   regions: ColorRegion[] = [defaultColorRegion()],
+  printPreset: PrintPresetSummary = printPresetSummary("pla"),
 ): Promise<{
   stl: Buffer;
   threemf: Buffer;
@@ -153,7 +172,12 @@ async function artifactsFromMesh(
   code: string;
   colorRegions: ColorRegion[];
 }> {
-  return artifactsFromObjects(objectsFromRegions([mesh], regions, name), code, name);
+  return artifactsFromObjects(
+    objectsFromRegions([mesh], withSelectedFilament(regions, printPreset.material), name, printPreset.material),
+    code,
+    name,
+    printPreset,
+  );
 }
 
 async function objectsFromJob(job: StoredJob): Promise<ThreeMfObject[]> {
@@ -285,7 +309,7 @@ function importedWrapHint(hole: ImportHoleSpec | null, mesh: Mesh, addTab: boole
 async function compileAndCheck(
   code: string,
   importedStl?: Buffer,
-  opts: { sitOnBed?: boolean; colorRegions?: ColorRegion[] } = {},
+  opts: { sitOnBed?: boolean; colorRegions?: ColorRegion[]; printPreset?: PrintPresetSummary } = {},
 ): Promise<{
   stl: Buffer;
   threemf: Buffer;
@@ -299,14 +323,21 @@ async function compileAndCheck(
     }
     const compiled = await compileOpenScad(code, dir);
     let mesh = parseStl(compiled.stl);
-    const regions = opts.colorRegions?.length ? opts.colorRegions : [defaultColorRegion()];
+    const printPreset = opts.printPreset ?? printPresetSummary("pla");
+    const regions = withSelectedFilament(
+      opts.colorRegions?.length ? opts.colorRegions : [defaultColorRegion()],
+      printPreset.material,
+    );
     const colorObjects = importedStl ? [] : await compileColorObjects(code, regions, dir);
     if (opts.sitOnBed) {
       mesh = sitMeshOnBed(mesh);
     }
-    const exportObjects = colorObjects.length
-      ? withMeshes(colorObjects, sitMeshesOnBed(colorObjects.map((object) => object.mesh)))
-      : objectsFromRegions([mesh], regions);
+    const exportObjects = stampPresetFilament(
+      colorObjects.length
+        ? withMeshes(colorObjects, sitMeshesOnBed(colorObjects.map((object) => object.mesh)))
+        : objectsFromRegions([mesh], regions, "DescribePrint", printPreset.material),
+      printPreset,
+    );
     const report = checkMesh(mesh);
     if (hasHardMeshFailure(report)) {
       const summary = report.issues
@@ -316,7 +347,7 @@ async function compileAndCheck(
       throw new Error(`Mesh check failed: ${summary}`);
     }
     const stl = opts.sitOnBed ? writeBinaryStl(mesh, "DescribePrint") : compiled.stl;
-    const threemf = await meshesTo3mf(exportObjects, "DescribePrint");
+    const threemf = await meshesTo3mf(exportObjects, "DescribePrint", printPreset);
     return {
       stl,
       threemf,
@@ -392,7 +423,7 @@ function resolvePreviousJob(request: GenerateRequest): StoredJob | undefined {
 }
 
 export async function runImageImportPipeline(
-  input: { buffer: Buffer; fileName?: string; options?: ImageImportOptions },
+  input: { buffer: Buffer; fileName?: string; options?: ImageImportOptions; filament?: string | null },
   sink?: StatusSink,
 ): Promise<GenerateResult> {
   emit(sink, { step: "image", message: "Reading the photo…" });
@@ -415,7 +446,8 @@ export async function runImageImportPipeline(
     keepWear: built.keepWear,
     designation: built.designation,
   });
-  const artifacts = await artifactsFromMesh(built.mesh, code, built.fileName);
+  const printPreset = presetFromRequest(input.filament);
+  const artifacts = await artifactsFromMesh(built.mesh, code, built.fileName, undefined, printPreset);
   const wearableCategory = inferWearableCategory(built.fileName);
   const notes = [...built.notes, wearableChartNote(), describeWearableSize(null, wearableCategory)];
   const job = createJob({
@@ -435,6 +467,7 @@ export async function runImageImportPipeline(
     colorRegions: artifacts.colorRegions,
     imageImport: built.meta,
     machineDesignation: built.designation,
+    printPreset,
   });
   emit(sink, {
     step: "done",
@@ -446,7 +479,7 @@ export async function runImageImportPipeline(
 }
 
 export async function runImportPipeline(
-  input: { buffer: Buffer; fileName?: string },
+  input: { buffer: Buffer; fileName?: string; filament?: string | null },
   sink?: StatusSink,
 ): Promise<GenerateResult> {
   emit(sink, { step: "import", message: "Reading STL/3MF…" });
@@ -461,7 +494,8 @@ export async function runImportPipeline(
     sizeMm: checkMesh(combined).boundingBoxMm.size,
     triangleCount: combined.triangles.length,
   });
-  const artifacts = await artifactsFromObjects(objects, code, imported.fileName);
+  const printPreset = presetFromRequest(input.filament);
+  const artifacts = await artifactsFromObjects(objects, code, imported.fileName, printPreset);
   const wearableCategory = inferWearableCategory(imported.fileName);
   const notes = [IMPORT_LIMITS_NOTE, wearableChartNote(), describeWearableSize(null, wearableCategory)];
   if (!isDefaultOnlyRegions(artifacts.colorRegions)) {
@@ -476,6 +510,7 @@ export async function runImportPipeline(
     retried: false,
     source: "imported-mesh",
     fileName: imported.fileName,
+    printPreset,
     wearableSize: null,
     wearableCategory,
     nativeSizeMm: artifacts.report.boundingBoxMm.size,
@@ -497,6 +532,7 @@ async function runImportedMeshEdit(
     throw new Error("Describe an edit, or pick a wearable size.");
   }
 
+  const printPreset = presetFromRequest(request.filament);
   const wearableCategory = resolveWearableCategory(request, previous);
   const intent = parseMeshEditIntent(prompt, request.wearableSize, wearableCategory);
   if (intent.kind === "new-design") {
@@ -534,7 +570,7 @@ async function runImportedMeshEdit(
       wearableSize,
       wearableCategory: transformed.wearableCategory,
     });
-    const artifacts = await artifactsFromObjects(objects, code, fileName);
+    const artifacts = await artifactsFromObjects(objects, code, fileName, printPreset);
     const job = createJob({
       stl: artifacts.stl,
       threemf: artifacts.threemf,
@@ -550,6 +586,7 @@ async function runImportedMeshEdit(
       editMode: "transform",
       notes,
       colorRegions: artifacts.colorRegions,
+      printPreset,
     });
     emit(sink, { step: "done", message: "Updated the imported mesh on the plate." });
     return toGenerateResult(job);
@@ -596,7 +633,7 @@ async function runImportedMeshEdit(
     emit(sink, { step: "compile", message: "Compiling OpenSCAD wrapper → STL…", attempt: attemptNo });
     emit(sink, { step: "mesh-check", message: "Checking mesh printability…", attempt: attemptNo });
     emit(sink, { step: "export", message: "Writing STL and 3MF…", attempt: attemptNo });
-    const compiled = await compileAndCheck(sanitized.code, importedStl, { sitOnBed: true });
+    const compiled = await compileAndCheck(sanitized.code, importedStl, { sitOnBed: true, printPreset });
     return { code: sanitized.code, ...compiled };
   };
 
@@ -669,6 +706,7 @@ async function runImportedMeshEdit(
     editMode: "describe-wrapper",
     notes,
     colorRegions: artifacts.colorRegions ?? [defaultColorRegion()],
+    printPreset,
   });
   emit(sink, { step: "done", message: "Updated the imported mesh on the plate." });
   return toGenerateResult(job);
@@ -690,6 +728,7 @@ async function runOpenscadGenerate(
   let plan: CadPlan | null = null;
   const wearableSize = request.wearableSize ?? null;
   const wearableCategory = resolveWearableCategory(request);
+  const printPreset = presetFromRequest(request.filament);
 
   emit(sink, { step: "planning", message: "Understanding your description…" });
 
@@ -719,7 +758,10 @@ async function runOpenscadGenerate(
     code = await codeFromLlm(request, undefined, plan);
   }
 
-  const colorRegions = mergeColorRegionSources(prompt, plan?.color_regions);
+  const colorRegions = withSelectedFilament(
+    mergeColorRegionSources(prompt, plan?.color_regions),
+    printPreset.material,
+  );
 
   const attempt = async (source: string, attemptNo: number) => {
     emit(sink, { step: "sanitize", message: "Validating generated code…", attempt: attemptNo });
@@ -731,7 +773,7 @@ async function runOpenscadGenerate(
     emit(sink, { step: "compile", message: "Compiling OpenSCAD → STL…", attempt: attemptNo });
     emit(sink, { step: "mesh-check", message: "Checking mesh printability…", attempt: attemptNo });
     emit(sink, { step: "export", message: "Writing STL and 3MF…", attempt: attemptNo });
-    const compiled = await compileAndCheck(sanitized.code, undefined, { colorRegions });
+    const compiled = await compileAndCheck(sanitized.code, undefined, { colorRegions, printPreset });
     if (wearableSize && wearableSize !== "M") {
       emit(sink, { step: "transform", message: `Applying wearable size ${wearableSize}…` });
       const parsed = await parse3mfDocument(compiled.threemf);
@@ -740,7 +782,7 @@ async function runOpenscadGenerate(
         wearableSize,
         wearableCategory,
       );
-      const rebuilt = await artifactsFromObjects(objects, sanitized.code);
+      const rebuilt = await artifactsFromObjects(objects, sanitized.code, "DescribePrint", printPreset);
       return { ...rebuilt, nativeSizeMm: compiled.report.boundingBoxMm.size, splitColorObjects: compiled.splitColorObjects };
     }
     return { code: sanitized.code, nativeSizeMm: compiled.report.boundingBoxMm.size, ...compiled };
@@ -813,6 +855,7 @@ async function runOpenscadGenerate(
     editMode: wearableSize && wearableSize !== "M" ? "transform" : "create",
     notes,
     colorRegions: exportedRegions,
+    printPreset,
   });
 
   emit(sink, { step: "done", message: "Ready to preview and download." });
@@ -898,7 +941,8 @@ export async function runGeneratePipeline(
             wearableCategory: transformed.wearableCategory,
           })
         : previous.scad;
-    const artifacts = await artifactsFromObjects(objects, code, previous.fileName ?? "DescribePrint");
+    const printPreset = presetFromRequest(request.filament);
+    const artifacts = await artifactsFromObjects(objects, code, previous.fileName ?? "DescribePrint", printPreset);
     const job = createJob({
       stl: artifacts.stl,
       threemf: artifacts.threemf,
@@ -914,6 +958,7 @@ export async function runGeneratePipeline(
       editMode: "transform",
       notes,
       colorRegions: artifacts.colorRegions,
+      printPreset,
     });
     emit(sink, { step: "done", message: "Applied wearable size." });
     return toGenerateResult(job);

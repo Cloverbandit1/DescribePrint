@@ -1,4 +1,5 @@
 import { getJob } from "@/lib/jobs";
+import { printPresetSidecarJson } from "@/lib/printers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,6 +12,7 @@ const FILES = {
     download: "describeprint.3mf",
   },
   "model.scad": { type: "text/plain; charset=utf-8", field: "scad" as const, download: "describeprint.scad" },
+  "model.print.json": { type: "application/json; charset=utf-8", field: "printPreset" as const, download: "describeprint.print.json" },
 };
 
 export async function GET(
@@ -28,7 +30,12 @@ export async function GET(
     return Response.json({ error: "Job expired or not found" }, { status: 404 });
   }
 
-  const body = spec.field === "scad" ? job.scad : new Uint8Array(job[spec.field]);
+  const body =
+    spec.field === "scad"
+      ? job.scad
+      : spec.field === "printPreset"
+        ? printPresetSidecarJson(job.printPreset)
+        : new Uint8Array(job[spec.field]);
   return new Response(body, {
     headers: {
       "Content-Type": spec.type,

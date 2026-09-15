@@ -65,15 +65,21 @@ export function parseMidPrintCommand(value: unknown): MidPrintCommand | null {
 
 export function parsePrintDoctorBody(
   value: unknown,
-): { complaint: string; slot?: number; reshapeRemaining?: boolean } | null {
+): { complaint: string; slot?: number; reshapeRemaining?: boolean; material?: string } | null {
   if (!value || typeof value !== "object") return null;
-  const row = value as { complaint?: unknown; slot?: unknown; autofix?: unknown; reshapeRemaining?: unknown };
+  const row = value as { complaint?: unknown; slot?: unknown; autofix?: unknown; reshapeRemaining?: unknown; material?: unknown };
   const complaint = typeof row.complaint === "string" ? row.complaint.trim() : "";
   if (!complaint && row.autofix !== true && row.autofix !== "ams-feed-loop") return null;
   const slotRaw = Number(row.slot);
   const slot = Number.isInteger(slotRaw) && slotRaw >= 1 && slotRaw <= 20 ? slotRaw : undefined;
   const reshapeRemaining = parseReshapeRemainingFromBody(row);
-  return { complaint, slot, ...(reshapeRemaining !== undefined ? { reshapeRemaining } : {}) };
+  const material = typeof row.material === "string" ? row.material.trim() : undefined;
+  return {
+    complaint,
+    slot,
+    ...(reshapeRemaining !== undefined ? { reshapeRemaining } : {}),
+    ...(material ? { material } : {}),
+  };
 }
 
 function readCredentialField(value: unknown): string {

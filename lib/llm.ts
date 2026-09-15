@@ -112,7 +112,7 @@ Schema:
 Rules:
 - Millimeters only. Real-world dimensions. One piece first unless the user clearly asks for an assembly / multi-part kit or a moving joint.
 - Joints: omit the joints array unless the user asks for a hinge, pin, ball, snap, or other motion. Prefer print-in-place (one print, separate solids with radial/axial gaps). Use multi-part only when they ask for separate / removable pieces. Hinge, pin, ball, and snap are real CSG (captive ball-in-socket; cantilever or annular snap). Not a full gimbal / living-hinge library.
-- If the user names colors or materials, fill color_regions (named body or painted feature, hex, optional pla/petg/abs/tpu). ams_slot is 1–4 export metadata, not a live printer. Omit color_regions when no color is mentioned.
+- If the user names colors or materials, fill color_regions (named body or painted feature, hex, optional pla/petg/pa/abs/tpu). ams_slot is 1–4 export metadata, not a live printer. Omit color_regions when no color is mentioned.
 - Every feature must attach to the main solid unless it is a planned joint member. Through-holes fully pierce (overshoot 0.2–1 mm).
 - min_wall_mm >= 1.6 unless the user insists thinner. clearance_mm ~ 0.3 for ordinary fits; for joints use the documented radial_mm. Sit the part on z=0.
 - Fit overall_mm on the target printer bed unless they asked for a larger object.

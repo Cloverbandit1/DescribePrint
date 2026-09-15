@@ -16,6 +16,12 @@ import {
   type ClearanceIntent,
 } from "./joints";
 import {
+  formatReliefPromptHint,
+  normalizeCadReliefs,
+  parseCadReliefs,
+  type CadRelief,
+} from "./relief";
+import {
   allowsThinWalls,
   bedMaxMm,
   extractScadParams,
@@ -67,6 +73,8 @@ export type CadPlan = {
     filament?: string;
     ams_slot?: number;
   }>;
+  /** Present only when the user asked for emboss / etch / crest / initials. */
+  reliefs?: CadRelief[];
 };
 
 export { LOCAL_AI_START_MESSAGE } from "./llm-config";
@@ -95,6 +103,7 @@ OpenSCAD best practices
 - Prefer cube(), cylinder(), sphere(), hull(), difference(), union(), intersection(), linear_extrude(), rotate_extrude().
 - Name parameters at the top (size, wall, hole_d, …) so follow-up edits are easy.
 - If the user names colors or materials (e.g. red body, black letters): emit one module per region named region_<name>(), wrap each call in color("#RRGGBB"), and union them for the preview solid. Prefer raised cubes/bars for letters — avoid text() (no fonts). color() is preview metadata; each region_* module must render alone.
+- Raised etchings / emboss only when asked: union a primitive motif onto the named face (emboss / raised) or difference it into that face (etch / engrave). Default region is the largest vertical face, ties to front (+Y). Default raised height 0.8 mm, recessed depth 0.6 mm. Etch must leave ≥ 1.6 mm remaining wall. Keep the host solid — do not rebuild a new part. No Style2Fab / fonts / text().
 - Never use import(), include, use <>, surface(), or any file/network access.
 - Do not add echo() debug spam. Do not generate animation or $t.
 - Valid syntax only: every statement ends with ';'. Balance braces and parentheses. Define modules before calling them.
@@ -107,12 +116,13 @@ Safety
 const PLAN_SYSTEM_PROMPT = `You are a CAD planner for FDM 3D printing. Reply with ONLY compact JSON (no markdown, no prose).
 
 Schema:
-{"object":string,"one_piece":true,"units":"mm","overall_mm":{"x":n,"y":n,"z":n},"features":[{"name":string,"kind":string,"dims_mm":{"…":n},"notes":string}],"holes":[{"d":n,"purpose":string,"through":true}],"min_wall_mm":n,"clearance_mm":n,"sit_on_z0":true,"safety_notes":string,"joints":[{"type":"hinge|pin|ball|snap","intent":"print-in-place|multi-part","radial_mm":n,"axial_mm":n,"notes":string}],"clearance_intent":"print-in-place","color_regions":[{"name":string,"color":string,"hex":"#RRGGBB","filament":"pla","ams_slot":1}]}
+{"object":string,"one_piece":true,"units":"mm","overall_mm":{"x":n,"y":n,"z":n},"features":[{"name":string,"kind":string,"dims_mm":{"…":n},"notes":string}],"holes":[{"d":n,"purpose":string,"through":true}],"min_wall_mm":n,"clearance_mm":n,"sit_on_z0":true,"safety_notes":string,"joints":[{"type":"hinge|pin|ball|snap","intent":"print-in-place|multi-part","radial_mm":n,"axial_mm":n,"notes":string}],"clearance_intent":"print-in-place","color_regions":[{"name":string,"color":string,"hex":"#RRGGBB","filament":"pla","ams_slot":1}],"reliefs":[{"kind":"emboss|etch","motif":"text|crest|disc|bar","text":"DP","region":"front|back|left|right|top|bottom","height_mm":0.8,"depth_mm":0.6}]}
 
 Rules:
 - Millimeters only. Real-world dimensions. One piece first unless the user clearly asks for an assembly / multi-part kit or a moving joint.
 - Joints: omit the joints array unless the user asks for a hinge, pin, ball, snap, or other motion. Prefer print-in-place (one print, separate solids with radial/axial gaps). Use multi-part only when they ask for separate / removable pieces. Hinge, pin, ball, and snap are real CSG (captive ball-in-socket; cantilever or annular snap). Not a full gimbal / living-hinge library.
 - If the user names colors or materials, fill color_regions (named body or painted feature, hex, optional pla/petg/pa/abs/tpu). ams_slot is 1–4 export metadata, not a live printer. Omit color_regions when no color is mentioned.
+- Reliefs: omit the reliefs array unless the user asks to emboss, etch, engrave, raise a crest/logo, or cut initials. kind is emboss (raised, union) or etch (recessed, difference). motif is text (block initials), crest, disc, or bar. region is a face hint (front/back/left/right/top/bottom). Default region: largest vertical face, ties to front. Default height_mm 0.8, depth_mm 0.6. Etch must leave 1.6 mm walls. Honest CSG stub — not Style2Fab.
 - Every feature must attach to the main solid unless it is a planned joint member. Through-holes fully pierce (overshoot 0.2–1 mm).
 - min_wall_mm >= 1.6 unless the user insists thinner. clearance_mm ~ 0.3 for ordinary fits; for joints use the documented radial_mm. Sit the part on z=0.
 - Fit overall_mm on the target printer bed unless they asked for a larger object.
@@ -258,7 +268,7 @@ Units and output
 
 Edits
 - Scale, rotate, and translate the imported mesh to apply size / orientation requests.
-- Add holes, slots, or tabs with cube()/cylinder() differenced (holes) or unioned (tabs that share a face) against the import.
+- Add holes, slots, tabs, or relief with cube()/cylinder() differenced (holes / etch) or unioned (tabs / emboss that share a face) against the import. Keep import() as the host. No Style2Fab / text().
 - Name parameters at the top (hole_d, scale_f, …).
 - Prefer the smallest change that matches the request. Do not replace the imported part with a new primitive-only model unless the user asked to start over.
 
@@ -379,6 +389,9 @@ export function buildUserPrompt(input: {
         `Joints: emit separate solids with radial_mm / axial_mm from the plan. Prefer print-in-place. Do not union moving members. Hinge, pin, ball, and snap must be real CSG (captive socket + ball, or cantilever/annular snap with a 1.6 mm beam).`,
       );
     }
+    if (input.plan.reliefs?.length) {
+      parts.push(formatReliefPromptHint(input.plan.reliefs));
+    }
   }
   if (input.previousCode) {
     if (wantsNewDesign(input.prompt)) {
@@ -418,7 +431,7 @@ export function buildPlanPrompt(input: {
       parts.push(`The user wants a new object. Plan from scratch.`);
     } else {
       parts.push(
-        `This is a follow-up edit. Update only the requested dimensions/features. Keep one_piece true unless they asked for an assembly or a moving joint. Keep joints only if they still want motion. Do not start over.`,
+        `This is a follow-up edit. Update only the requested dimensions/features. Keep one_piece true unless they asked for an assembly or a moving joint. Keep joints only if they still want motion. Keep reliefs only if they still want emboss/etch. Do not start over.`,
       );
     }
     if (input.previousPrompt) {
@@ -560,6 +573,10 @@ export function parseCadPlan(raw: string): CadPlan | null {
     joints: joints.length ? joints : undefined,
     clearance_intent,
     color_regions: colorRegions.length ? colorRegions : undefined,
+    reliefs: (() => {
+      const parsed = parseCadReliefs(rec.reliefs ?? rec.relief ?? rec.emboss ?? rec.etch);
+      return parsed.length ? parsed : undefined;
+    })(),
   };
 }
 
@@ -769,6 +786,11 @@ export function normalizeCadPlan(
         ams_slot: region.amsSlot,
       }));
 
+  const sizeMm: [number, number, number] | undefined = overall_mm
+    ? [overall_mm.x, overall_mm.y, overall_mm.z]
+    : undefined;
+  const reliefs = normalizeCadReliefs(plan.reliefs ?? [], input.prompt, sizeMm);
+
   let one_piece = true;
   if (intent === "print-in-place") {
     one_piece = true;
@@ -788,5 +810,6 @@ export function normalizeCadPlan(
     joints: joints.length ? joints : undefined,
     clearance_intent,
     color_regions,
+    reliefs: reliefs.length ? reliefs : undefined,
   };
 }

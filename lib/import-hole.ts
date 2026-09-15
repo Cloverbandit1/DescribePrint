@@ -1,5 +1,11 @@
 import { boundingBoxMm } from "./mesh-check";
 import { printRules } from "./printability";
+import {
+  inferCadReliefs,
+  promptHasRelief,
+  reliefMotifScad,
+  type CadRelief,
+} from "./relief";
 import { IMPORTED_MESH_FILENAME } from "./sanitize";
 import type { BoundingBoxMm, Mesh } from "./types";
 
@@ -36,12 +42,17 @@ const TAB_H = 3;
 const HOLE_WORD = /\b(holes?|bores?|through-holes?)\b/i;
 const BLIND = /\b(blind|pocket|stopped|partial(?:ly)?(?:\s+through)?)\b/i;
 const COMPLEX_WRAP =
-  /\b(slot|slit|fillet|chamfer|emboss|engrave|etch|carve|thicken|remesh|boolean)\b/i;
+  /\b(slot|slit|fillet|chamfer|thicken|remesh|boolean)\b/i;
 
-/** Hole/tab wraps we can emit as a deterministic difference — no LLM rewrite. */
-export function canBuildDeterministicImportWrap(prompt: string, hole: ImportHoleSpec | null, addTab: boolean): boolean {
+/** Hole/tab/relief wraps we can emit as deterministic CSG — no LLM rewrite. */
+export function canBuildDeterministicImportWrap(
+  prompt: string,
+  hole: ImportHoleSpec | null,
+  addTab: boolean,
+  reliefs?: CadRelief[] | null,
+): boolean {
   if (COMPLEX_WRAP.test(prompt)) return false;
-  return hole !== null || addTab;
+  return hole !== null || addTab || Boolean(reliefs?.length) || promptHasRelief(prompt);
 }
 
 function numberAt(source: string, re: RegExp): number | null {
@@ -277,12 +288,20 @@ export function buildImportedMeshWrapper(input: {
   mesh: Mesh;
   hole?: ImportHoleSpec | null;
   addTab?: boolean;
+  reliefs?: CadRelief[] | null;
+  prompt?: string;
 }): string {
   const box = boundingBoxMm(input.mesh);
   const [minx, miny, minz] = box.min;
   const [sx, sy] = box.size;
   const cy = miny + sy / 2;
   const hole = input.hole;
+  const reliefs =
+    input.reliefs?.length
+      ? input.reliefs
+      : input.prompt
+        ? inferCadReliefs(input.prompt, box.size)
+        : [];
   const lines = [
     "// DescribePrint imported-mesh wrapper (mm)",
     "$fn = 64;",
@@ -296,31 +315,40 @@ export function buildImportedMeshWrapper(input: {
     lines.push(`tab_d = ${TAB_D};`);
     lines.push(`tab_h = ${TAB_H};`);
   }
+  if (reliefs.length) {
+    const first = reliefs[0];
+    lines.push(`// relief: ${first?.kind} ${first?.motif} on ${first?.region}`);
+    lines.push(`relief_extent = ${fmt(first?.kind === "etch" ? first.depth_mm : first?.height_mm ?? 0.8)};`);
+  }
 
   const host = `import("${IMPORTED_MESH_FILENAME}", convexity = 10);`;
+  const etchReliefs = reliefs.filter((relief) => relief.kind === "etch");
+  const embossReliefs = reliefs.filter((relief) => relief.kind === "emboss");
+  const etchCutter = etchReliefs.map((relief) => reliefMotifScad(relief, box)).join("\n  ");
+  const embossBody = embossReliefs.map((relief) => reliefMotifScad(relief, box)).join("\n  ");
   const holeBlock =
     hole &&
     `difference() {
   ${host}
   ${holeCutter(hole, box)}
 }`;
+  const etchedHost = etchCutter
+    ? `difference() {
+  ${holeBlock ?? host}
+  ${etchCutter}
+}`
+    : holeBlock ?? host;
   const tabBlock = `translate([${fmt(minx + sx)}, ${fmt(cy - TAB_D / 2)}, ${fmt(minz)}])
     cube([tab_w, tab_d, tab_h]);`;
+  const extras = [input.addTab ? tabBlock : "", embossBody].filter(Boolean);
 
-  if (hole && input.addTab) {
+  if (extras.length) {
     lines.push(`union() {
-  ${holeBlock}
-  ${tabBlock}
+  ${etchedHost}
+  ${extras.join("\n  ")}
 }`);
-  } else if (input.addTab) {
-    lines.push(`union() {
-  ${host}
-  ${tabBlock}
-}`);
-  } else if (holeBlock) {
-    lines.push(holeBlock);
   } else {
-    lines.push(host);
+    lines.push(etchedHost);
   }
   return lines.join("\n");
 }
@@ -351,7 +379,7 @@ export function diagnoseImportedWrap(code: string): ImportedWrapDiagnosis {
 
 export function importedWrapErrors(
   code: string,
-  opts: { requireHoleDifference?: boolean } = {},
+  opts: { requireHoleDifference?: boolean; allowUnionedRelief?: boolean } = {},
 ): string[] {
   const d = diagnoseImportedWrap(code);
   const errors: string[] = [];
@@ -361,7 +389,7 @@ export function importedWrapErrors(
   if (d.invertedDifference) {
     errors.push("difference() is inverted: import(\"imported.stl\") must be the first child, cutter second");
   }
-  if (d.floatingCutter) {
+  if (d.floatingCutter && !opts.allowUnionedRelief) {
     errors.push("Hole cutters must be inside difference() — do not union a floating cylinder onto the import");
   }
   if (opts.requireHoleDifference && d.hasImport && !d.hasDifference) {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { matchConversationFixture, matchFixture, shouldUseFixture } from "@/lib/fixtures";
 import { BALL_FIXTURE_PROMPT, HINGE_FIXTURE_PROMPT, PIN_FIXTURE_PROMPT, SNAP_FIXTURE_PROMPT } from "@/lib/joints";
+import { CUBE_ETCH_PROMPT, HELMET_EMBOSS_PROMPT } from "@/lib/relief";
 import { sanitizeOpenScad } from "@/lib/sanitize";
 import { toMillimeters } from "@/lib/units";
 
@@ -39,6 +40,13 @@ describe("fixtures + units", () => {
     expect(snap?.code).toContain("module snap_hook()");
     expect(matchFixture("ball joint as two pieces")?.code).toContain("park_x");
     expect(matchFixture("20mm cube with 5mm hole")?.id).toBe("cube-with-hole");
+
+    const helmet = matchFixture(HELMET_EMBOSS_PROMPT);
+    expect(helmet?.id).toBe("helmet-emboss-crest");
+    expect(sanitizeOpenScad(helmet!.code).ok).toBe(true);
+    const etched = matchFixture(CUBE_ETCH_PROMPT);
+    expect(etched?.id).toBe("cube-etched-initials");
+    expect(sanitizeOpenScad(etched!.code).ok).toBe(true);
   });
 
   it("matches the three example prompts with sanitizable OpenSCAD", () => {

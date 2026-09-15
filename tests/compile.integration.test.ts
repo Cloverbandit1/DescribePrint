@@ -5,6 +5,7 @@ import path from "node:path";
 import { compileOpenScad, withTempDir } from "@/lib/compile";
 import { defaultFixture, matchFixture } from "@/lib/fixtures";
 import { BALL_FIXTURE_PROMPT, HINGE_FIXTURE_PROMPT, PIN_FIXTURE_PROMPT, SNAP_FIXTURE_PROMPT } from "@/lib/joints";
+import { CUBE_ETCH_PROMPT, HELMET_EMBOSS_PROMPT } from "@/lib/relief";
 import { buildImportedMeshWrapper, parseImportHoleSpec } from "@/lib/import-hole";
 import { boundingBoxMm, checkMesh, countSolidComponents, hasHardMeshFailure } from "@/lib/mesh-check";
 import { resolveOpenscad } from "@/lib/openscad";
@@ -160,6 +161,26 @@ describe("OpenSCAD compile path", () => {
       expect(hasHardMeshFailure(report)).toBe(false);
       expect(report.volumeMm3).toBeGreaterThan(0);
       expect(countSolidComponents(parseStl(compiled.stl))).toBeGreaterThan(1);
+    });
+  });
+
+  it.skipIf(!hasOpenscad())("compiles the helmet emboss and cube etch fixtures", async () => {
+    const helmet = matchFixture(HELMET_EMBOSS_PROMPT);
+    const cube = matchFixture(CUBE_ETCH_PROMPT);
+    expect(helmet && cube).toBeTruthy();
+    const helmetOk = sanitizeOpenScad(helmet!.code);
+    const cubeOk = sanitizeOpenScad(cube!.code);
+    expect(helmetOk.ok && cubeOk.ok).toBe(true);
+    if (!helmetOk.ok || !cubeOk.ok) return;
+
+    await withTempDir(async (dir) => {
+      const helmetMesh = parseStl((await compileOpenScad(helmetOk.code, dir)).stl);
+      const cubeMesh = parseStl((await compileOpenScad(cubeOk.code, dir)).stl);
+      expect(hasHardMeshFailure(checkMesh(helmetMesh))).toBe(false);
+      expect(hasHardMeshFailure(checkMesh(cubeMesh))).toBe(false);
+      expect(checkMesh(helmetMesh).volumeMm3).toBeGreaterThan(0);
+      expect(checkMesh(cubeMesh).volumeMm3).toBeGreaterThan(0);
+      expect(checkMesh(cubeMesh).volumeMm3).toBeLessThan(8000);
     });
   });
 });

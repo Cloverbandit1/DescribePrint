@@ -217,6 +217,32 @@ describe("generate pipeline (local AI + fixtures)", () => {
       expect(ballUser).toMatch(/"type":"ball"/);
       expect(ballUser).toMatch(/real CSG/i);
       expect(ballUser).not.toMatch(/stubs with those gaps/);
+
+      mockedChat.mockClear();
+      const reliefPlan = JSON.stringify({
+        object: "helmet",
+        one_piece: true,
+        units: "mm",
+        features: [{ name: "shell" }],
+        holes: [],
+        min_wall_mm: 1.6,
+        clearance_mm: 0.3,
+        reliefs: [{ kind: "emboss", motif: "crest", region: "back", height_mm: 0.8 }],
+        sit_on_z0: true,
+      });
+      mockedChat.mockResolvedValueOnce(reliefPlan).mockResolvedValueOnce(GOOD_SCAD);
+      const reliefResult = await runGeneratePipeline({ prompt: "helmet with embossed crest on the back" });
+      const [reliefMessages] = mockedChat.mock.calls[1] as unknown as [{ role: string; content: string }[]];
+      const reliefUser = reliefMessages[1]?.content ?? "";
+      expect(reliefUser).toMatch(/"kind":"emboss"/);
+      expect(reliefUser).toMatch(/union; etch = difference/i);
+      expect(reliefResult.notes.join(" ")).toMatch(/emboss/i);
+
+      mockedChat.mockClear();
+      mockedChat.mockResolvedValueOnce(reliefPlan).mockResolvedValueOnce(GOOD_SCAD);
+      await runGeneratePipeline({ prompt: "a sturdy tray" });
+      const [trayReliefMessages] = mockedChat.mock.calls[1] as unknown as [{ role: string; content: string }[]];
+      expect(trayReliefMessages[1]?.content ?? "").not.toMatch(/"kind":"emboss"/);
     });
   });
 
@@ -346,6 +372,27 @@ describe("generate pipeline (local AI + fixtures)", () => {
     const compiledCode = mockedCompile.mock.calls[0]?.[0] as string;
     expect(compiledCode).toMatch(/import\("imported\.stl"/);
     expect(compiledCode.indexOf("import")).toBeLessThan(compiledCode.indexOf("cylinder"));
+  });
+
+  it("wraps an imported mesh with etched initials without calling the model", async () => {
+    mockedCompile.mockResolvedValue(compileOk());
+    const imported = await runImportPipeline({
+      buffer: writeBinaryStl(makeAxisAlignedBoxMesh([20, 20, 20])),
+      fileName: "cube.stl",
+    });
+    const result = await runGeneratePipeline({
+      prompt: "etch initials on the front",
+      previousJobId: imported.jobId,
+      previousSource: "imported-mesh",
+      previousPrompt: "Imported cube.stl",
+      fixture: true,
+    });
+    expect(result.editMode).toBe("describe-wrapper");
+    expect(result.code).toMatch(/import\("imported\.stl"/);
+    expect(result.code).toMatch(/difference\(\)/);
+    expect(result.code).toMatch(/relief: etch/);
+    expect(result.notes.join(" ")).toMatch(/etch|relief/i);
+    expect(mockedChat).not.toHaveBeenCalled();
   });
 
   it("uses the engineering wrap for a simple live hole without calling the model", async () => {

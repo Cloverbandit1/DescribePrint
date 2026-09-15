@@ -227,8 +227,10 @@ Secrets stay in the browser (Machine panel) or `.env.local`. Do not commit `.env
 - `print-in-place pin joint`
 - `print-in-place ball joint`
 - `snap-fit clip`
+- `helmet with embossed crest on the back`
+- `20mm cube with etched initials on the front`
 
-The first three match built-in single-body fixtures (used when `USE_FIXTURE` is on, or in tests). The plaque prompt is a two-color fixture: OpenSCAD `region_*` modules compile separately so the downloaded 3MF has two objects (red body, black letters) with AMS slot metadata. The hinge, pin, ball, and snap prompts are print-in-place fixtures with documented P2S / 0.4 mm-nozzle clearances (separate solids, not a fused blob). With local AI running, the same UI asks the dedicated Ollama model for OpenSCAD (optional two-pass plan → code when `SMART_PIPELINE=1`), sanitizes it, compiles, and retries up to twice with structured compiler or printability feedback if OpenSCAD fails or the mesh is disconnected, off the plate, non-manifold, or thinner than 2× the 0.4 mm nozzle. Print-in-place joints are allowed to be disconnected solids — that warning does not trigger a fuse-together retry.
+The first three match built-in single-body fixtures (used when `USE_FIXTURE` is on, or in tests). The plaque prompt is a two-color fixture: OpenSCAD `region_*` modules compile separately so the downloaded 3MF has two objects (red body, black letters) with AMS slot metadata. The hinge, pin, ball, and snap prompts are print-in-place fixtures with documented P2S / 0.4 mm-nozzle clearances (separate solids, not a fused blob). The helmet / cube relief prompts are the **raised etchings / emboss stub**: primitive crest or block initials applied to a named face. With local AI running, the same UI asks the dedicated Ollama model for OpenSCAD (optional two-pass plan → code when `SMART_PIPELINE=1`), sanitizes it, compiles, and retries up to twice with structured compiler or printability feedback if OpenSCAD fails or the mesh is disconnected, off the plate, non-manifold, or thinner than 2× the 0.4 mm nozzle. Print-in-place joints are allowed to be disconnected solids — that warning does not trigger a fuse-together retry.
 
 ## What V0 does
 
@@ -239,7 +241,21 @@ The first three match built-in single-body fixtures (used when `USE_FIXTURE` is 
 5. Preview in Three.js (`react-three-fiber`).
 6. Download **STL** and **3MF** (plus the `.scad` source and **Print settings** JSON). The selected Machine-panel material (PLA / PETG / PA / ABS / TPU) is written as advisory auto-best metadata on the 3MF and as `describeprint.print.json`. If the description names colors or materials, the 3MF also carries **separate objects** with `basematerials` display colors and extruder / AMS 1–4 metadata so a slicer can assign filaments. No colors mentioned → one default object. This is CAD export, not live AMS control. OpenSCAD itself is one mesh; split bodies need `region_*` modules or `color()` groups (the two-color fixture does this). Importing a colored 3MF preserves those objects.
 
-Printability report: bounding box (mm), volume, triangle count, manifold flag, and issues (empty mesh, zero volume, huge triangle count, oversized vs the P2S 256 mm bed, undersized / thin walls vs the 0.4 mm nozzle, off-bed, disconnected solids). Soft printability issues are fed back into CAD retries. Plans are normalized to one-piece, 1.6 mm walls, and through-holes unless the user clearly asks otherwise. Joints (`hinge` / `pin` / `ball` / `snap` plus `print-in-place` or `multi-part` clearance) are added only when the prompt asks for motion; otherwise the planner stays one fused solid.
+Printability report: bounding box (mm), volume, triangle count, manifold flag, and issues (empty mesh, zero volume, huge triangle count, oversized vs the P2S 256 mm bed, undersized / thin walls vs the 0.4 mm nozzle, off-bed, disconnected solids). Soft printability issues are fed back into CAD retries. Plans are normalized to one-piece, 1.6 mm walls, and through-holes unless the user clearly asks otherwise. Joints (`hinge` / `pin` / `ball` / `snap` plus `print-in-place` or `multi-part` clearance) are added only when the prompt asks for motion; otherwise the planner stays one fused solid. Reliefs (`emboss` / `etch`, motif, region, height/depth mm) are added only when the prompt asks for raised or recessed detail.
+
+### Raised etchings / emboss (honest CSG stub)
+
+Region-aware relief from a description (later: images). Not Style2Fab / neural stylization.
+
+| | Default | Notes |
+| --- | --- | --- |
+| Kind | emboss if crest/raised; etch if initials/engrave | Emboss unions; etch differences |
+| Region | **largest vertical face**; ties → **front (+Y)** | `back` −Y, `left` −X, `right` +X, `top` +Z, `bottom` −Z |
+| Emboss height | **0.8 mm** | Clamp 0.4–2.0 mm (visible, not a blade) |
+| Etch depth | **0.6 mm** | Clamp 0.4–1.2 mm; leave ≥ **1.6 mm** remaining wall (#11) when host thickness is known (helmet/shell assumes 2.4 mm) |
+| Motif | block initials / crest / disc / bar | No `text()` / fonts |
+
+Fixtures: `helmet with embossed crest on the back`, `20mm cube with etched initials on the front`. Import wraps can union/difference the same motifs onto `imported.stl` when the prompt is relief-only (or relief + hole). Remaining limits: no image-driven motifs, no organic sculpt, no font rendering.
 
 ### Joint clearances (Bambu Lab P2S, 0.4 mm nozzle)
 
@@ -297,7 +313,7 @@ Run as a Node process (`next dev` / `next start`). V0 is not aimed at serverless
 npm test
 ```
 
-Covers local LLM config defaults, OpenSCAD path resolution, launch health (Ollama + MODEL + OpenSCAD), Start preflight exit codes (0 = pass, 2 = warn/soft fail and continue), code sanitization, mesh-check / STL / 3MF (including multi-object color / AMS-slot encoding), import, photo → solid (upload validation, luminance-depth backside, fragment identify, repair-by-default, oversize → machine designation), wearable measurement charts + size application, imported-mesh describe-edit (hole difference / placement / wrap repair), joint clearance helpers + plan parsing + hinge/pin/ball/snap fixtures, the P2S profile, Print doctor, and machine adapters (mock + flagged LAN MQTT, no physical printer). If OpenSCAD is installed, an integration test compiles the default fixture, an imported-mesh hole wrap, the two-color plaque regions, and the print-in-place hinge / pin / ball / snap fixtures (skipped if the binary is missing).
+Covers local LLM config defaults, OpenSCAD path resolution, launch health (Ollama + MODEL + OpenSCAD), Start preflight exit codes (0 = pass, 2 = warn/soft fail and continue), code sanitization, mesh-check / STL / 3MF (including multi-object color / AMS-slot encoding), import, photo → solid (upload validation, luminance-depth backside, fragment identify, repair-by-default, oversize → machine designation), wearable measurement charts + size application, imported-mesh describe-edit (hole difference / placement / wrap repair / emboss-etch wrap), joint clearance helpers + plan parsing + hinge/pin/ball/snap fixtures, raised etchings / emboss plan fields + fixtures, the P2S profile, Print doctor, and machine adapters (mock + flagged LAN MQTT, no physical printer). If OpenSCAD is installed, an integration test compiles the default fixture, an imported-mesh hole wrap, the two-color plaque regions, the print-in-place hinge / pin / ball / snap fixtures, and the helmet-emboss / cube-etch fixtures (skipped if the binary is missing).
 
 `GET /api/health` returns the same Local AI / OpenSCAD / P2S status the header chip shows. `npm run health:preflight` is the same check Start runs before `npm run dev`.
 
@@ -312,7 +328,7 @@ Owner-approved. **Do not treat this list as V0 scope.** The current Bambu-inspir
 ### After V0 (existing)
 
 1. **Wearable / cosplay sizing** — **Charts shipped:** S/M/L/XL plus documented category charts (helmet/mask, torso armor, gauntlet, bracer); auto-scale the model; show the assumed size and key mm measurements. Later: saved body measurements and custom-fit grading.
-2. **Raised etchings / emboss** — from a description (and later images) that print as visible relief.
+2. **Raised etchings / emboss** — **Stub shipped:** plan fields + print-aware depth + region defaults (largest vertical / front) + helmet-crest / cube-initials fixtures + import-wrap CSG. Later: image-driven motifs. Not Style2Fab.
 3. **Articulated / functional assemblies** — **Joint family shipped:** plan fields + P2S clearances + hinge/pin/ball/snap print-in-place fixtures (captive ball; cantilever snap). Later: richer joint library, multi-part export packs, and material-aware thickness/strength so moving parts (e.g. robot arms) don’t break.
 4. **Print doctor** — user describes print defects (e.g. stringing with nylon PA); the system diagnoses likely causes for the **selected printer/material** (default **Bambu Lab P2S**) and proposes or auto-applies setting fixes; then a feedback loop (still bad vs perfect). In-app only — not a separate slicer or DCC.
 5. **Image import as starting point** — **Backside + fragment identify shipped:** user uploads a **single photo** (PNG/JPG/WebP); silhouette + luminance-depth tapered/rounded backside becomes a **full 3D printable solid** (not a front-only relief). If the photo looks like a broken fragment / missing chunk, the pipeline identifies fragment vs intended whole and repair-by-default restores the missing volume unless the user asked to keep wear. Keep damage / wear override, STL/3MF export, and oversize vs P2S designates a stub alternate machine. Later: photogrammetry / NeRF-quality unseen geometry (still in-app, no Blender).

@@ -257,9 +257,10 @@ export type Mesh = {
  *   honest CSG stub (primitive / block initials). Pretty-up is heuristic CSG
  *   (fillet/chamfer/ribs/panels) that keeps functional holes/joints/walls —
  *   not neural Style2Fab. Full triangle sculpt is not implemented.
- * - Multi-filament 3MF: describe colors/materials → separate 3MF objects with
- *   displaycolor + extruder/AMS slot metadata. OpenSCAD compiles one mesh;
- *   color bodies are split via named region_* modules / color() groups.
+ * - Multi-filament 3MF: describe or paint named color regions → separate 3MF
+ *   objects with displaycolor + extruder/AMS slot metadata. Chat follow-ups
+ *   ("paint the letters black") recolor existing objects without remeshing.
+ *   OpenSCAD compiles one mesh; split bodies need region_* / color() groups.
  *   Import preserves 3MF colors when present. Not live AMS / machine control.
  * - Heuristic strength preview heatmap (thickness / concave / overhang /
  *   tiny-section). Not FEA.

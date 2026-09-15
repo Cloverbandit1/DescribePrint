@@ -36,8 +36,37 @@ export const NAMED_COLORS: Record<string, string> = {
 const COLOR_NAMES = Object.keys(NAMED_COLORS).sort((a, b) => b.length - a.length);
 const COLOR_ALT = COLOR_NAMES.join("|");
 const FILAMENT_ALT = "petg|nylon|pla|abs|tpu|pa";
-const FEATURE_ALT =
-  "letters?|text|logo|inlay|accent|label|numbers?|icon|body|base|cube|plaque|plate|stand|knob|cap|stem|handle|lid|inset|face|rim|ring|button|bar";
+/** Named bodies users paint from chat (letters, base, plaque, …). */
+export const COLOR_REGION_FEATURES = [
+  "letters",
+  "letter",
+  "text",
+  "logo",
+  "inlay",
+  "accent",
+  "label",
+  "numbers",
+  "number",
+  "icon",
+  "body",
+  "base",
+  "cube",
+  "plaque",
+  "plate",
+  "stand",
+  "knob",
+  "cap",
+  "stem",
+  "handle",
+  "lid",
+  "inset",
+  "face",
+  "rim",
+  "ring",
+  "button",
+  "bar",
+] as const;
+const FEATURE_ALT = "letters?|text|logo|inlay|accent|label|numbers?|icon|body|base|cube|plaque|plate|stand|knob|cap|stem|handle|lid|inset|face|rim|ring|button|bar";
 
 export type ColorRegion = {
   id: string;

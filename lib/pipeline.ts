@@ -8,6 +8,15 @@ import {
   withSelectedFilament,
   type ColorRegion,
 } from "./color-regions";
+import {
+  applyRegionPaint,
+  isRegionPaintOnly,
+  mergePaintIntoRegions,
+  paintThreeMfObjects,
+  parseRegionPaintIntents,
+  regionPaintNote,
+  UNSPLIT_COLOR_NOTE,
+} from "./region-paint";
 import { printPresetSummary, type PrintPresetSummary } from "./printers";
 import { checkMesh, hasHardMeshFailure } from "./mesh-check";
 import { compileOpenScad, withTempDir } from "./compile";
@@ -588,6 +597,10 @@ async function runImportedMeshEdit(
     return runCompleteBodyEdit(request, previous, prompt, printPreset, wearableCategory, intent, sink);
   }
 
+  if (isRegionPaintOnly(prompt)) {
+    return runRegionPaintEdit(request, previous, sink);
+  }
+
   emit(sink, { step: "import", message: "Loading the imported mesh…" });
   const previousObjects = await objectsFromJob(previous);
   const transformed = applyIntentToMeshes(
@@ -918,8 +931,13 @@ async function runOpenscadGenerate(
     code = await codeFromLlm(request, undefined, plan);
   }
 
+  const previousJob = resolvePreviousJob(request);
   const colorRegions = withSelectedFilament(
-    mergeColorRegionSources(prompt, plan?.color_regions),
+    mergePaintIntoRegions(
+      prompt,
+      previousJob?.colorRegions,
+      mergeColorRegionSources(prompt, plan?.color_regions),
+    ),
     printPreset.material,
   );
 
@@ -1010,9 +1028,7 @@ async function runOpenscadGenerate(
   if (!isDefaultOnlyRegions(exportedRegions)) {
     notes.push(colorRegionsNote(exportedRegions));
     if (!artifacts.splitColorObjects && colorRegions.length > 1) {
-      notes.push(
-        "OpenSCAD compiled as one mesh, so this 3MF has a single colored object. Named region_* modules or color() groups are needed to split filament bodies.",
-      );
+      notes.push(UNSPLIT_COLOR_NOTE);
     }
   }
   const job = createJob({
@@ -1051,12 +1067,14 @@ function attachDesignOptions(
   request: GenerateRequest,
   plan?: CadPlan | null,
 ): GenerateResult {
+  const previous = resolvePreviousJob(request);
   const resolved = resolveDesignOptions({
     prompt: request.prompt,
     previousPrompt: request.previousPrompt,
     choices: request.choices,
     wearableSize: request.wearableSize,
     filament: request.filament,
+    colorRegions: result.colorRegions ?? previous?.colorRegions,
     plan,
   });
   const notes = [...(result.notes ?? [])];
@@ -1120,6 +1138,9 @@ async function runGeneratePipelineCore(
   }
 
   const previous = resolvePreviousJob(request);
+  if (previous && prompt && isRegionPaintOnly(prompt)) {
+    return runRegionPaintEdit(request, previous, sink);
+  }
   if (shouldTreatAsImportedEdit({ ...request, prompt: prompt || `Apply wearable size ${request.wearableSize}` }, previous)) {
     if (!previous) {
       throw new Error("Imported part expired. Import the STL/3MF again.");
@@ -1190,6 +1211,56 @@ async function runGeneratePipelineCore(
   }
 
   return runOpenscadGenerate({ ...request, prompt: prompt || "printable part" }, sink);
+}
+
+async function runRegionPaintEdit(
+  request: GenerateRequest,
+  previous: StoredJob,
+  sink?: StatusSink,
+): Promise<GenerateResult> {
+  const prompt = request.prompt?.trim() ?? "";
+  const printPreset = presetFromRequest(request.filament);
+  emit(sink, { step: "transform", message: "Painting named color regions…" });
+  const previousObjects = await objectsFromJob(previous);
+  const before =
+    previous.colorRegions?.length ? previous.colorRegions : colorRegionsFromObjects(previousObjects);
+  const intents = parseRegionPaintIntents(prompt);
+  const nextRegions = applyRegionPaint(before, intents);
+  const objects = paintThreeMfObjects(previousObjects, nextRegions);
+  const notes = [
+    regionPaintNote({ before, after: nextRegions, objectCount: objects.length }),
+    colorRegionsNote(nextRegions),
+  ];
+  if (objects.length < 2 && nextRegions.length > 1) {
+    notes.push(UNSPLIT_COLOR_NOTE);
+  }
+  const artifacts = await artifactsFromObjects(
+    objects,
+    previous.scad,
+    previous.fileName ?? "DescribePrint",
+    printPreset,
+  );
+  const job = createJob({
+    stl: artifacts.stl,
+    threemf: artifacts.threemf,
+    scad: artifacts.code,
+    report: artifacts.report,
+    usedFixture: true,
+    retried: false,
+    source: previous.source,
+    fileName: previous.fileName,
+    wearableSize: previous.wearableSize,
+    wearableCategory: previous.wearableCategory,
+    nativeSizeMm: previous.nativeSizeMm,
+    editMode: previous.editMode === "image-import" ? "image-import" : "transform",
+    notes,
+    colorRegions: artifacts.colorRegions,
+    printPreset,
+    imageImport: previous.imageImport ?? null,
+    machineDesignation: previous.machineDesignation ?? null,
+  });
+  emit(sink, { step: "done", message: "Recolored named regions. 3MF objects updated — not live AMS." });
+  return toGenerateResult(job);
 }
 
 export type { PlateEditMode };

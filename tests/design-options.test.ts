@@ -125,6 +125,20 @@ describe("fork stubs (do not ask on every prompt)", () => {
     expect(resolveDesignOptions({ prompt: "make it multi-color" }).options.map((g) => g.id)).toEqual(["color_regions"]);
     expect(resolveDesignOptions({ prompt: "red 40mm plaque with black letters" }).needs_user_choice).toBe(false);
   });
+
+  it("asks region paint chips when a named body is missing a color", () => {
+    const resolved = resolveDesignOptions({
+      prompt: "paint the letters",
+      colorRegions: [
+        { id: "body", name: "body", colorName: "red", colorHex: "#FF0000", filament: "pla", amsSlot: 1 },
+        { id: "letters", name: "letters", colorName: "black", colorHex: "#1A1A1A", filament: "pla", amsSlot: 2 },
+      ],
+    });
+    expect(resolved.options.map((group) => group.id)).toEqual(["region_paint"]);
+    expect(applyDesignChoiceToPrompt("paint the letters", { id: "region_paint", value: "letters:white" })).toMatch(
+      /paint the letters white/i,
+    );
+  });
 });
 
 describe("applying a choice", () => {

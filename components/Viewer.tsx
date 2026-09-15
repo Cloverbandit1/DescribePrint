@@ -53,7 +53,17 @@ function meshFromPositions(positions: ArrayLike<number>, index?: ArrayLike<numbe
   return { triangles };
 }
 
-function LoadedModel({ url, heatmap, triangleScores }: { url: string; heatmap: boolean; triangleScores?: number[] }) {
+function LoadedModel({
+  url,
+  heatmap,
+  triangleScores,
+  tintHex,
+}: {
+  url: string;
+  heatmap: boolean;
+  triangleScores?: number[];
+  tintHex?: string | null;
+}) {
   const loaded = useLoader(STLLoader, url);
   const geometry = useMemo(() => {
     const geo = loaded.index ? loaded.toNonIndexed() : loaded.clone();
@@ -92,7 +102,7 @@ function LoadedModel({ url, heatmap, triangleScores }: { url: string; heatmap: b
         {heatmap ? (
           <meshStandardMaterial vertexColors metalness={0.12} roughness={0.46} />
         ) : (
-          <meshStandardMaterial color="#c9c9c9" metalness={0.18} roughness={0.42} />
+          <meshStandardMaterial color={tintHex || "#c9c9c9"} metalness={0.18} roughness={0.42} />
         )}
       </mesh>
     </Center>
@@ -283,6 +293,31 @@ function StrengthLegend({ theme }: { theme: ViewerTheme }) {
   );
 }
 
+function RegionColorOverlay({
+  regions,
+}: {
+  regions: Array<{ id: string; name: string; colorName: string; colorHex: string; amsSlot?: number }>;
+}) {
+  if (regions.length === 0) return null;
+  return (
+    <div className="pointer-events-none absolute left-3 top-3 z-10 max-w-[220px] rounded-md border border-line bg-panel/90 px-2 py-1.5 shadow-sm backdrop-blur">
+      <div className="text-[10px] font-medium text-ink">Color regions</div>
+      <div className="mt-1 flex flex-wrap gap-1">
+        {regions.map((region) => (
+          <span
+            key={`${region.id}-${region.colorHex}`}
+            className="inline-flex items-center gap-1 rounded-full border border-line bg-panel-2 px-1.5 py-0.5 text-[10px] text-ink"
+          >
+            <span className="inline-block h-2 w-2 rounded-full border border-line" style={{ background: region.colorHex }} />
+            {region.name}
+          </span>
+        ))}
+      </div>
+      <p className="mt-1 text-[9px] leading-snug text-muted">Preview chips — not live AMS. Slicer assigns filaments.</p>
+    </div>
+  );
+}
+
 export function Viewer({
   stlUrl,
   view = "iso",
@@ -293,6 +328,8 @@ export function Viewer({
   packOutlines = [],
   heatmap = false,
   triangleScores,
+  previewTint = null,
+  colorRegions = [],
 }: {
   stlUrl: string | null;
   view?: CameraView;
@@ -303,6 +340,8 @@ export function Viewer({
   packOutlines?: PackOutline[];
   heatmap?: boolean;
   triangleScores?: number[];
+  previewTint?: string | null;
+  colorRegions?: Array<{ id: string; name: string; colorName: string; colorHex: string; amsSlot?: number }>;
 }) {
   const background = theme === "dark" ? "#242424" : "#d2d2d2";
 
@@ -332,10 +371,11 @@ export function Viewer({
           <BuildPlate sizeMm={plateMm} heightMm={heightMm} theme={theme} />
           {stlUrl ? (
             <LoadedModel
-              key={`${stlUrl}-${heatmap ? "heat" : "plain"}`}
+              key={`${stlUrl}-${heatmap ? "heat" : previewTint || "plain"}`}
               url={stlUrl}
               heatmap={heatmap}
               triangleScores={triangleScores}
+              tintHex={heatmap ? null : previewTint}
             />
           ) : null}
           <PackOutlines plateMm={plateMm} outlines={packOutlines} theme={theme} />
@@ -353,6 +393,7 @@ export function Viewer({
         ) : null}
       </Canvas>
       {stlUrl && heatmap ? <StrengthLegend theme={theme} /> : null}
+      {stlUrl && colorRegions.length ? <RegionColorOverlay regions={colorRegions} /> : null}
       {!stlUrl ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-12 flex justify-center px-4">
           <p className="rounded-md bg-bg/70 px-3 py-1.5 text-xs text-muted backdrop-blur-sm">

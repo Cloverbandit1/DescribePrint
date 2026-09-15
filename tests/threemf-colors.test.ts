@@ -185,3 +185,73 @@ describe("plan color_regions merge", () => {
     expect(regions.map((r) => r.amsSlot)).toEqual([1, 2]);
   });
 });
+
+describe("paint follow-up keeps 3MF objects", () => {
+  it("recolors letters on the plaque fixture without dropping the second object", async () => {
+    mockedCompile.mockImplementation(async (code: string) => {
+      if (code.includes("!region_letters")) {
+        return compileStl(makeAxisAlignedBoxMesh([4, 8, 1.6], [8, 6, 6]));
+      }
+      if (code.includes("!region_body")) {
+        return compileStl(makeAxisAlignedBoxMesh([40, 20, 6]));
+      }
+      return compileStl(makeAxisAlignedBoxMesh([40, 20, 7.6]));
+    });
+
+    const generated = await runGeneratePipeline({
+      prompt: "red 40mm plaque with black letters",
+      fixture: true,
+    });
+    expect(generated.colorRegions).toHaveLength(2);
+
+    const painted = await runGeneratePipeline({
+      prompt: "paint the letters white",
+      fixture: true,
+      previousJobId: generated.jobId,
+      previousPrompt: "red 40mm plaque with black letters",
+      previousCode: generated.code,
+    });
+    expect(painted.colorRegions).toHaveLength(2);
+    expect(painted.colorRegions.find((region) => region.id === "letters")).toMatchObject({
+      colorName: "white",
+      colorHex: "#FFFFFF",
+    });
+    expect(painted.notes.join(" ")).toMatch(/recolored/i);
+    expect(painted.notes.join(" ")).toMatch(/2 color objects/i);
+
+    const job = getJob(painted.jobId);
+    const exported = await parse3mfDocument(job!.threemf);
+    expect(exported.objects).toHaveLength(2);
+    expect(exported.objects.map((object) => object.colorHex)).toEqual(
+      expect.arrayContaining(["#FF0000", "#FFFFFF"]),
+    );
+    expect(exported.objects.every((object) => (object.extruder ?? 0) >= 1)).toBe(true);
+    const zip = await JSZip.loadAsync(job!.threemf);
+    const model = await zip.file("3D/3dmodel.model")?.async("string");
+    expect(model).toContain('displaycolor="#FFFFFF');
+    expect(model).toContain("<item objectid=");
+    expect(model).toMatch(/slic3rpe:extruder/);
+  });
+
+  it("notes the unsplit limit when painting a one-object cube", async () => {
+    mockedCompile.mockResolvedValue(compileStl(makeAxisAlignedBoxMesh([20, 20, 20])));
+    const cube = await runGeneratePipeline({
+      prompt: "20mm cube with 5mm hole",
+      fixture: true,
+    });
+    const painted = await runGeneratePipeline({
+      prompt: "paint the letters black",
+      fixture: true,
+      previousJobId: cube.jobId,
+      previousPrompt: cube.code ? "20mm cube with 5mm hole" : "20mm cube with 5mm hole",
+      previousCode: cube.code,
+    });
+    expect(painted.colorRegions).toHaveLength(1);
+    expect(painted.colorRegions[0]).toMatchObject({ colorName: "black" });
+    expect(painted.notes.join(" ")).toMatch(/single colou?red(?: 3mf)? object/i);
+    const job = getJob(painted.jobId);
+    const exported = await parse3mfDocument(job!.threemf);
+    expect(exported.objects).toHaveLength(1);
+    expect(exported.objects[0]?.colorHex).toBe("#1A1A1A");
+  });
+});

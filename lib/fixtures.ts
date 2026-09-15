@@ -231,7 +231,7 @@ export function defaultFixture(): FixtureMatch {
 const NEW_DESIGN =
   /\b(new part|start over|something else|different part|instead make|forget that|scratch)\b/i;
 const EDIT_CUE =
-  /\b(make|change|update|add|remove|delete|bigger|smaller|wider|taller|shorter|without|more|less|hole|tilt|diameter|emboss|etch|engrave|recess|raised|initials|crest|pretty|restyle|steampunk|fillet|chamfer|rib|panel|round)\b/i;
+  /\b(make|change|update|add|remove|delete|bigger|smaller|wider|taller|shorter|without|more|less|hole|tilt|diameter|emboss|etch|engrave|recess|raised|initials|crest|pretty|restyle|steampunk|fillet|chamfer|rib|panel|round|paint|recolor|re-colou?r|tint|dye|colou?r)\b/i;
 
 function prettyUpFixtureId(style: PrettyUpStyle): string {
   if (style === "chamfer") return "cube-pretty-chamfer";

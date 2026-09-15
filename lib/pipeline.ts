@@ -50,6 +50,11 @@ import {
 import { formatPrettyUpNote, inferCadPrettyUp } from "./pretty-up";
 import { formatReliefNote, inferCadReliefs } from "./relief";
 import { cadKnowledgeFromPrompt, formatKnowledgeNote } from "./knowledge";
+import {
+  applyChoicesToGenerateFields,
+  formatDesignOptionsNote,
+  resolveDesignOptions,
+} from "./design-options";
 import { parseMeshEditIntent, type MeshEditIntent } from "./mesh-edit";
 import {
   rotateMeshesZ,
@@ -1041,7 +1046,57 @@ function shouldTreatAsImportedEdit(request: GenerateRequest, previous?: StoredJo
   return true;
 }
 
+function attachDesignOptions(
+  result: GenerateResult,
+  request: GenerateRequest,
+  plan?: CadPlan | null,
+): GenerateResult {
+  const resolved = resolveDesignOptions({
+    prompt: request.prompt,
+    previousPrompt: request.previousPrompt,
+    choices: request.choices,
+    wearableSize: request.wearableSize,
+    filament: request.filament,
+    plan,
+  });
+  const notes = [...(result.notes ?? [])];
+  const optionNote = formatDesignOptionsNote(resolved);
+  if (optionNote && !notes.includes(optionNote)) notes.push(optionNote);
+  return {
+    ...result,
+    notes,
+    needs_user_choice: resolved.needs_user_choice,
+    options: resolved.options,
+    appliedChoices: resolved.applied,
+  };
+}
+
+function withAppliedChoices(request: GenerateRequest): GenerateRequest {
+  const applied = applyChoicesToGenerateFields({
+    prompt: request.prompt,
+    choices: request.choices,
+    wearableSize: request.wearableSize,
+    filament: request.filament,
+  });
+  return {
+    ...request,
+    prompt: applied.prompt,
+    choices: applied.choices,
+    wearableSize: applied.wearableSize,
+    filament: applied.filament,
+  };
+}
+
 export async function runGeneratePipeline(
+  request: GenerateRequest,
+  sink?: StatusSink,
+): Promise<GenerateResult> {
+  const resolvedRequest = withAppliedChoices(request);
+  const result = await runGeneratePipelineCore(resolvedRequest, sink);
+  return attachDesignOptions(result, resolvedRequest);
+}
+
+async function runGeneratePipelineCore(
   request: GenerateRequest,
   sink?: StatusSink,
 ): Promise<GenerateResult> {

@@ -293,7 +293,22 @@ Versioned in-repo references for SMART_PIPELINE. When the prompt names a **known
 | Unknown | omit `knowledge` | Plan from the description alone |
 | Update | edit `lib/knowledge/pack.json` | `npm run knowledge:validate` |
 
-Honest limits: **not a live web crawl**, not official licensed measurements, not a RAG product. How to add an entry: [docs/knowledge-pack.md](docs/knowledge-pack.md).
+Honest limits: **not a live web crawl**, not official licensed measurements, not a RAG product. How to add an entry: [docs/knowledge-pack.md](docs/knowledge-pack.md). Character hits that omit display vs 1:1 surface **interactive scale chips** in the Prepare chat instead of growing `pack.json`.
+
+### Interactive mid-design options
+
+When the planner hits a **known fork** — not every prompt — the Prepare/chat column shows a few selectable chips. Picking one continues describe/edit and threads the choice into the next generate.
+
+| Fork | When it appears | Choices |
+| --- | --- | --- |
+| Scale | Named knowledge-pack character without display vs 1:1 | Fit P2S / 1:1 wearable |
+| Wearable size | Wearable / 1:1 without S–XL | S / M / L / XL |
+| Material | User asks which material / filament | PLA / PETG / PA / ABS / TPU |
+| Clearance | Motion/joint without PIP vs separate pieces | Print-in-place / multi-part |
+| Emboss face | Emboss/etch without a named face | Front / back / left / right / top / bottom |
+| Color regions | “multi-color” / “color it” without named colors | Red+black / white+black / one color |
+
+`20mm cube with 5mm hole` does **not** show chips. Advanced size/units stay under **More options**. Model: `lib/design-options.ts` (`id`, `label`, `value`, optional `description`). Generate/plan set `needs_user_choice` + `options` only when a fork is still open.
 
 ### Joint clearances (Bambu Lab P2S, 0.4 mm nozzle)
 
@@ -366,7 +381,7 @@ Run as a Node process (`next dev` / `next start`). V0 is not aimed at serverless
 npm test
 ```
 
-Covers local LLM config defaults, OpenSCAD path resolution, launch health (Ollama + MODEL + OpenSCAD), Start preflight exit codes (0 = pass, 2 = warn/soft fail and continue), code sanitization, mesh-check / STL / 3MF (including multi-object color / AMS-slot encoding), import, photo → solid (upload validation, luminance-depth backside, fragment identify, match-and-complete head/helmet/bust, repair-by-default, oversize → machine designation), wearable measurement charts + size application, imported-mesh describe-edit (hole difference / placement / wrap repair / emboss-etch wrap / pretty-up wrap / complete-the-body), joint clearance helpers + plan parsing + hinge/pin/ball/snap fixtures, raised etchings / emboss plan fields + fixtures, pretty-up / restyle plan fields + functional-preserve / refuse + cube fixtures, the curated knowledge pack (known character dims, unknown-name fallback, tech keyword notes), the P2S profile, Print doctor, and machine adapters (mock + flagged LAN MQTT, no physical printer). If OpenSCAD is installed, an integration test compiles the default fixture, an imported-mesh hole wrap, the two-color plaque regions, the print-in-place hinge / pin / ball / snap fixtures, the helmet-emboss / cube-etch fixtures, and the pretty-up fillet / steampunk fixtures (skipped if the binary is missing).
+Covers local LLM config defaults, OpenSCAD path resolution, launch health (Ollama + MODEL + OpenSCAD), Start preflight exit codes (0 = pass, 2 = warn/soft fail and continue), code sanitization, mesh-check / STL / 3MF (including multi-object color / AMS-slot encoding), import, photo → solid (upload validation, luminance-depth backside, fragment identify, match-and-complete head/helmet/bust, repair-by-default, oversize → machine designation), wearable measurement charts + size application, imported-mesh describe-edit (hole difference / placement / wrap repair / emboss-etch wrap / pretty-up wrap / complete-the-body), joint clearance helpers + plan parsing + hinge/pin/ball/snap fixtures, raised etchings / emboss plan fields + fixtures, pretty-up / restyle plan fields + functional-preserve / refuse + cube fixtures, the curated knowledge pack (known character dims, unknown-name fallback, tech keyword notes), mid-design option chips (character scale fork, cube does not ask), the P2S profile, Print doctor, and machine adapters (mock + flagged LAN MQTT, no physical printer). If OpenSCAD is installed, an integration test compiles the default fixture, an imported-mesh hole wrap, the two-color plaque regions, the print-in-place hinge / pin / ball / snap fixtures, the helmet-emboss / cube-etch fixtures, and the pretty-up fillet / steampunk fixtures (skipped if the binary is missing).
 
 `npm run knowledge:validate` checks `lib/knowledge/pack.json` against the in-repo schema. See [docs/knowledge-pack.md](docs/knowledge-pack.md) to add a character or tech entry.
 

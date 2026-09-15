@@ -1,8 +1,10 @@
+import type { AppliedDesignChoice, DesignOptionGroup } from "./design-options";
 import type { MachineDesignation } from "./alternate-machines";
 import type { ColorRegion } from "./color-regions";
 import type { CadReshapeHandoff, StumpCutPlaneBoundsMm } from "./machine/reshape-plan";
 import type { FilamentId, PrintPresetSummary } from "./printers";
 
+export type { AppliedDesignChoice, DesignOption, DesignOptionGroup, DesignOptionGroupId } from "./design-options";
 export type { ColorRegion, FilamentId, MachineDesignation, PrintPresetSummary };
 export type { CadReshapeHandoff, StumpCutPlaneBoundsMm };
 
@@ -113,6 +115,8 @@ export type GenerateRequest = {
   cadHandoff?: CadReshapeHandoff | null;
   /** Selected P2S material — stamps auto-best presets onto export metadata. */
   filament?: FilamentId | string | null;
+  /** Mid-design chips the user already picked (threaded into the next generate). */
+  choices?: AppliedDesignChoice[] | null;
 };
 
 export type PipelineStep =
@@ -192,6 +196,11 @@ export type GenerateResult = {
   /** Advisory P2S auto-best snapshot written into 3MF + sidecar JSON. */
   printPreset: PrintPresetSummary;
   printPresetUrl: string;
+  /** True only when a known fork is still open — not set on ordinary prompts. */
+  needs_user_choice?: boolean;
+  /** Selectable chips for the open fork(s). Empty when generate can just proceed. */
+  options?: DesignOptionGroup[];
+  appliedChoices?: AppliedDesignChoice[];
 };
 
 export type Triangle = {

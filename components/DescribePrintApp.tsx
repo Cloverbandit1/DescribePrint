@@ -2,6 +2,14 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  applyDesignChoiceToPrompt,
+  resolveDesignOptions,
+  upsertAppliedChoice,
+  type AppliedDesignChoice,
+  type DesignOption,
+  type DesignOptionGroup,
+} from "@/lib/design-options";
 import { EXAMPLE_PROMPTS } from "@/lib/fixtures";
 import type { HealthReport, HealthTone } from "@/lib/health-types";
 import { MACHINE_RESHAPE_STORAGE_KEY, parseReshapeRemainingPref } from "@/lib/machine/reshape";
@@ -19,6 +27,7 @@ import {
   defaultPrinter,
   filamentPickerLabel,
   filamentPreset,
+  isFilamentId,
   listFilamentPresets,
   MATERIAL_SESSION_KEY,
   normalizeFilamentId,
@@ -37,6 +46,7 @@ import {
   WEARABLE_SIZE_LABELS,
   describeWearableSize,
   getWearableCategory,
+  isWearableSizeId,
   wearableChartNote,
   wearableSizeRatio,
 } from "@/lib/wearable-sizes";
@@ -137,6 +147,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
   const [designPrompt, setDesignPrompt] = useState<string | null>(null);
   const [wearableSize, setWearableSize] = useState<WearableSizeId | null>(null);
   const [wearableCategory, setWearableCategory] = useState<WearableCategoryId>(DEFAULT_WEARABLE_CATEGORY);
+  const [appliedChoices, setAppliedChoices] = useState<AppliedDesignChoice[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [keepWear, setKeepWear] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -193,6 +204,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
     setDesignPrompt(null);
     setWearableSize(null);
     setWearableCategory(DEFAULT_WEARABLE_CATEGORY);
+    setAppliedChoices([]);
     setPrompt("");
     setShowDetails(false);
     setWorkspace("prepare");
@@ -200,7 +212,12 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
 
   async function printPart(
     text: string,
-    options?: { wearableSize?: WearableSizeId | null; wearableCategory?: WearableCategoryId | null },
+    options?: {
+      wearableSize?: WearableSizeId | null;
+      wearableCategory?: WearableCategoryId | null;
+      choices?: AppliedDesignChoice[] | null;
+      filament?: FilamentId | null;
+    },
   ) {
     const cleaned = text.trim();
     if (!cleaned || busy) return;
@@ -248,6 +265,8 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
     }
 
     const startFresh = /\b(new part|start over|something else|different part|forget that|scratch)\b/i.test(cleaned);
+    const choicesForRequest = startFresh ? [] : (options?.choices ?? appliedChoices);
+    if (startFresh) setAppliedChoices([]);
     const previousPrompt = startFresh ? null : designPrompt;
     const previousCode = startFresh ? null : result?.code;
     const previousJobId = startFresh ? null : result?.jobId;
@@ -278,7 +297,8 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
           previousSource,
           wearableSize: sizeForRequest,
           wearableCategory: categoryForRequest,
-          filament: material,
+          filament: options?.filament ?? material,
+          choices: choicesForRequest,
           fixture: process.env.NODE_ENV === "test" ? true : undefined,
           cadHandoff:
             !startFresh && doctorResult?.reshape?.attempted ? doctorResult.reshape.cadHandoff : undefined,
@@ -323,6 +343,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       setResult(generated);
       setWearableSize(generated.wearableSize ?? wearableSize);
       setWearableCategory(generated.wearableCategory ?? wearableCategory);
+      setAppliedChoices(generated.appliedChoices ?? choicesForRequest);
       setDesignPrompt(startFresh || !previousPrompt ? cleaned : `${previousPrompt}. ${cleaned}`);
       setShowDetails(false);
       setItems((prev) => [
@@ -408,6 +429,34 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
     }
   }
 
+  function pickDesignOption(group: DesignOptionGroup, option: DesignOption) {
+    if (busy) return;
+    const choice: AppliedDesignChoice = { id: group.id, value: option.value };
+    const next = upsertAppliedChoice(appliedChoices, choice);
+    setAppliedChoices(next);
+    if (group.id === "material" && isFilamentId(option.value)) setMaterial(option.value);
+    if (group.id === "wearable_size" && isWearableSizeId(option.value)) setWearableSize(option.value);
+    const source = prompt.trim() || designPrompt || "";
+    const text = applyDesignChoiceToPrompt(source, choice);
+    void printPart(text, {
+      choices: next,
+      wearableSize: group.id === "wearable_size" && isWearableSizeId(option.value) ? option.value : wearableSize,
+      filament: group.id === "material" && isFilamentId(option.value) ? option.value : material,
+    });
+  }
+
+  const pendingOptionGroups = useMemo(() => {
+    const live = resolveDesignOptions({
+      prompt: prompt.trim() || designPrompt,
+      previousPrompt: prompt.trim() ? designPrompt : null,
+      choices: appliedChoices,
+      wearableSize,
+      filament: material,
+    });
+    if (live.options.length) return live.options;
+    return result?.needs_user_choice ? (result.options ?? []) : [];
+  }, [prompt, designPrompt, appliedChoices, wearableSize, material, result]);
+
   const canPrint = Boolean(prompt.trim()) && !busy;
   const plateW = printer.buildVolumeMm[0];
   const plateD = printer.buildVolumeMm[1];
@@ -452,12 +501,15 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
           setDesignPrompt(null);
           setWearableSize(null);
           setWearableCategory(DEFAULT_WEARABLE_CATEGORY);
+          setAppliedChoices([]);
           setResult(null);
           return;
         }
         setPrompt(value);
       }}
       onImport={() => fileInput.current?.click()}
+      optionGroups={pendingOptionGroups}
+      onPickOption={pickDesignOption}
     />
   );
 
@@ -551,7 +603,14 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
                 }}
               />
             ) : (
-              items.map((item) => <ChatBubble key={item.id} item={item} />)
+              items.map((item) => (
+                <ChatBubble
+                  key={item.id}
+                  item={item}
+                  onPickOption={pickDesignOption}
+                  disabled={busy}
+                />
+              ))
             )}
           </div>
 
@@ -685,6 +744,8 @@ function ChatComposer({
   followUps,
   onFollowUp,
   onImport,
+  optionGroups,
+  onPickOption,
 }: {
   prompt: string;
   onPromptChange: (value: string) => void;
@@ -704,6 +765,8 @@ function ChatComposer({
   followUps: readonly string[] | null;
   onFollowUp: (value: string) => void;
   onImport: () => void;
+  optionGroups: DesignOptionGroup[];
+  onPickOption: (group: DesignOptionGroup, option: DesignOption) => void;
 }) {
   return (
     <form
@@ -713,6 +776,11 @@ function ChatComposer({
         onSubmit();
       }}
     >
+      {optionGroups.length ? (
+        <div className="mb-2">
+          <DesignOptionChips groups={optionGroups} onPick={onPickOption} disabled={busy} />
+        </div>
+      ) : null}
       {followUps ? (
         <div className="mb-2 flex flex-wrap gap-1.5">
           {followUps.map((chip) => (
@@ -831,7 +899,15 @@ function WorkspaceTabButton({
   );
 }
 
-function ChatBubble({ item }: { item: ChatItem }) {
+function ChatBubble({
+  item,
+  onPickOption,
+  disabled,
+}: {
+  item: ChatItem;
+  onPickOption?: (group: DesignOptionGroup, option: DesignOption) => void;
+  disabled?: boolean;
+}) {
   if (item.kind === "user") {
     return (
       <div className="ml-8 rounded-md bg-panel-2 px-2.5 py-2 text-sm leading-relaxed">{item.text}</div>
@@ -903,6 +979,46 @@ function ChatBubble({ item }: { item: ChatItem }) {
       {item.result.machineDesignation?.exceedsCurrentPrinter ? (
         <div className="mt-1.5 text-[13px] text-warn">{item.result.machineDesignation.message}</div>
       ) : null}
+      {item.result.needs_user_choice && item.result.options?.length && onPickOption ? (
+        <div className="mt-2">
+          <DesignOptionChips groups={item.result.options} onPick={onPickOption} disabled={disabled} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function DesignOptionChips({
+  groups,
+  onPick,
+  disabled,
+}: {
+  groups: DesignOptionGroup[];
+  onPick: (group: DesignOptionGroup, option: DesignOption) => void;
+  disabled?: boolean;
+}) {
+  if (!groups.length) return null;
+  return (
+    <div className="space-y-2">
+      {groups.map((group) => (
+        <div key={group.id}>
+          <div className="studio-label mb-1 text-muted">{group.prompt}</div>
+          <div className="flex flex-wrap gap-1.5">
+            {group.options.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                disabled={disabled}
+                title={option.description}
+                onClick={() => onPick(group, option)}
+                className="min-h-8 rounded-full border border-accent/45 bg-accent/10 px-3 py-1 text-[12px] font-medium text-ink hover:border-accent hover:bg-accent/20 disabled:opacity-40"
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -1423,10 +1539,10 @@ function EmptyState({ onPick }: { onPick: (value: string) => void }) {
   return (
     <div className="space-y-3">
       <p className="text-sm leading-relaxed text-muted">
-        Describe a part in plain language, or <span className="text-ink">import an STL/3MF or a photo</span>. Open{" "}
-        <span className="text-ink">More options</span> only if you need a size. Then <span className="text-ink">Print</span>{" "}
-        — the plate is a Bambu Lab P2S (256 × 256 × 256 mm) by default. A print defect (stringing, AMS loop) goes to
-        Print doctor instead of CAD.
+        Describe a part in plain language, or <span className="text-ink">import an STL/3MF or a photo</span>. If a
+        known fork is unclear, the chat offers a few chips — pick one, then <span className="text-ink">Print</span>.
+        Open <span className="text-ink">More options</span> only if you need a size. The plate is a Bambu Lab P2S
+        (256 × 256 × 256 mm) by default. A print defect (stringing, AMS loop) goes to Print doctor instead of CAD.
       </p>
       <div className="studio-label">Try saying</div>
       <div className="space-y-1.5">

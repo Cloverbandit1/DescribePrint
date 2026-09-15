@@ -163,6 +163,8 @@ describe("SMART_PIPELINE plan wiring", () => {
     expect(plan.knowledge?.characters[0]?.id).toBe("stormtrooper-helmet");
     expect(plan.knowledge?.live_web_crawl).toBe(false);
     expect(plan.knowledge?.notes.join(" ")).toMatch(/165×195×200/i);
+    expect(plan.needs_user_choice).toBe(true);
+    expect(plan.options?.some((group) => group.id === "scale_mode")).toBe(true);
   });
 
   it("normalizeCadPlan leaves unknown characters without knowledge", () => {

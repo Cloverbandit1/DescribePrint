@@ -38,7 +38,7 @@ import {
   wearableChartNote,
   wearableSizeRatio,
 } from "@/lib/wearable-sizes";
-import type { GenerateResult, PipelineStep, StatusEvent, Unit, WearableCategoryId, WearableSizeId } from "@/lib/types";
+import type { GenerateResult, ImageImportMeta, PipelineStep, StatusEvent, Unit, WearableCategoryId, WearableSizeId } from "@/lib/types";
 import type { CameraView, ViewerTheme } from "./Viewer";
 
 const Viewer = dynamic(() => import("./Viewer").then((m) => m.Viewer), {
@@ -56,6 +56,16 @@ type ChatItem =
   | { id: string; kind: "error"; text: string };
 
 type WorkspaceTab = "prepare" | "preview";
+
+function photoPlateHeadline(meta?: ImageImportMeta | null): string {
+  const fragment = meta?.fragment;
+  if (fragment?.looksLikeFragment) {
+    return fragment.restoredMissingVolume
+      ? "Photo solid on the plate — fragment identified, missing volume restored"
+      : "Photo solid on the plate — fragment identified, wear kept";
+  }
+  return "Photo solid on the plate — backside inferred (luminance depth)";
+}
 
 /** Everyday status only — pipeline jargon stays out of the main view. */
 const FRIENDLY_STEP: Record<PipelineStep, string> = {
@@ -863,7 +873,7 @@ function ChatBubble({ item }: { item: ChatItem }) {
     <div className="mr-4 rounded-md border border-ok/35 bg-ok/5 px-2.5 py-2 text-sm">
       <div className="font-medium">
         {photo
-          ? "Photo solid on the plate — backside inferred (stub)"
+          ? photoPlateHeadline(item.result.imageImport)
           : imported
             ? "Imported mesh on the plate — describe an edit"
             : "On the plate — keep talking to change it"}

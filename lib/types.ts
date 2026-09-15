@@ -8,16 +8,32 @@ export type { CadReshapeHandoff, StumpCutPlaneBoundsMm };
 
 export type ImageRasterFormat = "png" | "jpeg" | "webp";
 
+export type ImageBacksideMethod = "luminance-depth-backside";
+
+export type ImageFragmentKind = "none" | "crack" | "missing-chunk" | "disconnected-pieces";
+
+export type ImageFragmentIdentify = {
+  looksLikeFragment: boolean;
+  kind: ImageFragmentKind;
+  restoredMissingVolume: boolean;
+  fragmentCells: number;
+  intendedWholeCells: number;
+  largestMissingFrac: number;
+  solidity: number;
+  note: string;
+};
+
 export type ImageImportMeta = {
   kind: "image-solid";
   format: ImageRasterFormat;
   repairApplied: boolean;
   keepWear: boolean;
   inferredBackside: true;
-  method: "silhouette-extrude";
+  method: ImageBacksideMethod;
   photogrammetry: false;
   neuralReconstruction: false;
   pixelsInferred: boolean;
+  fragment: ImageFragmentIdentify;
 };
 
 export type Unit = "mm" | "in";
@@ -147,8 +163,9 @@ export type Mesh = {
  *
  * Shipped M2 foundations (in-app, no DCC):
  * - STL/3MF import onto the plate
- * - Photo → printable solid stub (silhouette + thickness + inferred backside;
- *   repair-by-default; oversize designates a stub alternate machine)
+ * - Photo → printable solid (silhouette + luminance-depth backside + fragment
+ *   identify / restore-missing-volume; repair-by-default; oversize designates
+ *   a stub alternate machine). Not photogrammetry / NeRF.
  * - Wearable S/M/L/XL measurement charts that scale the current mesh
  * - Describe-to-edit on imported meshes: real triangle scale/rotate/sit-on-bed;
  *   generative adds (holes, tabs) wrap import("imported.stl") in OpenSCAD.

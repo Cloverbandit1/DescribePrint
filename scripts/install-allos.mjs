@@ -4,7 +4,8 @@
  *
  * - Smith: keep the repo (often OneDrive Desktop\\AllosWorstation\\DescribePrint)
  * - Laptop: prefer %USERPROFILE%\\AllosWorstation\\DescribePrint (outside OneDrive)
- * - Writes Desktop\\AllosWorstation\\Start DescribePrint.bat → Start-DescribePrint.cmd
+ * - Writes a shared Desktop\\AllosWorstation\\Start DescribePrint.bat (OneDrive-safe)
+ *   plus %LOCALAPPDATA%\\AllosWorstation\\repo-path.txt for this machine
  * - Ensures .env.local (qwen only), optional portable OpenSCAD, npm install, health
  */
 import { existsSync } from "node:fs";
@@ -19,6 +20,7 @@ import {
   copySourceTree,
   findSystemOpenscad,
   installOpenscadPortable,
+  localRepoHintPath,
   resolveLayoutPaths,
   writeDesktopBat,
 } from "./lib/windows-pack.mjs";
@@ -62,6 +64,12 @@ const sourceRoot = path.resolve(argValue("source", path.join(here, "..")));
 const layout = argValue("layout", "current");
 const desktop = path.resolve(argValue("desktop", defaultDesktop()));
 const userProfile = path.resolve(argValue("user-profile", process.env.USERPROFILE || os.homedir()));
+const localAppData = path.resolve(
+  argValue(
+    "local-app-data",
+    process.env.LOCALAPPDATA || path.join(userProfile, "AppData", "Local"),
+  ),
+);
 const repoPath = argValue("repo-path", "");
 const model = argValue("model", "qwen2.5-coder:32b");
 assertSafeModel(model);
@@ -134,9 +142,11 @@ if (!skipNpm) {
 }
 
 if (!skipDesktop) {
-  const bat = await writeDesktopBat(desktop, paths.targetRoot);
-  console.log(`Desktop launcher → ${bat}`);
-  console.log("  (calls Start-DescribePrint.cmd in the repo)");
+  const bat = await writeDesktopBat(desktop, paths.targetRoot, { localAppData });
+  const hint = localRepoHintPath(localAppData);
+  console.log(`Desktop launcher -> ${bat}`);
+  console.log("  (OneDrive-safe detector; same bat on Smith + laptop)");
+  console.log(`  machine hint -> ${hint} -> ${paths.targetRoot}`);
 }
 
 if (!skipHealth) {

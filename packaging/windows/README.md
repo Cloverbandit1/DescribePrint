@@ -23,10 +23,10 @@ A **setup pack** (sources + scripts). `node_modules` and the OpenSCAD binary are
 
 ## Machine layouts (do not break)
 
-| Layout | Repo path | OpenSCAD | Desktop |
+| Layout | Repo path | OpenSCAD | How Start finds it |
 | --- | --- | --- | --- |
-| **Smith** | Often OneDrive Desktop `AllosWorstation\DescribePrint` | Portable `vendor\openscad` is fine | `Desktop\AllosWorstation\Start DescribePrint.bat` → that repo |
-| **Laptop** | Prefer `C:\Users\clove\AllosWorstation\DescribePrint` **outside OneDrive** | Program Files OpenSCAD is OK | Same Desktop bat, pointed at the laptop path |
+| **Smith** | Often OneDrive Desktop `AllosWorstation\DescribePrint` | Portable `vendor\openscad` is fine | `%~dp0DescribePrint` (sibling of the Desktop bat) |
+| **Laptop** | Prefer `C:\Users\clove\AllosWorstation\DescribePrint` **outside OneDrive** | Program Files OpenSCAD is OK | Absolute `cd /d %USERPROFILE%\AllosWorstation\DescribePrint` |
 
 Defaults:
 
@@ -34,6 +34,28 @@ Defaults:
 - Laptop: `%USERPROFILE%\AllosWorstation\DescribePrint` (for `clove` that is `C:\Users\clove\AllosWorstation\DescribePrint`).
 
 Override with `-RepoPath` / `--repo-path`.
+
+## OneDrive Desktop Start bat (Smith + laptop)
+
+`Desktop\AllosWorstation\Start DescribePrint.bat` lives under OneDrive and **syncs between Smith and laptop**. One bat cannot assume a single machine path.
+
+**Do not** write a Smith-only `%~dp0DescribePrint` bat or a laptop-only absolute path and expect it to work on both synced Desktops. Running `Install -Layout Smith` on a synced Desktop used to overwrite the laptop bat (and vice versa).
+
+Install always writes the **same** detector bat (safe to overwrite via OneDrive) plus a **machine-local** hint that OneDrive does not sync:
+
+1. `%LOCALAPPDATA%\AllosWorstation\repo-path.txt` — written by `Install -Layout …` for **this** PC (Laptop → `%USERPROFILE%\AllosWorstation\DescribePrint`, Smith → the Smith checkout).
+2. Hostname hint: `%COMPUTERNAME%` vs `ALLOS_LAPTOP_HOST` / `ALLOS_SMITH_HOST`, or `ALLOS_LAYOUT=Laptop|Smith`.
+3. Laptop path exists: `cd /d %USERPROFILE%\AllosWorstation\DescribePrint` then `call` that tree’s `Start-DescribePrint.cmd`.
+4. Smith path exists: `call %~dp0DescribePrint\Start-DescribePrint.cmd`.
+
+Optional hostname pin (when both copies exist on one PC):
+
+```bat
+setx ALLOS_LAPTOP_HOST "YOUR-LAPTOP-HOSTNAME"
+setx ALLOS_SMITH_HOST "YOUR-SMITH-HOSTNAME"
+```
+
+PowerShell wrappers in `scripts/windows/*.ps1` are **UTF-8 with BOM** and ASCII-only so Windows PowerShell 5.1 can parse them. Do not put Windows paths inside double-quoted strings (a UTF-8 em dash or `\"` will throw `The string is missing the terminator: "`).
 
 ## Build the pack
 
@@ -86,7 +108,7 @@ Setup will:
 2. Write/merge `.env.local` (local Ollama defaults; **never** `MODEL=smith-minicpm5`).
 3. Fetch OpenSCAD into `vendor\openscad` unless Program Files OpenSCAD is present (`-Layout Laptop` prefers the system install).
 4. Run `npm install` when `node_modules` is missing.
-5. Write `Desktop\AllosWorstation\Start DescribePrint.bat` that `call`s `Start-DescribePrint.cmd`.
+5. Write the shared `Desktop\AllosWorstation\Start DescribePrint.bat` detector and `%LOCALAPPDATA%\AllosWorstation\repo-path.txt` for this layout.
 6. Run `npm run health:preflight` (soft — Ollama can be started later).
 
 ### From this git clone
@@ -102,7 +124,7 @@ npm run setup:windows
 One click:
 
 - `Start-DescribePrint.cmd` in the repo / unpacked folder
-- or Desktop `\AllosWorstation\Start DescribePrint.bat` (calls that cmd)
+- or Desktop `\AllosWorstation\Start DescribePrint.bat` (OneDrive-safe detector; calls that cmd)
 - or `npm run start:windows`
 
 The Start script copies `.env.local` if needed, `npm install`s on first launch, and runs `npm run dev` on [http://localhost:3000](http://localhost:3000).

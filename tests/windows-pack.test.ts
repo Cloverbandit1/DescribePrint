@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -7,10 +7,13 @@ import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import {
   DESKTOP_BAT_NAME,
+  LOCAL_HINT_NAME,
   PRODUCT_FOLDER,
   copySourceTree,
   desktopBatContents,
   laptopRepoPath,
+  localRepoHintContents,
+  localRepoHintPath,
   requiredPortableFiles,
   resolveLayoutPaths,
   smithRepoPath,
@@ -22,13 +25,43 @@ const execFileAsync = promisify(execFile);
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 
+function normalizeBat(text) {
+  return String(text).replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/\s+$/, "\n");
+}
+
 describe("Windows portable pack helpers", () => {
-  it("desktop bat always calls Start-DescribePrint.cmd", () => {
-    const bat = desktopBatContents("C:\\Users\\clove\\AllosWorstation\\DescribePrint");
+  it("desktop bat is a shared OneDrive-safe detector (not a single-machine path)", () => {
+    const bat = desktopBatContents();
     expect(bat).toMatch(/call "/);
-    expect(bat).toContain("C:\\Users\\clove\\AllosWorstation\\DescribePrint\\Start-DescribePrint.cmd");
+    expect(bat).toContain("%LOCALAPPDATA%\\AllosWorstation\\repo-path.txt");
+    expect(bat).toContain("%COMPUTERNAME%");
+    expect(bat).toContain("ALLOS_LAPTOP_HOST");
+    expect(bat).toContain("ALLOS_SMITH_HOST");
+    expect(bat).toContain("%USERPROFILE%\\AllosWorstation\\DescribePrint");
+    expect(bat).toContain('cd /d "%TARGET%"');
+    expect(bat).toContain("%~dp0DescribePrint");
+    expect(bat).toContain("Start-DescribePrint.cmd");
+    expect(bat).not.toMatch(/C:\\Users\\clove\\AllosWorstation\\DescribePrint\\Start-DescribePrint\.cmd/);
     expect(bat).not.toMatch(/npm run dev/);
     expect(bat).not.toMatch(/electron|tauri/i);
+  });
+
+  it("template Start bat matches desktopBatContents so pack and Install stay in sync", () => {
+    const template = readFileSync(
+      path.join(repoRoot, "scripts", "windows", "templates", "Start DescribePrint.bat"),
+      "utf8",
+    );
+    expect(normalizeBat(template)).toBe(normalizeBat(desktopBatContents()));
+  });
+
+  it("Smith and Laptop layouts write the same Desktop bat (OneDrive overwrite is a no-op)", async () => {
+    const desktop = await mkdtemp(path.join(os.tmpdir(), "allos-desk-same-"));
+    const smith = await writeDesktopBat(desktop, "D:/OneDrive/Desktop/AllosWorstation/DescribePrint");
+    const first = readFileSync(smith, "utf8");
+    const laptop = await writeDesktopBat(desktop, "C:/Users/clove/AllosWorstation/DescribePrint");
+    expect(laptop).toBe(smith);
+    expect(readFileSync(laptop, "utf8")).toBe(first);
+    expect(normalizeBat(first)).toBe(normalizeBat(desktopBatContents()));
   });
 
   it("uses the laptop path outside OneDrive by default", () => {
@@ -64,11 +97,20 @@ describe("Windows portable pack helpers", () => {
     expect(paths.sameTree).toBe(false);
   });
 
-  it("writes a Desktop AllosWorstation Start bat", async () => {
+  it("writes a Desktop AllosWorstation Start bat plus a machine-local hint", async () => {
     const desktop = await mkdtemp(path.join(os.tmpdir(), "allos-desk-"));
-    const bat = await writeDesktopBat(desktop, "C:/Users/clove/AllosWorstation/DescribePrint");
+    const localAppData = await mkdtemp(path.join(os.tmpdir(), "allos-local-"));
+    const repo = "C:/Users/clove/AllosWorstation/DescribePrint";
+    const bat = await writeDesktopBat(desktop, repo, { localAppData });
     expect(path.basename(bat)).toBe("Start DescribePrint.bat");
     expect(existsSync(bat)).toBe(true);
+    expect(readFileSync(bat, "utf8")).toContain("%~dp0DescribePrint");
+    const hint = localRepoHintPath(localAppData);
+    expect(path.basename(hint)).toBe(LOCAL_HINT_NAME);
+    expect(readFileSync(hint, "utf8")).toBe(localRepoHintContents(repo));
+    expect(toWindowsPath(readFileSync(hint, "utf8").trim())).toBe(
+      "C:\\Users\\clove\\AllosWorstation\\DescribePrint",
+    );
   });
 
   it("repo already has the files the portable pack must include", () => {

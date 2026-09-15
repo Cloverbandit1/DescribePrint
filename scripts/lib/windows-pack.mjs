@@ -14,6 +14,72 @@ export const PRODUCT_FOLDER = "AllosWorstation";
 export const APP_FOLDER = "DescribePrint";
 export const PORTABLE_DIR_NAME = "AllosWorstation-portable";
 export const DESKTOP_BAT_NAME = "Start DescribePrint.bat";
+export const LOCAL_HINT_NAME = "repo-path.txt";
+
+/** Shared Desktop Start bat. Identical on Smith + laptop so OneDrive overwrite is a no-op. */
+export const DESKTOP_BAT_SOURCE = [
+  "@echo off",
+  "REM AllosWorstation / DescribePrint -- one-click Start",
+  "REM Contract: call the repo Start-DescribePrint.cmd (do not start Next.js here).",
+  "REM",
+  "REM OneDrive syncs Desktop\\AllosWorstation\\Start DescribePrint.bat between Smith",
+  "REM and laptop. This file MUST be identical on both machines. Do not bake a",
+  "REM single-machine absolute path -- Install -Layout Smith on a synced Desktop",
+  "REM would overwrite the laptop bat (and vice versa).",
+  "REM",
+  "REM Resolution order for THIS machine:",
+  "REM   1) %LOCALAPPDATA%\\AllosWorstation\\repo-path.txt  (Install writes this; not OneDrive)",
+  "REM   2) hostname: %COMPUTERNAME% vs ALLOS_LAPTOP_HOST / ALLOS_SMITH_HOST",
+  "REM      or ALLOS_LAYOUT=Laptop|Smith",
+  "REM   3) Laptop repo: %USERPROFILE%\\AllosWorstation\\DescribePrint",
+  "REM      (absolute cd /d -- not %~dp0DescribePrint)",
+  "REM   4) Smith repo:  %~dp0DescribePrint  (sibling of this bat)",
+  "setlocal EnableExtensions",
+  'set "CMDNAME=Start-DescribePrint.cmd"',
+  'set "LAPTOP=%USERPROFILE%\\AllosWorstation\\DescribePrint"',
+  'set "SMITH=%~dp0DescribePrint"',
+  'set "HINT=%LOCALAPPDATA%\\AllosWorstation\\repo-path.txt"',
+  'set "TARGET="',
+  "",
+  'if exist "%HINT%" set /p TARGET=<"%HINT%"',
+  "if defined TARGET goto run",
+  "",
+  'if /i "%ALLOS_LAYOUT%"=="Laptop" goto laptop',
+  'if /i "%ALLOS_LAYOUT%"=="Smith" goto smith',
+  'if defined ALLOS_LAPTOP_HOST if /i "%COMPUTERNAME%"=="%ALLOS_LAPTOP_HOST%" goto laptop',
+  'if defined ALLOS_SMITH_HOST if /i "%COMPUTERNAME%"=="%ALLOS_SMITH_HOST%" goto smith',
+  "",
+  'if exist "%LAPTOP%\\%CMDNAME%" goto laptop',
+  'if exist "%SMITH%\\%CMDNAME%" goto smith',
+  "",
+  "echo DescribePrint Start.cmd not found for this machine.",
+  "echo   Laptop: %LAPTOP%",
+  "echo   Smith:  %SMITH%",
+  "echo   Hint:   %HINT%",
+  "echo Run Install-AllosWorstation.ps1 -Layout Laptop  or  -Layout Smith",
+  "pause",
+  "exit /b 1",
+  "",
+  ":laptop",
+  'set "TARGET=%LAPTOP%"',
+  "goto run",
+  "",
+  ":smith",
+  'set "TARGET=%SMITH%"',
+  "goto run",
+  "",
+  ":run",
+  'if not exist "%TARGET%\\%CMDNAME%" (',
+  '  echo Missing "%TARGET%\\%CMDNAME%"',
+  "  echo Hint file: %HINT%",
+  "  pause",
+  "  exit /b 1",
+  ")",
+  'cd /d "%TARGET%"',
+  'call "%TARGET%\\%CMDNAME%"',
+  "exit /b %ERRORLEVEL%",
+  "",
+].join("\r\n");
 
 export const DEFAULT_OPENSCAD_ZIP_URL =
   process.env.OPENSCAD_PORTABLE_URL ||
@@ -47,16 +113,17 @@ export function desktopProductFolder(desktop) {
   return path.join(desktop, PRODUCT_FOLDER);
 }
 
-/** Desktop .bat contract: always call the repo Start-DescribePrint.cmd. */
-export function desktopBatContents(repoPath) {
-  const windowsPath = toWindowsPath(repoPath);
-  return [
-    "@echo off",
-    "REM AllosWorstation / DescribePrint — one-click Start",
-    "REM Contract: call the repo Start-DescribePrint.cmd (do not start Next.js here).",
-    `call "${windowsPath}\\Start-DescribePrint.cmd"`,
-    "",
-  ].join("\r\n");
+/** Desktop .bat contract: shared detector; always call the repo Start-DescribePrint.cmd. */
+export function desktopBatContents() {
+  return DESKTOP_BAT_SOURCE;
+}
+
+export function localRepoHintPath(localAppData) {
+  return path.join(localAppData, PRODUCT_FOLDER, LOCAL_HINT_NAME);
+}
+
+export function localRepoHintContents(repoPath) {
+  return `${toWindowsPath(repoPath)}\r\n`;
 }
 
 export function toWindowsPath(value) {
@@ -130,11 +197,16 @@ export function assertPortableTree(root) {
   }
 }
 
-export async function writeDesktopBat(desktopDir, repoPath) {
+export async function writeDesktopBat(desktopDir, repoPath, { localAppData } = {}) {
   const folder = desktopProductFolder(desktopDir);
   await mkdir(folder, { recursive: true });
   const batPath = path.join(folder, DESKTOP_BAT_NAME);
-  await writeFile(batPath, desktopBatContents(repoPath), "utf8");
+  await writeFile(batPath, desktopBatContents(), "utf8");
+  if (localAppData && repoPath) {
+    const hintDir = path.join(localAppData, PRODUCT_FOLDER);
+    await mkdir(hintDir, { recursive: true });
+    await writeFile(path.join(hintDir, LOCAL_HINT_NAME), localRepoHintContents(repoPath), "utf8");
+  }
   return batPath;
 }
 
@@ -150,7 +222,9 @@ or the OpenSCAD binary (large / separate license).
    or:  powershell -ExecutionPolicy Bypass -File scripts\\windows\\Setup-DescribePrint.ps1
 3. Double-click Start-DescribePrint.cmd
    or use Desktop \\ AllosWorstation \\ Start DescribePrint.bat
-   (that bat always calls this folder's Start-DescribePrint.cmd)
+   (OneDrive-safe detector: machine hint in %LOCALAPPDATA%, then
+   laptop %USERPROFILE%\\AllosWorstation\\DescribePrint, then
+   Smith %~dp0DescribePrint. Always calls Start-DescribePrint.cmd.)
 
 Local AI: Ollama at 127.0.0.1:11434  MODEL=qwen2.5-coder:32b
   ollama pull qwen2.5-coder:32b

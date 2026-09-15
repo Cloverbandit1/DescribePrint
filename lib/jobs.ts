@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
+import type { MachineDesignation } from "./alternate-machines";
 import { defaultColorRegion, type ColorRegion } from "./color-regions";
 import type {
   GenerateResult,
+  ImageImportMeta,
   PartSource,
   PlateEditMode,
   PrintabilityReport,
@@ -26,6 +28,8 @@ export type StoredJob = {
   editMode: PlateEditMode;
   notes: string[];
   colorRegions: ColorRegion[];
+  imageImport?: ImageImportMeta | null;
+  machineDesignation?: MachineDesignation | null;
 };
 
 export type CreateJobInput = Omit<StoredJob, "id" | "createdAt"> & {
@@ -37,6 +41,8 @@ export type CreateJobInput = Omit<StoredJob, "id" | "createdAt"> & {
   editMode?: PlateEditMode;
   notes?: string[];
   colorRegions?: ColorRegion[];
+  imageImport?: ImageImportMeta | null;
+  machineDesignation?: MachineDesignation | null;
 };
 
 const TTL_MS = 60 * 60 * 1000;
@@ -68,6 +74,8 @@ export function createJob(input: CreateJobInput): StoredJob {
     editMode: input.editMode ?? "create",
     notes: input.notes ?? [],
     colorRegions: input.colorRegions?.length ? input.colorRegions : [defaultColorRegion()],
+    imageImport: input.imageImport ?? null,
+    machineDesignation: input.machineDesignation ?? null,
     id: randomUUID(),
     createdAt: Date.now(),
   };
@@ -98,5 +106,7 @@ export function toGenerateResult(job: StoredJob): GenerateResult {
     editMode: job.editMode,
     notes: job.notes,
     colorRegions: job.colorRegions,
+    imageImport: job.imageImport ?? null,
+    machineDesignation: job.machineDesignation ?? null,
   };
 }

@@ -1,6 +1,21 @@
+import type { MachineDesignation } from "./alternate-machines";
 import type { ColorRegion } from "./color-regions";
 
-export type { ColorRegion };
+export type { ColorRegion, MachineDesignation };
+
+export type ImageRasterFormat = "png" | "jpeg" | "webp";
+
+export type ImageImportMeta = {
+  kind: "image-solid";
+  format: ImageRasterFormat;
+  repairApplied: boolean;
+  keepWear: boolean;
+  inferredBackside: true;
+  method: "silhouette-extrude";
+  photogrammetry: false;
+  neuralReconstruction: false;
+  pixelsInferred: boolean;
+};
 
 export type Unit = "mm" | "in";
 
@@ -10,7 +25,7 @@ export type WearableSizeId = "S" | "M" | "L" | "XL";
 
 export type WearableCategoryId = "helmet_mask" | "torso_armor" | "gauntlet" | "bracer";
 
-export type PlateEditMode = "create" | "import" | "transform" | "describe-wrapper";
+export type PlateEditMode = "create" | "import" | "image-import" | "transform" | "describe-wrapper";
 
 export type GenerateRequest = {
   prompt: string;
@@ -42,6 +57,7 @@ export type PipelineStep =
   | "export"
   | "retry"
   | "import"
+  | "image"
   | "transform"
   | "done";
 
@@ -101,6 +117,10 @@ export type GenerateResult = {
   notes: string[];
   /** Named color / material objects written into the 3MF (AMS slots are export metadata). */
   colorRegions: ColorRegion[];
+  /** Present when the plate came from a photo → solid stub. */
+  imageImport?: ImageImportMeta | null;
+  /** Present when the solid does not fit the current printer (default P2S). */
+  machineDesignation?: MachineDesignation | null;
 };
 
 export type Triangle = {
@@ -117,6 +137,8 @@ export type Mesh = {
  *
  * Shipped M2 foundations (in-app, no DCC):
  * - STL/3MF import onto the plate
+ * - Photo → printable solid stub (silhouette + thickness + inferred backside;
+ *   repair-by-default; oversize designates a stub alternate machine)
  * - Wearable S/M/L/XL measurement charts that scale the current mesh
  * - Describe-to-edit on imported meshes: real triangle scale/rotate/sit-on-bed;
  *   generative adds (holes, tabs) wrap import("imported.stl") in OpenSCAD.
@@ -129,7 +151,8 @@ export type Mesh = {
  *
  * Still later:
  * - describe-to-modify already sends previousPrompt/previousCode on CAD follow-ups
- * - Style2Fab-style edit, organic mesh, image→3D, Print doctor, machine control
+ * - Style2Fab-style edit, organic mesh, photogrammetry / NeRF image→3D,
+ *   Print doctor, machine control
  *
  * Default printer: Bambu Lab P2S (see lib/printers.ts).
  */

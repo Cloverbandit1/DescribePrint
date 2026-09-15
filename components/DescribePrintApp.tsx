@@ -6,8 +6,9 @@ import { EXAMPLE_PROMPTS } from "@/lib/fixtures";
 import type { HealthReport, HealthTone } from "@/lib/health-types";
 import { useMachineMonitor } from "@/lib/machine/use-machine-monitor";
 import { diagnosePrintComplaint, looksLikePrintDoctorComplaint, type PrintDoctorResult } from "@/lib/print-doctor";
+import { IMAGE_IMPORT_ACCEPT } from "@/lib/image-import";
 import { defaultPrinter, filamentPreset, type PrinterProfile } from "@/lib/printers";
-import { formatMm } from "@/lib/units";
+import { formatMm, toMillimeters } from "@/lib/units";
 import {
   DEFAULT_WEARABLE_CATEGORY,
   MEASUREMENT_LABELS,
@@ -49,6 +50,7 @@ const FRIENDLY_STEP: Record<PipelineStep, string> = {
   export: "Preparing files…",
   retry: "Trying again…",
   import: "Reading the file…",
+  image: "Reading the photo…",
   transform: "Scaling the part…",
   done: "Ready",
 };
@@ -100,6 +102,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
   const [wearableSize, setWearableSize] = useState<WearableSizeId | null>(null);
   const [wearableCategory, setWearableCategory] = useState<WearableCategoryId>(DEFAULT_WEARABLE_CATEGORY);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [keepWear, setKeepWear] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [workspace, setWorkspace] = useState<WorkspaceTab>("prepare");
@@ -285,7 +288,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
     const statusId = nid();
     setItems((prev) => [
       ...prev,
-      { id: nid(), kind: "user", text: `Import ${file.name}` },
+      { id: nid(), kind: "user", text: `Import ${/\.(png|jpe?g|webp)$/i.test(file.name) ? "photo " : ""}${file.name}` },
       { id: statusId, kind: "status", steps: [], active: true },
     ]);
     scrollToEnd();
@@ -294,6 +297,9 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
     try {
       const form = new FormData();
       form.append("file", file);
+      form.append("repair", keepWear ? "0" : "1");
+      form.append("keepWear", keepWear ? "1" : "0");
+      if (sizeNumber) form.append("targetMaxMm", String(toMillimeters(sizeNumber, units)));
       const response = await fetch("/api/import", { method: "POST", body: form });
       if (!response.ok && !response.body) {
         throw new Error(`HTTP ${response.status}`);
@@ -360,7 +366,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
           ? "Describe an edit — size S–XL, scale, sit on the plate, or add a hole…"
           : result
             ? "Keep talking — change it, add or remove a feature, or start a new part…"
-            : "A phone stand, a 20 mm cube with a hole, or import an STL/3MF…"
+            : "A phone stand, a 20 mm cube with a hole, or import an STL/3MF/photo…"
       }
       showAdvanced={showAdvanced}
       onToggleAdvanced={() => setShowAdvanced((v) => !v)}
@@ -368,6 +374,8 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       onSizeHintChange={setSizeHint}
       units={units}
       onUnitsChange={setUnits}
+      keepWear={keepWear}
+      onKeepWearChange={setKeepWear}
       followUps={result && !busy ? (result.source === "imported-mesh" ? IMPORTED_FOLLOW_UPS : CAD_FOLLOW_UPS) : null}
       onFollowUp={(value) => {
         if (value.toLowerCase().includes("new part")) {
@@ -389,7 +397,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       <input
         ref={fileInput}
         type="file"
-        accept=".stl,.3mf,model/stl,application/vnd.ms-package.3dmanufacturing-3dmodel+xml"
+        accept={IMAGE_IMPORT_ACCEPT}
         className="hidden"
         onChange={(event) => {
           const file = event.target.files?.[0];
@@ -542,7 +550,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
               {actionLabel}
             </button>
             <p className="text-[11px] leading-relaxed text-muted">
-              The chat is the editor. Keep describing changes, or import an STL/3MF onto the plate.
+              The chat is the editor. Keep describing changes, or import an STL/3MF or a photo onto the plate.
             </p>
 
             <WearableSizePicker
@@ -569,8 +577,8 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
               <ResultPanel result={result} showDetails={showDetails} onToggleDetails={() => setShowDetails((v) => !v)} />
             ) : (
               <p className="rounded-md border border-dashed border-line px-2.5 py-2 text-[11px] text-muted">
-                Nothing on the plate yet. Describe a part, import STL/3MF, or pick a wearable size, then Print. Files
-                are sized for the P2S.
+                Nothing on the plate yet. Describe a part, import STL/3MF or a photo, or pick a wearable size, then
+                Print. Files are sized for the P2S; oversized photo solids suggest another machine.
               </p>
             )}
           </div>
@@ -598,6 +606,8 @@ function ChatComposer({
   onSizeHintChange,
   units,
   onUnitsChange,
+  keepWear,
+  onKeepWearChange,
   followUps,
   onFollowUp,
   onImport,
@@ -615,6 +625,8 @@ function ChatComposer({
   onSizeHintChange: (value: string) => void;
   units: Unit;
   onUnitsChange: (value: Unit) => void;
+  keepWear: boolean;
+  onKeepWearChange: (value: boolean) => void;
   followUps: readonly string[] | null;
   onFollowUp: (value: string) => void;
   onImport: () => void;
@@ -673,9 +685,10 @@ function ChatComposer({
           type="button"
           onClick={onImport}
           disabled={busy}
+          title="STL, 3MF, or a photo (PNG / JPG / WebP)"
           className="ml-auto text-[11px] text-muted underline-offset-2 hover:underline disabled:opacity-40"
         >
-          Import STL/3MF
+          Import file
         </button>
       </div>
       {showAdvanced ? (
@@ -702,6 +715,18 @@ function ChatComposer({
             <option value="mm">mm</option>
             <option value="in">inches</option>
           </select>
+          <label className="ml-1 flex items-center gap-1.5 text-[11px] text-muted">
+            <input
+              type="checkbox"
+              checked={!keepWear}
+              onChange={(event) => onKeepWearChange(!event.target.checked)}
+            />
+            Repair photo cracks
+          </label>
+          <label className="flex items-center gap-1.5 text-[11px] text-muted">
+            <input type="checkbox" checked={keepWear} onChange={(event) => onKeepWearChange(event.target.checked)} />
+            Keep damage / wear
+          </label>
         </div>
       ) : null}
     </form>
@@ -771,17 +796,25 @@ function ChatBubble({ item }: { item: ChatItem }) {
     );
   }
   const { report } = item.result;
+  const photo = item.result.editMode === "image-import";
   const imported = item.result.source === "imported-mesh";
   return (
     <div className="mr-4 rounded-md border border-ok/35 bg-ok/5 px-2.5 py-2 text-sm">
       <div className="font-medium">
-        {imported ? "Imported mesh on the plate — describe an edit" : "On the plate — keep talking to change it"}
+        {photo
+          ? "Photo solid on the plate — backside inferred (stub)"
+          : imported
+            ? "Imported mesh on the plate — describe an edit"
+            : "On the plate — keep talking to change it"}
       </div>
       <div className="mt-1 text-muted">
         {formatMm(report.boundingBoxMm.size[0])} × {formatMm(report.boundingBoxMm.size[1])} ×{" "}
         {formatMm(report.boundingBoxMm.size[2])} mm
         {item.result.fileName ? ` · ${item.result.fileName}` : ""}
       </div>
+      {item.result.machineDesignation?.exceedsCurrentPrinter ? (
+        <div className="mt-1.5 text-[13px] text-warn">{item.result.machineDesignation.message}</div>
+      ) : null}
     </div>
   );
 }
@@ -1065,15 +1098,31 @@ function ResultPanel({
 }) {
   const { report } = result;
   const issues = report.issues;
+  const photo = result.editMode === "image-import";
   const imported = result.source === "imported-mesh";
+  const designation = result.machineDesignation;
   const colorRegions = result.colorRegions ?? [];
   const showColors = colorRegions.length > 1 || (colorRegions.length === 1 && colorRegions[0]?.colorName !== "default");
 
   return (
     <div className="space-y-3 border-t border-line pt-3">
+      {designation?.exceedsCurrentPrinter ? (
+        <div className="rounded-md border border-warn/40 bg-warn/10 p-2.5 text-[11px] leading-relaxed text-ink">
+          <div className="studio-label mb-1">Exceeds current printer</div>
+          <p>{designation.message}</p>
+          {designation.designatedMachine ? (
+            <p className="mt-1 text-muted">
+              Designated: {designation.designatedMachine.name} ·{" "}
+              {designation.designatedMachine.buildVolumeMm.join(" × ")} mm (stub profile)
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       {result.notes.length > 0 ? (
         <div className="rounded-md border border-line bg-panel-2 p-2.5 text-[11px] leading-relaxed text-muted">
-          <div className="studio-label mb-1">{imported ? "Imported mesh" : showColors ? "Colors / size" : "Size"}</div>
+          <div className="studio-label mb-1">
+            {photo ? "Photo solid" : imported ? "Imported mesh" : showColors ? "Colors / size" : "Size"}
+          </div>
           {result.notes.map((note) => (
             <p key={note} className="mt-1">
               {note}
@@ -1148,7 +1197,7 @@ function EmptyState({ onPick }: { onPick: (value: string) => void }) {
   return (
     <div className="space-y-3">
       <p className="text-sm leading-relaxed text-muted">
-        Describe a part in plain language, or <span className="text-ink">import an STL/3MF</span>. Open{" "}
+        Describe a part in plain language, or <span className="text-ink">import an STL/3MF or a photo</span>. Open{" "}
         <span className="text-ink">More options</span> only if you need a size. Then <span className="text-ink">Print</span>{" "}
         — the plate is a Bambu Lab P2S (256 × 256 × 256 mm) by default. A print defect (stringing, AMS loop) goes to
         Print doctor instead of CAD.

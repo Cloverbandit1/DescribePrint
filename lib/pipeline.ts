@@ -18,6 +18,7 @@ import {
   shouldUseFixture,
 } from "./fixtures";
 import { importedMeshStubScad, parseImportedMesh } from "./import-mesh";
+import { buildImageSolidFromUpload, imageSolidStubScad, type ImageImportOptions } from "./image-import";
 import { getLlmConfig, getPlanModel, isLocalOpenAiBaseUrl, isSmartPipelineEnabled } from "./llm-config";
 import {
   buildPlanPrompt,
@@ -387,6 +388,60 @@ function looksLikeImportedFollowUp(request: GenerateRequest): boolean {
 function resolvePreviousJob(request: GenerateRequest): StoredJob | undefined {
   if (!request.previousJobId) return undefined;
   return getJob(request.previousJobId);
+}
+
+export async function runImageImportPipeline(
+  input: { buffer: Buffer; fileName?: string; options?: ImageImportOptions },
+  sink?: StatusSink,
+): Promise<GenerateResult> {
+  emit(sink, { step: "image", message: "Reading the photo…" });
+  const options = input.options ?? { repair: true, keepWear: false, targetMaxMm: null };
+  emit(sink, {
+    step: "planning",
+    message: options.repair
+      ? "Inferring a printable solid and repairing cracks…"
+      : "Inferring a printable solid (keeping wear)…",
+  });
+  const built = buildImageSolidFromUpload(input.buffer, input.fileName, options);
+  emit(sink, { step: "mesh-check", message: "Checking the solid against the P2S bed…" });
+  emit(sink, { step: "export", message: "Writing STL and 3MF…" });
+  const code = imageSolidStubScad({
+    fileName: built.fileName,
+    sizeMm: checkMesh(built.mesh).boundingBoxMm.size,
+    triangleCount: built.mesh.triangles.length,
+    format: built.format,
+    repairApplied: built.repairApplied,
+    keepWear: built.keepWear,
+    designation: built.designation,
+  });
+  const artifacts = await artifactsFromMesh(built.mesh, code, built.fileName);
+  const wearableCategory = inferWearableCategory(built.fileName);
+  const notes = [...built.notes, wearableChartNote(), describeWearableSize(null, wearableCategory)];
+  const job = createJob({
+    stl: artifacts.stl,
+    threemf: artifacts.threemf,
+    scad: artifacts.code,
+    report: artifacts.report,
+    usedFixture: true,
+    retried: false,
+    source: "imported-mesh",
+    fileName: built.fileName,
+    wearableSize: null,
+    wearableCategory,
+    nativeSizeMm: artifacts.report.boundingBoxMm.size,
+    editMode: "image-import",
+    notes,
+    colorRegions: artifacts.colorRegions,
+    imageImport: built.meta,
+    machineDesignation: built.designation,
+  });
+  emit(sink, {
+    step: "done",
+    message: built.designation.exceedsCurrentPrinter
+      ? "Photo solid is on the plate — current printer is too small."
+      : "Photo solid is on the plate.",
+  });
+  return toGenerateResult(job);
 }
 
 export async function runImportPipeline(

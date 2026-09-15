@@ -7,12 +7,14 @@ import {
   buildPlanPrompt,
   buildUserPrompt,
   completeChat,
+  normalizeCadPlan,
   parseCadPlan,
   planSystemPrompt,
   systemPrompt,
   toUserFacingLlmError,
   type CadPlan,
 } from "./llm";
+import { formatPrintabilityFeedback, shouldRetryPrintability } from "./printability";
 import { sanitizeOpenScad } from "./sanitize";
 import { parseStl } from "./stl";
 import { meshTo3mf } from "./threemf";
@@ -51,7 +53,13 @@ async function planFromLlm(request: GenerateRequest): Promise<CadPlan | null> {
       ],
       { model: getPlanModel(), temperature: 0.1 },
     );
-    return parseCadPlan(raw);
+    const parsed = parseCadPlan(raw);
+    return parsed
+      ? normalizeCadPlan(parsed, {
+          prompt: request.prompt,
+          previousCode: request.previousCode,
+        })
+      : null;
   } catch (err) {
     throw toUserFacingLlmError(err);
   }
@@ -180,6 +188,21 @@ export async function runGeneratePipeline(
   for (let attemptNo = 1; attemptNo <= MAX_COMPILE_ATTEMPTS; attemptNo++) {
     try {
       artifacts = await attempt(lastCode, attemptNo);
+      if (
+        !useFixture &&
+        attemptNo < MAX_COMPILE_ATTEMPTS &&
+        shouldRetryPrintability(artifacts.report)
+      ) {
+        retried = true;
+        const feedback = formatPrintabilityFeedback(artifacts.report);
+        emit(sink, {
+          step: "retry",
+          message: `Printability issues — retrying with mesh feedback (${attemptNo + 1}/${MAX_COMPILE_ATTEMPTS})…`,
+          attempt: attemptNo + 1,
+        });
+        lastCode = await codeFromLlm(request, { code: artifacts.code, error: feedback }, plan);
+        continue;
+      }
       break;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

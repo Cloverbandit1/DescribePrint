@@ -189,7 +189,7 @@ Secrets stay in the environment only. Do not commit `.env.local`.
 - `phone stand for iPhone 15, 60 degree tilt`
 - `parametric drawer knob diameter 40mm`
 
-These three match built-in fixtures (used when `USE_FIXTURE` is on, or in tests). With local AI running, the same UI asks the dedicated Ollama model for OpenSCAD (optional two-pass plan → code when `SMART_PIPELINE=1`), sanitizes it, compiles, and retries up to twice with structured compiler feedback if OpenSCAD or the mesh check fails.
+These three match built-in fixtures (used when `USE_FIXTURE` is on, or in tests). With local AI running, the same UI asks the dedicated Ollama model for OpenSCAD (optional two-pass plan → code when `SMART_PIPELINE=1`), sanitizes it, compiles, and retries up to twice with structured compiler or printability feedback if OpenSCAD fails or the mesh is disconnected, off the plate, non-manifold, or thinner than 2× the 0.4 mm nozzle.
 
 ## What V0 does
 
@@ -200,7 +200,7 @@ These three match built-in fixtures (used when `USE_FIXTURE` is on, or in tests)
 5. Preview in Three.js (`react-three-fiber`).
 6. Download **STL** and **3MF** (plus the `.scad` source).
 
-Printability report: bounding box (mm), volume, triangle count, manifold flag, and obvious issues (empty mesh, zero volume, huge triangle count, oversized, undersized).
+Printability report: bounding box (mm), volume, triangle count, manifold flag, and issues (empty mesh, zero volume, huge triangle count, oversized vs the P2S 256 mm bed, undersized / thin walls vs the 0.4 mm nozzle, off-bed, disconnected solids). Soft printability issues are fed back into CAD retries. Plans are normalized to one-piece, 1.6 mm walls, and through-holes unless the user clearly asks otherwise.
 
 ## Success paths
 

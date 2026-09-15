@@ -5,6 +5,20 @@ import {
   LOCAL_AI_START_MESSAGE,
   type LlmConfig,
 } from "./llm-config";
+import {
+  allowsThinWalls,
+  bedMaxMm,
+  extractScadParams,
+  formatPrinterConstraints,
+  formatScadParams,
+  isWallDimKey,
+  printRules,
+  promptAllowsOversize,
+  promptAllowsSmallHole,
+  statedWallMm,
+  wantsMultiPart,
+  wantsNewDesign,
+} from "./printability";
 
 export type ChatMessage = {
   role: "system" | "user" | "assistant";
@@ -28,7 +42,7 @@ export type CadPlan = {
     dims_mm?: Record<string, number>;
     notes?: string;
   }>;
-  holes: Array<{ d: number; purpose?: string }>;
+  holes: Array<{ d: number; purpose?: string; through?: boolean }>;
   min_wall_mm: number;
   clearance_mm: number;
   sit_on_z0: boolean;
@@ -45,7 +59,7 @@ Units and output
 - Units are millimeters. OpenSCAD is unitless; treat 1 unit = 1 mm. Never invent inches or "OpenSCAD units".
 - Produce a single manifold solid suitable for slicing. Prefer one piece first (union overlapping solids). Split only if the user clearly needs an assembly.
 - Sit the part on z=0 (build plate) when practical. Keep the positive-Z up orientation printable without supports when a simple redesign can avoid them.
-- Keep the part under 250 mm in any dimension unless the user asks otherwise.
+- Keep the part on the target printer bed unless the user asks otherwise.
 
 Printable engineering
 - Minimum wall thickness 1.6 mm (1.2 mm only if the user insists and the feature is short).
@@ -71,11 +85,13 @@ Safety
 const PLAN_SYSTEM_PROMPT = `You are a CAD planner for FDM 3D printing. Reply with ONLY compact JSON (no markdown, no prose).
 
 Schema:
-{"object":string,"one_piece":true,"units":"mm","overall_mm":{"x":n,"y":n,"z":n},"features":[{"name":string,"kind":string,"dims_mm":{"…":n},"notes":string}],"holes":[{"d":n,"purpose":string}],"min_wall_mm":n,"clearance_mm":n,"sit_on_z0":true,"safety_notes":string}
+{"object":string,"one_piece":true,"units":"mm","overall_mm":{"x":n,"y":n,"z":n},"features":[{"name":string,"kind":string,"dims_mm":{"…":n},"notes":string}],"holes":[{"d":n,"purpose":string,"through":true}],"min_wall_mm":n,"clearance_mm":n,"sit_on_z0":true,"safety_notes":string}
 
 Rules:
-- Millimeters only. Real-world dimensions. One piece first.
-- min_wall_mm >= 1.6 unless the user insists thinner. clearance_mm ~ 0.3 for fits.
+- Millimeters only. Real-world dimensions. One piece first unless the user clearly asks for an assembly / multi-part kit.
+- Every feature must attach to the main solid (no floating islands). Through-holes fully pierce (overshoot 0.2–1 mm).
+- min_wall_mm >= 1.6 unless the user insists thinner. clearance_mm ~ 0.3 for fits. Sit the part on z=0.
+- Fit overall_mm on the target printer bed unless they asked for a larger object.
 - If the request is unsafe or nonsense, plan a safe printable alternative and note it in safety_notes. Do not refuse in words — plan the safe part.
 - Keep the JSON short. No OpenSCAD in this pass.
 `;
@@ -109,6 +125,18 @@ export function classifyCompileIssue(error: string): string[] {
       "Ensure a single closed solid: union overlapping parts, extend subtractors through faces, avoid zero-thickness shells.",
     );
   }
+  if (/disconnected|floating island/i.test(text)) {
+    hints.push("Union every body into one connected solid; add a 1.6+ mm bridge if pieces must stay attached.");
+  }
+  if (/off-bed|sit on z|lowest z/i.test(text)) {
+    hints.push("Translate the part so the base sits on z=0.");
+  }
+  if (/thin.wall|undersized|thinner than/i.test(text)) {
+    hints.push("Thicken walls to at least 1.6 mm (4× 0.4 mm nozzle). Avoid knife edges.");
+  }
+  if (/exceeds the .* bed|will not fit|oversized/i.test(text)) {
+    hints.push("Scale or redesign so every dimension fits the 256 × 256 × 256 mm bed, unless the user asked for a larger part.");
+  }
   if (/timeout|timed out/i.test(text)) {
     hints.push("Simplify geometry; keep $fn at 48–64; avoid huge minkowski() or deep recursion.");
   }
@@ -130,6 +158,11 @@ export function buildRepairPrompt(input: {
     parts.push(`Design plan (keep these dimensions):\n${JSON.stringify(input.plan)}`);
   }
   if (input.previousCode) {
+    const params = extractScadParams(input.previousCode);
+    const paramNote = formatScadParams(params);
+    if (paramNote) {
+      parts.push(`Preserve these named parameters unless they caused the error: ${paramNote}`);
+    }
     parts.push(`Previous code:\n${input.previousCode.slice(0, 6000)}`);
   }
   return parts.join("\n\n");
@@ -165,11 +198,20 @@ export function buildUserPrompt(input: {
     parts.push(`Design plan (follow these features and millimeters):\n${JSON.stringify(input.plan)}`);
   }
   if (input.previousCode) {
-    parts.push(
-      `This is a follow-up in an ongoing design conversation. Edit the existing printable part to match the user's latest request. Add, remove, or change features as asked. Start from scratch only if they clearly want a new object.`,
-    );
+    if (wantsNewDesign(input.prompt)) {
+      parts.push(`The user wants a new object. You may start from scratch.`);
+    } else {
+      parts.push(
+        `This is a follow-up edit of a working printable part. Keep the same overall design, named parameters, unions, and difference() structure. Apply only the user's latest change. Do not drop working features, invent a new object, or split into multiple bodies unless they clearly ask.`,
+      );
+    }
     if (input.previousPrompt) {
       parts.push(`Earlier description:\n${input.previousPrompt.slice(0, 2000)}`);
+    }
+    const params = extractScadParams(input.previousCode);
+    const paramNote = formatScadParams(params);
+    if (paramNote) {
+      parts.push(`Preserve these named parameters unless the user asked to change them: ${paramNote}`);
     }
     parts.push(`Current OpenSCAD:\n${input.previousCode.slice(0, 6000)}`);
   }
@@ -185,11 +227,20 @@ export function buildPlanPrompt(input: {
   const parts = [`Plan this printable part as compact JSON.`, `User request:\n${input.prompt.trim()}`];
   if (input.sizeNote) parts.push(input.sizeNote);
   if (input.previousCode) {
-    parts.push(
-      `This is a follow-up edit. Update the plan; do not start over unless they want a new object.`,
-    );
+    if (wantsNewDesign(input.prompt)) {
+      parts.push(`The user wants a new object. Plan from scratch.`);
+    } else {
+      parts.push(
+        `This is a follow-up edit. Update only the requested dimensions/features. Keep one_piece true unless they asked for an assembly. Do not start over.`,
+      );
+    }
     if (input.previousPrompt) {
       parts.push(`Earlier description:\n${input.previousPrompt.slice(0, 2000)}`);
+    }
+    const params = extractScadParams(input.previousCode);
+    const paramNote = formatScadParams(params);
+    if (paramNote) {
+      parts.push(`Existing named parameters (keep unless asked to change): ${paramNote}`);
     }
     parts.push(`Current OpenSCAD (for context, do not rewrite it here):\n${input.previousCode.slice(0, 3000)}`);
   }
@@ -257,7 +308,7 @@ export function parseCadPlan(raw: string): CadPlan | null {
     const h = item as Record<string, unknown>;
     const d = asFiniteNumber(h.d) ?? asFiniteNumber(h.diameter);
     if (d === undefined || d <= 0) return [];
-    return [{ d, purpose: asString(h.purpose) }];
+    return [{ d, purpose: asString(h.purpose), through: h.through !== false }];
   });
 
   let overall_mm: CadPlan["overall_mm"];
@@ -281,7 +332,7 @@ export function parseCadPlan(raw: string): CadPlan | null {
     overall_mm,
     features,
     holes,
-    min_wall_mm: minWall >= 1.2 ? minWall : 1.6,
+    min_wall_mm: minWall > 0 ? minWall : 1.6,
     clearance_mm: clearance > 0 ? clearance : 0.3,
     sit_on_z0: rec.sit_on_z0 !== false,
     safety_notes: asString(rec.safety_notes),
@@ -410,9 +461,81 @@ export async function completeChat(
 }
 
 export function systemPrompt(): string {
-  return SYSTEM_PROMPT;
+  return `${SYSTEM_PROMPT}\n\n${formatPrinterConstraints()}`;
 }
 
 export function planSystemPrompt(): string {
-  return PLAN_SYSTEM_PROMPT;
+  return `${PLAN_SYSTEM_PROMPT}\n\n${formatPrinterConstraints()}`;
+}
+
+function round1(n: number): number {
+  return Math.round(n * 10) / 10;
+}
+
+/**
+ * Clamp a parsed plan to one-piece / printer / wall rules unless the user
+ * clearly asked otherwise. Called after parseCadPlan on the live path.
+ */
+export function normalizeCadPlan(
+  plan: CadPlan,
+  input: { prompt: string; previousCode?: string | null },
+): CadPlan {
+  const rules = printRules();
+  const multi = wantsMultiPart(input.prompt);
+  const thinOk = allowsThinWalls(input.prompt);
+  const statedWall = statedWallMm(input.prompt);
+  let min_wall_mm = plan.min_wall_mm;
+  if (statedWall !== undefined) {
+    min_wall_mm = statedWall;
+  } else if (!thinOk && min_wall_mm < rules.minWallMm) {
+    min_wall_mm = rules.minWallMm;
+  }
+
+  const clearance_mm = plan.clearance_mm > 0 ? plan.clearance_mm : rules.clearanceMm;
+  const bed = bedMaxMm(rules);
+  let overall_mm = plan.overall_mm;
+  if (overall_mm) {
+    const maxDim = Math.max(overall_mm.x, overall_mm.y, overall_mm.z);
+    if (maxDim > bed && !promptAllowsOversize(input.prompt, maxDim)) {
+      const scale = (bed * 0.98) / maxDim;
+      overall_mm = {
+        x: round1(overall_mm.x * scale),
+        y: round1(overall_mm.y * scale),
+        z: round1(overall_mm.z * scale),
+      };
+    }
+  }
+
+  const holes = plan.holes.map((h) => {
+    let d = h.d;
+    if (d < rules.minHoleMm && !promptAllowsSmallHole(input.prompt, d)) {
+      d = rules.minHoleMm;
+    }
+    return { ...h, d, through: h.through !== false };
+  });
+
+  const features = plan.features.map((f) => {
+    if (!f.dims_mm) return f;
+    const dims_mm = { ...f.dims_mm };
+    for (const [key, value] of Object.entries(dims_mm)) {
+      if (!isWallDimKey(key)) continue;
+      if (statedWall !== undefined) {
+        dims_mm[key] = statedWall;
+      } else if (value < min_wall_mm && !thinOk) {
+        dims_mm[key] = min_wall_mm;
+      }
+    }
+    return { ...f, dims_mm };
+  });
+
+  return {
+    ...plan,
+    one_piece: multi ? plan.one_piece : true,
+    sit_on_z0: true,
+    min_wall_mm,
+    clearance_mm,
+    overall_mm,
+    holes,
+    features,
+  };
 }

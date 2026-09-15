@@ -225,8 +225,10 @@ Secrets stay in the browser (Machine panel) or `.env.local`. Do not commit `.env
 - `red 40mm plaque with black letters`
 - `hinged box lid print-in-place`
 - `print-in-place pin joint`
+- `print-in-place ball joint`
+- `snap-fit clip`
 
-The first three match built-in single-body fixtures (used when `USE_FIXTURE` is on, or in tests). The plaque prompt is a two-color fixture: OpenSCAD `region_*` modules compile separately so the downloaded 3MF has two objects (red body, black letters) with AMS slot metadata. The hinge and pin prompts are print-in-place fixtures with documented P2S / 0.4 mm-nozzle clearances (separate solids, not a fused blob). With local AI running, the same UI asks the dedicated Ollama model for OpenSCAD (optional two-pass plan → code when `SMART_PIPELINE=1`), sanitizes it, compiles, and retries up to twice with structured compiler or printability feedback if OpenSCAD fails or the mesh is disconnected, off the plate, non-manifold, or thinner than 2× the 0.4 mm nozzle. Print-in-place joints are allowed to be disconnected solids — that warning does not trigger a fuse-together retry.
+The first three match built-in single-body fixtures (used when `USE_FIXTURE` is on, or in tests). The plaque prompt is a two-color fixture: OpenSCAD `region_*` modules compile separately so the downloaded 3MF has two objects (red body, black letters) with AMS slot metadata. The hinge, pin, ball, and snap prompts are print-in-place fixtures with documented P2S / 0.4 mm-nozzle clearances (separate solids, not a fused blob). With local AI running, the same UI asks the dedicated Ollama model for OpenSCAD (optional two-pass plan → code when `SMART_PIPELINE=1`), sanitizes it, compiles, and retries up to twice with structured compiler or printability feedback if OpenSCAD fails or the mesh is disconnected, off the plate, non-manifold, or thinner than 2× the 0.4 mm nozzle. Print-in-place joints are allowed to be disconnected solids — that warning does not trigger a fuse-together retry.
 
 ## What V0 does
 
@@ -241,7 +243,7 @@ Printability report: bounding box (mm), volume, triangle count, manifold flag, a
 
 ### Joint clearances (Bambu Lab P2S, 0.4 mm nozzle)
 
-Radial values are **per side**: `bore_d = pin_d + 2 × radial`. Print-in-place is preferred when the user wants movement. Removable kits use the larger gaps. Hinge and pin emit real OpenSCAD; ball and snap are honest clearance stubs.
+Radial values are **per side**: `bore_d = pin_d + 2 × radial`. Print-in-place is preferred when the user wants movement. Removable kits use the larger gaps. Hinge, pin, ball, and snap emit real OpenSCAD (one printable fixture each — not a full gimbal / living-hinge library).
 
 | Joint | Intent | Radial mm/side | Diameter Δ mm | Axial mm | Min pin mm | Status |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
@@ -249,12 +251,12 @@ Radial values are **per side**: `bore_d = pin_d + 2 × radial`. Print-in-place i
 | hinge | multi-part | 0.50 | 1.00 | 0.60 | 4.0 | real OpenSCAD |
 | pin | print-in-place | 0.40 | 0.80 | 0.50 | 4.0 | real OpenSCAD |
 | pin | multi-part | 0.50 | 1.00 | 0.60 | 4.0 | real OpenSCAD |
-| ball | print-in-place | 0.50 | 1.00 | 0.50 | 4.0 | honest stub |
-| ball | multi-part | 0.60 | 1.20 | 0.60 | 4.0 | honest stub |
-| snap | print-in-place | 0.30 | 0.60 | 0.50 | 4.0 | honest stub |
-| snap | multi-part | 0.30 | 0.60 | 0.60 | 4.0 | honest stub |
+| ball | print-in-place | 0.50 | 1.00 | 0.50 | 4.0 | real OpenSCAD |
+| ball | multi-part | 0.60 | 1.20 | 0.60 | 4.0 | real OpenSCAD |
+| snap | print-in-place | 0.30 | 0.60 | 0.50 | 4.0 | real OpenSCAD |
+| snap | multi-part | 0.30 | 0.60 | 0.60 | 4.0 | real OpenSCAD |
 
-Ordinary fastener/shaft fits stay **0.3 mm per side** (existing `printRules.clearanceMm`). Verify with `hinged box lid print-in-place` or `print-in-place pin joint` (fixture path or local `qwen2.5-coder`).
+Ordinary fastener/shaft fits stay **0.3 mm per side** (existing `printRules.clearanceMm`). Ball keeps the wider 0.5 / 0.6 mm spherical gap from #23 (more contact area than a pin). Snap keeps 0.3 mm/side; the cantilever beam is **1.6 mm** (4× 0.4 mm nozzle) so it can flex without becoming a knife-edge — that thickness is not a table-column change. Verify with `print-in-place ball joint` (captive socket + ball) or `snap-fit clip` (window catch + hooked beam). Multi-part: `ball joint as two pieces` parks the ball beside an open cup.
 
 ## M2 foundations (import + size + imported-mesh edit)
 
@@ -294,7 +296,7 @@ Run as a Node process (`next dev` / `next start`). V0 is not aimed at serverless
 npm test
 ```
 
-Covers local LLM config defaults, OpenSCAD path resolution, launch health (Ollama + MODEL + OpenSCAD), Start preflight exit codes (0 = pass, 2 = warn/soft fail and continue), code sanitization, mesh-check / STL / 3MF (including multi-object color / AMS-slot encoding), import, wearable measurement charts + size application, imported-mesh describe-edit (hole difference / placement / wrap repair), joint clearance helpers + plan parsing, the P2S profile, Print doctor, and machine adapters (mock + flagged LAN MQTT, no physical printer). If OpenSCAD is installed, an integration test compiles the default fixture, an imported-mesh hole wrap, the two-color plaque regions, and the print-in-place hinge / pin fixtures (skipped if the binary is missing).
+Covers local LLM config defaults, OpenSCAD path resolution, launch health (Ollama + MODEL + OpenSCAD), Start preflight exit codes (0 = pass, 2 = warn/soft fail and continue), code sanitization, mesh-check / STL / 3MF (including multi-object color / AMS-slot encoding), import, wearable measurement charts + size application, imported-mesh describe-edit (hole difference / placement / wrap repair), joint clearance helpers + plan parsing + hinge/pin/ball/snap fixtures, the P2S profile, Print doctor, and machine adapters (mock + flagged LAN MQTT, no physical printer). If OpenSCAD is installed, an integration test compiles the default fixture, an imported-mesh hole wrap, the two-color plaque regions, and the print-in-place hinge / pin / ball / snap fixtures (skipped if the binary is missing).
 
 `GET /api/health` returns the same Local AI / OpenSCAD / P2S status the header chip shows. `npm run health:preflight` is the same check Start runs before `npm run dev`.
 
@@ -310,7 +312,7 @@ Owner-approved. **Do not treat this list as V0 scope.** The current Bambu-inspir
 
 1. **Wearable / cosplay sizing** — **Charts shipped:** S/M/L/XL plus documented category charts (helmet/mask, torso armor, gauntlet, bracer); auto-scale the model; show the assumed size and key mm measurements. Later: saved body measurements and custom-fit grading.
 2. **Raised etchings / emboss** — from a description (and later images) that print as visible relief.
-3. **Articulated / functional assemblies** — **First slice shipped:** plan fields + P2S clearances + hinge/pin print-in-place fixtures. Later: richer joint library, multi-part export packs, and material-aware thickness/strength so moving parts (e.g. robot arms) don’t break.
+3. **Articulated / functional assemblies** — **Joint family shipped:** plan fields + P2S clearances + hinge/pin/ball/snap print-in-place fixtures (captive ball; cantilever snap). Later: richer joint library, multi-part export packs, and material-aware thickness/strength so moving parts (e.g. robot arms) don’t break.
 4. **Print doctor** — user describes print defects (e.g. stringing with nylon PA); the system diagnoses likely causes for the **selected printer/material** (default **Bambu Lab P2S**) and proposes or auto-applies setting fixes; then a feedback loop (still bad vs perfect). In-app only — not a separate slicer or DCC.
 5. **Image import as starting point** — user uploads a **single photo**; the system infers/generates the **backside and unseen geometry** into a **full 3D printable solid** (not a front-only relief). Output is a clean, watertight-ish mesh ready to print. By default, use light intelligence to **repair** broken or damaged parts (fill cracks, restore missing chunks). Do **not** preserve wear unless the user asks to keep it.
 6. **Auto calibration assistant** — guided calibration for the **Bambu Lab P2S** and later machines (bed, flow, offset, and related checks) from the web UI.

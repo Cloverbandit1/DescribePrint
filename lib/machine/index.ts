@@ -31,6 +31,7 @@ export {
   validateLanCredentials,
   type MachineAdapter,
   type MachineAdapterFactory,
+  type MachineAdapterOptions,
 } from "./adapter";
 
 export { MockMachineAdapter } from "./mock";
@@ -60,6 +61,7 @@ export {
 } from "./prefs";
 export {
   commandFromBody,
+  parseFarmConfigure,
   parseMachineConfigure,
   parsePrintDoctorBody,
   parseReshapeRemainingFromBody,
@@ -108,6 +110,30 @@ export {
 } from "./bambu-protocol";
 export { redactSecrets, safeErrorMessage } from "./redact";
 export { getSharedMachine, isLiveMachineSelected, resetSharedMachine } from "./runtime";
+export {
+  DEFAULT_FARM_MACHINE_ID,
+  FARM_QUEUE_NOTE,
+  FARM_STORAGE_KEY,
+  FarmRegistry,
+  applyFarmSelection,
+  defaultFarmMachine,
+  defaultFarmSnapshot,
+  farmCountLabel,
+  getFarmRegistry,
+  nextFarmStubName,
+  normalizeFarmMachine,
+  parseFarmMachine,
+  parseFarmSnapshot,
+  resetFarmRegistry,
+  selectedFarmAdapterOptions,
+  serializeFarmSnapshot,
+  type FarmAdapterId,
+  type FarmAdapterOptions,
+  type FarmJob,
+  type FarmJobStatus,
+  type FarmMachine,
+  type FarmSnapshot,
+} from "./farm";
 export { mapDesignFilamentsToAms } from "./ams";
 export {
   MACHINE_RESHAPE_STORAGE_KEY,

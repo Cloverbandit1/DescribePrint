@@ -49,6 +49,7 @@ export type BambuMqttConnect = (url: string, options: Record<string, unknown>) =
 
 export type BambuLanAdapterOptions = {
   printerId?: PrinterId;
+  machineId?: string;
   credentials?: MachineCredentials;
   connect?: BambuMqttConnect;
   port?: number;
@@ -71,6 +72,7 @@ function defaultMqttConnect(): BambuMqttConnect {
 export class BambuLanMachineAdapter implements MachineAdapter {
   readonly id = BAMBU_LAN_ADAPTER_ID;
   readonly printerId: PrinterId;
+  readonly machineId?: string;
   private readonly options: BambuLanAdapterOptions;
   private connection: ConnectionState = "disconnected";
   private print: PrintState = "idle";
@@ -94,6 +96,7 @@ export class BambuLanMachineAdapter implements MachineAdapter {
   constructor(options: BambuLanAdapterOptions = {}) {
     this.options = options;
     this.printerId = options.printerId ?? defaultPrinter().id;
+    this.machineId = options.machineId;
     this.slots = emptyAmsSlots(getPrinter(this.printerId).ams.slotsPerUnit);
   }
 
@@ -468,6 +471,7 @@ export class BambuLanMachineAdapter implements MachineAdapter {
     return {
       adapterId: this.id,
       printerId: this.printerId,
+      ...(this.machineId ? { machineId: this.machineId } : {}),
       connection: this.connection,
       print: this.print,
       message: this.message,
@@ -485,4 +489,7 @@ export class BambuLanMachineAdapter implements MachineAdapter {
   }
 }
 
-registerMachineAdapter(BAMBU_LAN_ADAPTER_ID, () => new BambuLanMachineAdapter());
+registerMachineAdapter(BAMBU_LAN_ADAPTER_ID, (options) => new BambuLanMachineAdapter({
+  printerId: options?.printerId,
+  machineId: options?.machineId,
+}));

@@ -32,6 +32,8 @@ export type AmsSlotStatus = {
 export type LiveMachineStatus = {
   adapterId: string;
   printerId: PrinterId;
+  /** Farm registry id when status comes from the selected machine. */
+  machineId?: string;
   connection: ConnectionState;
   print: PrintState;
   message?: string;

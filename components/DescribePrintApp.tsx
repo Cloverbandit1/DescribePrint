@@ -5,6 +5,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { EXAMPLE_PROMPTS } from "@/lib/fixtures";
 import type { HealthReport, HealthTone } from "@/lib/health-types";
 import { MACHINE_RESHAPE_STORAGE_KEY, parseReshapeRemainingPref } from "@/lib/machine/reshape";
+import { FARM_QUEUE_NOTE, nextFarmStubName } from "@/lib/machine/farm";
+import { useFarmRegistry } from "@/lib/machine/use-farm-registry";
 import { useMachineMonitor } from "@/lib/machine/use-machine-monitor";
 import {
   diagnosePrintComplaint,
@@ -935,6 +937,7 @@ function MachinePanel({
     reshapeRemainingPref,
     setReshapeRemainingPref,
   } = useMachineMonitor();
+  const farm = useFarmRegistry();
   const [nozzleInput, setNozzleInput] = useState("");
   const [bedInput, setBedInput] = useState("");
 
@@ -967,10 +970,43 @@ function MachinePanel({
   return (
     <div className="rounded-md border border-line bg-panel-2 p-2.5 text-[11px] leading-relaxed text-muted">
       <div className="studio-label">Machine</div>
-      <div className="mt-1 text-sm font-medium text-ink">{printer.name}</div>
+      <div className="mt-1 flex items-baseline justify-between gap-2">
+        <div className="text-sm font-medium text-ink">{farm.selected.name}</div>
+        <div>{farm.countLabel}</div>
+      </div>
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+        <label className="sr-only" htmlFor="farm-machine-select">
+          Selected machine
+        </label>
+        <select
+          id="farm-machine-select"
+          value={farm.selected.id}
+          onChange={(event) => farm.select(event.target.value)}
+          className="studio-field h-6 min-w-[8.5rem] flex-1 px-1.5 text-[11px]"
+        >
+          {farm.machines.map((row) => (
+            <option key={row.id} value={row.id}>
+              {row.name}
+            </option>
+          ))}
+        </select>
+        <button type="button" onClick={() => farm.addStub()} className="studio-btn studio-btn-ghost h-6 px-2 text-[11px]">
+          Add {nextFarmStubName(farm.machines)}
+        </button>
+        {farm.count > 1 ? (
+          <button
+            type="button"
+            onClick={() => farm.remove(farm.selected.id)}
+            className="studio-btn studio-btn-ghost h-6 px-2 text-[11px]"
+          >
+            Remove
+          </button>
+        ) : null}
+      </div>
       <div className="mt-1">
         Default printer · {plateW} × {plateD} × {plateH} mm · {printer.nozzleMm} mm nozzle
       </div>
+      <div className="mt-1">{FARM_QUEUE_NOTE}</div>
       <label className="mt-2 flex items-center gap-1.5 text-ink">
         <input
           type="checkbox"

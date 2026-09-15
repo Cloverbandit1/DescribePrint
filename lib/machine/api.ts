@@ -4,6 +4,7 @@ import type { CameraDetectReport } from "./camera";
 import { parseCameraStubPref } from "./camera";
 import type { EmergencyRemainingReshapePlan } from "./reshape-plan";
 import { parseReshapeRemainingPref } from "./reshape";
+import { parseFarmMachine, type FarmMachine } from "./farm";
 import type { CommandResult, LiveMachineStatus, MachineCredentials, MidPrintCommand } from "./types";
 import type { MachineLanSource } from "./config";
 
@@ -25,6 +26,15 @@ export type MachineApiResponse = {
   lastReshape?: EmergencyRemainingReshapePlan;
   /** Present only when the camera stub is on (env or checkbox). One detect per poll. */
   cameraDetect?: CameraDetectReport;
+  /** Selected farm machine. Registry ops never send LAN commands. */
+  farm: {
+    selectedId: string;
+    count: number;
+  };
+};
+
+export type FarmConfigureRequest = {
+  machine: FarmMachine;
 };
 
 export type MachineConfigureRequest = {
@@ -145,6 +155,18 @@ export function parseReshapeRemainingFromRequest(request?: Request): boolean | u
   const url = new URL(request.url);
   if (!url.searchParams.has("reshapeRemaining")) return undefined;
   return parseReshapeRemainingPref(url.searchParams.get("reshapeRemaining"));
+}
+
+export function parseFarmConfigure(value: unknown): FarmConfigureRequest | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as { farm?: unknown; farmMachine?: unknown };
+  if (row.farm && typeof row.farm === "object") {
+    const farm = row.farm as { machine?: unknown };
+    const machine = parseFarmMachine(farm.machine ?? row.farm);
+    return machine ? { machine } : null;
+  }
+  const machine = parseFarmMachine(row.farmMachine);
+  return machine ? { machine } : null;
 }
 
 export function commandFromBody(body: unknown): MidPrintCommand | null {

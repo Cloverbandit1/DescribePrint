@@ -131,6 +131,22 @@ import {
   type PlateVersion,
   type VersionHistoryState,
 } from "@/lib/version-history";
+import {
+  PART_LIBRARY_CAP,
+  PART_LIBRARY_NOTE,
+  buildRemixRequest,
+  canSavePlate,
+  formatPartSavedAt,
+  listParts,
+  partSourceLabel,
+  removePart,
+  remixFollowUps,
+  restorePlateFromPart,
+  savePart,
+  suggestPartName,
+  usePartLibrary,
+  type SavedPart,
+} from "@/lib/part-library";
 import type { CameraView, PackOutline, ViewerTheme } from "./Viewer";
 
 const EMPTY_AMS_SLOTS: AmsSlotStatus[] = [];
@@ -256,6 +272,11 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
   const [appliedChoices, setAppliedChoices] = useState<AppliedDesignChoice[]>([]);
   const [history, setHistory] = useState<VersionHistoryState<ChatItem[]>>(() => emptyVersionHistory());
   const [showHistory, setShowHistory] = useState(false);
+  const [library, setLibrary] = usePartLibrary();
+  const [showLibrary, setShowLibrary] = useState(false);
+  const [libraryName, setLibraryName] = useState("");
+  const [libraryNotice, setLibraryNotice] = useState<string | null>(null);
+  const [loadedLibraryId, setLoadedLibraryId] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [keepWear, setKeepWear] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -460,6 +481,8 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
     setAppliedChoices([]);
     setHistory(emptyVersionHistory());
     setShowHistory(false);
+    setLoadedLibraryId(null);
+    setLibraryNotice(null);
     setPrompt("");
     setShowDetails(false);
     setWorkspace("prepare");
@@ -497,6 +520,91 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
     scrollToEnd();
   }
 
+  function applyLibraryPart(part: SavedPart) {
+    const restored = restorePlateFromPart(part);
+    const seed: ChatItem[] = [
+      { id: nid(), kind: "user", text: restored.loadNote },
+      { id: nid(), kind: "result", result: restored.result },
+    ];
+    setResult(restored.result);
+    setDesignPrompt(restored.designPrompt);
+    setWearableSize(restored.wearableSize);
+    setWearableCategory(restored.wearableCategory ?? DEFAULT_WEARABLE_CATEGORY);
+    setAppliedChoices(restored.appliedChoices);
+    setItems(seed);
+    setLoadedLibraryId(part.id);
+    setLibraryName(part.name);
+    setLibraryNotice(restored.loadNote);
+    setShowDetails(false);
+    setShowHistory(false);
+    setWorkspace("prepare");
+    setPrompt("");
+    setHistory(
+      pushVersion(emptyVersionHistory<ChatItem[]>(), {
+        kind: classifyPlateVersionKind({
+          startFresh: true,
+          source: restored.result.source,
+          editMode: restored.result.editMode,
+        }),
+        prompt: part.prompt || part.name,
+        designPrompt: restored.designPrompt,
+        result: restored.result,
+        thread: seed,
+        wearableSize: restored.wearableSize,
+        wearableCategory: restored.wearableCategory,
+        appliedChoices: restored.appliedChoices,
+      }),
+    );
+    scrollToEnd();
+  }
+
+  function saveCurrentToLibrary() {
+    if (!canSavePlate(result) || !result) {
+      setLibraryNotice("Print something first — the library saves the current plate.");
+      return;
+    }
+    const seedPrompt = designPrompt ?? result.fileName ?? "Untitled part";
+    const name = libraryName.trim() || suggestPartName(seedPrompt);
+    const { state, part } = savePart(library, {
+      name,
+      prompt: seedPrompt,
+      designPrompt: seedPrompt,
+      result,
+      wearableSize,
+      wearableCategory,
+      appliedChoices,
+    });
+    setLibrary(state);
+    setLibraryName(part.name);
+    setLoadedLibraryId(part.id);
+    setShowLibrary(true);
+    setLibraryNotice(`Saved “${part.name}” on this device (${state.parts.length}/${PART_LIBRARY_CAP}). Not cloud sync.`);
+  }
+
+  function loadLibraryPart(part: SavedPart) {
+    if (busy) return;
+    applyLibraryPart(part);
+  }
+
+  function remixLibraryPart(part: SavedPart, instruction: string) {
+    if (busy) return;
+    const remix = buildRemixRequest(part, instruction);
+    applyLibraryPart(part);
+    void printPart(remix.prompt, {
+      previousPrompt: remix.previousPrompt,
+      previousCode: remix.previousCode,
+      previousJobId: remix.previousJobId,
+      previousSource: remix.previousSource,
+    });
+  }
+
+  function deleteLibraryPart(id: string) {
+    const next = removePart(library, id);
+    setLibrary(next);
+    if (loadedLibraryId === id) setLoadedLibraryId(null);
+    setLibraryNotice("Removed from this device’s library. Not cloud sync.");
+  }
+
   async function printPart(
     text: string,
     options?: {
@@ -504,6 +612,10 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       wearableCategory?: WearableCategoryId | null;
       choices?: AppliedDesignChoice[] | null;
       filament?: FilamentId | null;
+      previousPrompt?: string | null;
+      previousCode?: string | null;
+      previousJobId?: string | null;
+      previousSource?: GenerateResult["source"] | null;
     },
   ) {
     const cleaned = text.trim();
@@ -625,11 +737,12 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
     if (startFresh) {
       setAppliedChoices([]);
       setHistory(emptyVersionHistory());
+      setLoadedLibraryId(null);
     }
-    const previousPrompt = startFresh ? null : designPrompt;
-    const previousCode = startFresh ? null : result?.code;
-    const previousJobId = startFresh ? null : result?.jobId;
-    const previousSource = startFresh ? null : result?.source;
+    const previousPrompt = startFresh ? null : (options?.previousPrompt !== undefined ? options.previousPrompt : designPrompt);
+    const previousCode = startFresh ? null : (options?.previousCode !== undefined ? options.previousCode : result?.code);
+    const previousJobId = startFresh ? null : (options?.previousJobId !== undefined ? options.previousJobId : result?.jobId);
+    const previousSource = startFresh ? null : (options?.previousSource !== undefined ? options.previousSource : result?.source);
 
     setBusy(true);
     setPrompt("");
@@ -704,6 +817,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       const nextWearableCategory = generated.wearableCategory ?? wearableCategory;
       const nextChoices = generated.appliedChoices ?? choicesForRequest;
       setResult(generated);
+      setLibraryName((current) => current.trim() || suggestPartName(nextDesignPrompt));
       setWearableSize(nextWearableSize);
       setWearableCategory(nextWearableCategory);
       setAppliedChoices(nextChoices);
@@ -794,6 +908,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       const generated: GenerateResult = latest;
       const importPrompt = `Imported ${file.name}`;
       setResult(generated);
+      setLibraryName((current) => current.trim() || suggestPartName(file.name || importPrompt));
       setWearableSize(generated.wearableSize ?? null);
       setWearableCategory(generated.wearableCategory ?? DEFAULT_WEARABLE_CATEGORY);
       setDesignPrompt(importPrompt);
@@ -897,8 +1012,10 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       onUserProfileChange={commitUserProfile}
       followUps={
         result && !busy
-          ? result.editMode === "image-import"
-            ? PHOTO_FOLLOW_UPS
+          ? loadedLibraryId
+            ? remixFollowUps(library.parts.find((part) => part.id === loadedLibraryId) ?? null)
+            : result.editMode === "image-import"
+              ? PHOTO_FOLLOW_UPS
             : result.source === "imported-mesh"
               ? IMPORTED_FOLLOW_UPS
               : cadFollowUps(result)
@@ -912,7 +1029,18 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
           setAppliedChoices([]);
           setHistory(emptyVersionHistory());
           setShowHistory(false);
+          setLoadedLibraryId(null);
           setResult(null);
+          return;
+        }
+        const loaded = loadedLibraryId ? library.parts.find((part) => part.id === loadedLibraryId) : null;
+        if (loaded) {
+          void printPart(value, {
+            previousPrompt: loaded.designPrompt || loaded.prompt,
+            previousCode: loaded.code,
+            previousJobId: loaded.jobId,
+            previousSource: loaded.source,
+          });
           return;
         }
         setPrompt(value);
@@ -1027,6 +1155,17 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
                   History
                 </button>
               ) : null}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowLibrary((open) => !open);
+                  if (!showLibrary) setShowHistory(false);
+                }}
+                className="text-[11px] text-muted underline-offset-2 hover:underline"
+                aria-expanded={showLibrary}
+              >
+                Library
+              </button>
               {items.length > 0 ? (
                 <button
                   type="button"
@@ -1044,6 +1183,22 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
               history={history}
               busy={busy}
               onRestore={restorePlate}
+            />
+          ) : null}
+
+          {showLibrary ? (
+            <PartLibraryPanel
+              library={library}
+              busy={busy}
+              loadedId={loadedLibraryId}
+              canSave={canSavePlate(result) && !busy}
+              name={libraryName}
+              notice={libraryNotice}
+              onNameChange={setLibraryName}
+              onSave={saveCurrentToLibrary}
+              onLoad={loadLibraryPart}
+              onRemix={remixLibraryPart}
+              onRemove={deleteLibraryPart}
             />
           ) : null}
 
@@ -1235,6 +1390,19 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
               }}
             />
 
+            <PartLibrarySaveBlock
+              name={libraryName}
+              canSave={canSavePlate(result) && !busy}
+              count={library.parts.length}
+              notice={libraryNotice}
+              onNameChange={setLibraryName}
+              onSave={saveCurrentToLibrary}
+              onOpen={() => {
+                setShowLibrary(true);
+                setWorkspace("prepare");
+              }}
+            />
+
             {result ? (
               <ResultPanel
                 result={result}
@@ -1269,6 +1437,163 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
           ) : null}
         </aside>
       </div>
+    </div>
+  );
+}
+
+function PartLibrarySaveBlock({
+  name,
+  canSave,
+  count,
+  notice,
+  onNameChange,
+  onSave,
+  onOpen,
+}: {
+  name: string;
+  canSave: boolean;
+  count: number;
+  notice: string | null;
+  onNameChange: (value: string) => void;
+  onSave: () => void;
+  onOpen: () => void;
+}) {
+  return (
+    <div className="space-y-2 rounded-md border border-line bg-panel-2 p-2.5">
+      <div className="studio-label">Part library</div>
+      <p className="text-[10px] leading-relaxed text-muted">{PART_LIBRARY_NOTE}</p>
+      <label className="block text-[11px] text-muted" htmlFor="library-save-name">
+        Name
+        <input
+          id="library-save-name"
+          value={name}
+          onChange={(event) => onNameChange(event.target.value)}
+          placeholder="Proven fixture…"
+          className="studio-field mt-0.5 w-full px-2 py-1.5 text-sm"
+        />
+      </label>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={!canSave}
+          onClick={onSave}
+          className="studio-btn studio-btn-ghost inline-flex h-8 px-3 disabled:opacity-40"
+          title={canSave ? "Save the current plate on this device" : "Print something first"}
+        >
+          Save to library
+        </button>
+        <button type="button" onClick={onOpen} className="text-[11px] text-muted underline-offset-2 hover:underline">
+          Browse {count}/{PART_LIBRARY_CAP}
+        </button>
+      </div>
+      {notice ? <p className="text-[10px] leading-relaxed text-muted">{notice}</p> : null}
+    </div>
+  );
+}
+
+function PartLibraryPanel({
+  library,
+  busy,
+  loadedId,
+  canSave,
+  name,
+  notice,
+  onNameChange,
+  onSave,
+  onLoad,
+  onRemix,
+  onRemove,
+}: {
+  library: { parts: SavedPart[] };
+  busy: boolean;
+  loadedId: string | null;
+  canSave: boolean;
+  name: string;
+  notice: string | null;
+  onNameChange: (value: string) => void;
+  onSave: () => void;
+  onLoad: (part: SavedPart) => void;
+  onRemix: (part: SavedPart, instruction: string) => void;
+  onRemove: (id: string) => void;
+}) {
+  const parts = listParts({ version: 1, cloudSync: false, parts: library.parts });
+  return (
+    <div className="border-b border-line bg-panel-2 px-3 py-2">
+      <div className="studio-label">Library</div>
+      <p className="mt-0.5 text-[10px] leading-relaxed text-muted">{PART_LIBRARY_NOTE}</p>
+      <div className="mt-2 flex flex-wrap items-end gap-2">
+        <label className="min-w-0 flex-1 text-[11px] text-muted" htmlFor="library-panel-name">
+          Save current plate
+          <input
+            id="library-panel-name"
+            value={name}
+            onChange={(event) => onNameChange(event.target.value)}
+            placeholder="Name this part…"
+            className="studio-field mt-0.5 w-full px-2 py-1.5 text-sm"
+          />
+        </label>
+        <button
+          type="button"
+          disabled={!canSave}
+          onClick={onSave}
+          className="studio-btn studio-btn-ghost inline-flex h-8 px-3 disabled:opacity-40"
+        >
+          Save
+        </button>
+      </div>
+      {notice ? <p className="mt-1.5 text-[10px] leading-relaxed text-muted">{notice}</p> : null}
+      {parts.length === 0 ? (
+        <p className="mt-2 text-[11px] text-muted">No saved parts on this device yet.</p>
+      ) : (
+        <ol className="scrollbar-thin mt-2 max-h-56 space-y-2 overflow-y-auto">
+          {parts.map((part) => {
+            const current = part.id === loadedId;
+            const chips = remixFollowUps(part).filter((chip) => !chip.toLowerCase().includes("new part"));
+            return (
+              <li key={part.id} className={`rounded-md px-2 py-1.5 ${current ? "bg-accent/15" : "bg-panel"}`}>
+                <div className="flex items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[11px] font-medium text-ink">{part.name}</div>
+                    <div className="text-[10px] text-muted">
+                      {partSourceLabel(part.source)}
+                      {current ? " · on plate" : ""} · {formatPartSavedAt(part)}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={busy || current}
+                    onClick={() => onLoad(part)}
+                    className="text-[11px] text-muted underline-offset-2 hover:underline disabled:opacity-40"
+                  >
+                    Load
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onRemove(part.id)}
+                    className="text-[11px] text-muted underline-offset-2 hover:underline disabled:opacity-40"
+                  >
+                    Remove
+                  </button>
+                </div>
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {chips.map((chip) => (
+                    <button
+                      key={chip}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => onRemix(part, chip)}
+                      className="rounded-full border border-line bg-panel-2 px-2 py-0.5 text-[10px] text-muted hover:border-accent/50 hover:text-ink disabled:opacity-40"
+                    >
+                      {chip}
+                    </button>
+                  ))}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      )}
     </div>
   );
 }

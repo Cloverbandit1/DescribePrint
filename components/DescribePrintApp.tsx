@@ -1331,7 +1331,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
         </section>
 
         <aside
-          className={`min-h-0 flex-col border-line bg-panel ${
+          className={`print-column min-h-0 flex-col border-line bg-panel ${
             workspace === "prepare" ? "hidden lg:flex lg:border-l" : "flex border-t lg:border-l lg:border-t-0"
           } ${workspace === "preview" ? "order-2 lg:order-none" : ""}`}
         >
@@ -1417,7 +1417,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
                   Nothing on the plate yet. Describe a part, import STL/3MF or a photo, or pick a wearable size, then
                   Print. Files are sized for the P2S; oversized photo solids suggest another machine.
                 </p>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="machine-chip-row">
                   <button
                     type="button"
                     disabled
@@ -1944,7 +1944,7 @@ function ChatBubble({
         ) : null}
         {(onDoctorFeedback && result.defectId !== "mid-print-control" && !result.reshape?.attempted) ||
         (onCameraChip && cameraChips?.length) ? (
-          <div className="mt-2 flex flex-wrap gap-1.5">
+          <div className="machine-chip-row mt-2">
             {onDoctorFeedback && result.defectId !== "mid-print-control" && !result.reshape?.attempted ? (
               <>
                 <button
@@ -2154,7 +2154,7 @@ function FailedPhotoControls({
     <div className="mt-2 border-t border-line pt-2">
       <div className="font-medium text-ink">Failed photo (stub)</div>
       <p className="mt-0.5">{FAILURE_PHOTO_NOTE}</p>
-      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+      <div className="machine-chip-row mt-1.5">
         <label className="sr-only" htmlFor="failed-photo-file">
           Failed print photo
         </label>
@@ -2164,7 +2164,7 @@ function FailedPhotoControls({
           accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
           disabled={disabled}
           aria-label="Failed print photo"
-          className="max-w-[11rem] text-[11px] text-ink file:mr-1.5 file:rounded file:border file:border-line file:bg-panel file:px-1.5 file:py-0.5"
+          className="max-w-full min-w-0 flex-1 text-[11px] text-ink file:mr-1.5 file:rounded file:border file:border-line file:bg-panel file:px-1.5 file:py-0.5"
           onChange={(event) => {
             const file = event.target.files?.[0];
             setFilename(file?.name ?? "");
@@ -2329,14 +2329,14 @@ function AmsPlanBlock({
       ) : (
         <ul className="mt-1 space-y-0.5" aria-label="AMS slot plan">
           {plan.slots.map((slot) => (
-            <li key={`${slot.index}-${slot.designId ?? slot.material}`} className="flex items-center gap-1.5">
+            <li key={`${slot.index}-${slot.designId ?? slot.material}`} className="ams-plan-row flex flex-wrap items-center gap-1.5">
               <label className="sr-only" htmlFor={`ams-plan-tray-${slot.index}`}>
                 Tray for {slot.designId ?? slot.material}
               </label>
               <select
                 id={`ams-plan-tray-${slot.index}`}
                 aria-label={`AMS tray for ${slot.designId ?? slot.material}`}
-                className="studio-field h-6 w-[4.5rem] px-1 text-[11px]"
+                className="studio-field ams-plan-select h-6 w-[4.5rem] px-1 text-[11px]"
                 value={slot.index}
                 onChange={(event) => onReassign(slot.index, Number(event.target.value))}
               >
@@ -2501,7 +2501,7 @@ function MachinePanel({
   const doctorHint = doctor ?? machine?.diagnosis ?? null;
 
   return (
-    <div className="rounded-md border border-line bg-panel-2 p-2.5 text-[11px] leading-relaxed text-muted">
+    <div className="machine-panel rounded-md border border-line bg-panel-2 p-2.5 text-[11px] leading-relaxed text-muted">
       <div className="studio-label">Machine</div>
       <div className="mt-1 flex items-baseline justify-between gap-2">
         <div className="text-sm font-medium text-ink">{farm.selected.name}</div>
@@ -2515,7 +2515,7 @@ function MachinePanel({
           id="farm-machine-select"
           value={farm.selected.id}
           onChange={(event) => farm.select(event.target.value)}
-          className="studio-field h-6 min-w-[8.5rem] flex-1 px-1.5 text-[11px]"
+          className="studio-field machine-farm-select h-6 min-w-[8.5rem] flex-1 px-1.5 text-[11px]"
         >
           {farm.machines.map((row) => (
             <option key={row.id} value={row.id}>
@@ -2587,7 +2587,7 @@ function MachinePanel({
           </button>
         </div>
       </div>
-      <label className="mt-2 flex items-center gap-1.5 text-ink">
+      <label className="machine-toggle-row mt-2 flex items-center gap-2 text-ink">
         <input
           type="checkbox"
           checked={lanOn}
@@ -2598,13 +2598,17 @@ function MachinePanel({
         {envLocked ? <span className="font-normal text-muted">· .env</span> : null}
       </label>
       {lanOn && !envLocked ? (
-        <div className="mt-1.5 grid grid-cols-[4.5rem_1fr] items-center gap-x-1.5 gap-y-1">
+        <div className="machine-lan-fields mt-1.5">
           <label htmlFor="machine-lan-host">IP</label>
           <input
             id="machine-lan-host"
             type="text"
+            inputMode="decimal"
             autoComplete="off"
+            autoCapitalize="off"
+            autoCorrect="off"
             spellCheck={false}
+            enterKeyHint="next"
             placeholder="192.168.1.20"
             value={prefs.host}
             onChange={(event) => setHost(event.target.value)}
@@ -2614,8 +2618,12 @@ function MachinePanel({
           <input
             id="machine-lan-serial"
             type="text"
+            inputMode="text"
             autoComplete="off"
+            autoCapitalize="characters"
+            autoCorrect="off"
             spellCheck={false}
+            enterKeyHint="next"
             placeholder="01S00A…"
             value={prefs.serial}
             onChange={(event) => setSerial(event.target.value)}
@@ -2625,7 +2633,10 @@ function MachinePanel({
           <input
             id="machine-lan-access"
             type="password"
+            inputMode="numeric"
+            pattern="[0-9]*"
             autoComplete="off"
+            enterKeyHint="done"
             placeholder="8-digit LAN code"
             value={prefs.accessCode}
             onChange={(event) => setAccessCode(event.target.value)}
@@ -2652,7 +2663,7 @@ function MachinePanel({
         />
         {connectionLabel}
       </div>
-      <label className="mt-2 flex items-center gap-1.5 text-ink">
+      <label className="machine-toggle-row mt-2 flex items-center gap-2 text-ink">
         <input
           type="checkbox"
           checked={cameraOn}
@@ -2680,7 +2691,7 @@ function MachinePanel({
         </div>
       ) : null}
       <FailedPhotoControls disabled={busy} onReplay={onFailurePhoto} />
-      <label className="mt-2 flex items-center gap-1.5 text-ink">
+      <label className="machine-toggle-row mt-2 flex items-center gap-2 text-ink">
         <input
           type="checkbox"
           checked={reshapeOn}
@@ -2781,7 +2792,7 @@ function MachinePanel({
       {preset.notes ? <div className="mt-0.5">{preset.notes}</div> : null}
       {connected ? (
         <div className="mt-2 space-y-1.5 border-t border-line pt-2">
-          <div className="flex flex-wrap gap-1">
+          <div className="machine-chip-row">
             <button
               type="button"
               disabled={busy}
@@ -2810,7 +2821,7 @@ function MachinePanel({
               </button>
             ))}
           </div>
-          <div className="flex flex-wrap items-center gap-1">
+          <div className="machine-chip-row">
             <label className="flex items-center gap-1">
               Nozzle
               <input
@@ -2936,7 +2947,7 @@ function ResultPanel({
         </div>
       ) : null}
       <div className="studio-label">Exports</div>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="machine-chip-row">
         <a href={result.stlUrl} className="studio-btn studio-btn-ghost inline-flex h-8 px-3">
           Download STL
         </a>

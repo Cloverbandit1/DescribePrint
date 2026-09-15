@@ -17,6 +17,8 @@ Default machine remains **Bambu Lab P2S** with one **AMS (4 slots)**.
 
 The Print column shows a compact **Machine** panel. Everyday path: toggle **LAN MQTT**, enter IP / serial / LAN access code (saved in the browser). Off stays disconnected / mock. On with incomplete fields stays mock and shows a short hint — no crash. Env `BAMBU_LAN_MQTT=1` plus creds is a headless/dev override. Live P2S/AMS status and tiny pause/resume/speed/temp controls appear when connected. Chat can route a complaint to Print doctor **without** calling the CAD generate path, except the flagged remaining-layer reshape stub which invokes CAD Core’s existing reshape-upper consumer. STL/3MF export still works with no printer.
 
+**iPhone Safari:** open the **web app URL** in Safari (not the Desktop Pack PWA). Use the existing **Preview** tab so the Print column stacks under the plate — Machine / monitor / AMS / Connect LAN stay in that column. Connect LAN fields stack full-width (access code stays password-style). Pause / Slow / Cool / Perfect / Still bad / LAN toggle / AMS reassign / Download pack / Failed photo use ≥44px tap targets and wrap so chips do not overflow. The CAD studio grid / Prepare–Preview chrome is unchanged.
+
 ## What this slice does not ship
 
 - Bambu Cloud, a real camera stream, send-to-printer FTPS, or remaining-layer CAD internals (Print Control invokes `runCadReshapeUpper` / `POST /api/generate` with `cadHandoff`; it does not rewrite CAD)

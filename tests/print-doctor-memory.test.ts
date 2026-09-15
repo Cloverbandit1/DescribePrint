@@ -17,7 +17,7 @@ import {
 import { diagnosePrintComplaint, looksLikeDoctorFeedback, nextAfterRejected } from "@/lib/print-doctor";
 
 function memoryFiles(): string[] {
-  return ["lib/machine/print-doctor-memory.ts", "lib/print-doctor.ts"];
+  return ["lib/machine/print-doctor-memory.ts", "lib/print-doctor.ts", "lib/machine/ams-help.ts"];
 }
 
 function fakeStorage(initial?: Record<string, string>): Storage {

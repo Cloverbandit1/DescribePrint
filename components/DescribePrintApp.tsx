@@ -18,6 +18,7 @@ import {
   declaredDesignFilaments,
   reassignAmsSlot,
 } from "@/lib/machine/ams";
+import { selectAmsHelpGuide, type AmsHelpGuide } from "@/lib/machine/ams-help";
 import type { AmsSlotPlan, AmsSlotStatus } from "@/lib/machine/types";
 import { MACHINE_RESHAPE_STORAGE_KEY, parseReshapeRemainingPref } from "@/lib/machine/reshape-pref";
 import { FARM_QUEUE_NOTE, nextFarmStubName } from "@/lib/machine/farm";
@@ -1300,11 +1301,32 @@ function ChatBubble({
       <div className="mr-4 rounded-md border border-accent/35 bg-accent/5 px-2.5 py-2 text-sm">
         <div className="font-medium">Print doctor — {result.title}</div>
         <div className="mt-1 text-muted">{result.diagnosis}</div>
-        <ul className="mt-2 list-disc space-y-1 pl-4 text-[13px] text-muted">
-          {result.fixes.slice(0, 3).map((fix) => (
-            <li key={`${fix.kind}-${fix.summary}`}>{fix.summary}</li>
-          ))}
-        </ul>
+        {result.fixes.filter((fix) => fix.kind === "setting").length ? (
+          <ul className="mt-2 list-disc space-y-1 pl-4 text-[13px] text-muted">
+            {result.fixes
+              .filter((fix) => fix.kind === "setting")
+              .slice(0, 3)
+              .map((fix) => (
+                <li key={`${fix.kind}-${fix.summary}`}>{fix.summary}</li>
+              ))}
+          </ul>
+        ) : null}
+        {result.physicalSteps.length ? (
+          <ol className="mt-2 list-decimal space-y-1 pl-4 text-[13px] text-muted">
+            {result.physicalSteps.map((step, index) => (
+              <li key={`${index}-${step}`}>{step}</li>
+            ))}
+          </ol>
+        ) : (
+          <ul className="mt-2 list-disc space-y-1 pl-4 text-[13px] text-muted">
+            {result.fixes.slice(0, 3).map((fix) => (
+              <li key={`${fix.kind}-${fix.summary}`}>{fix.summary}</li>
+            ))}
+          </ul>
+        )}
+        {result.amsGuide?.whenToRetrySoftware ? (
+          <div className="mt-2 text-[13px] text-muted">{result.amsGuide.whenToRetrySoftware}</div>
+        ) : null}
         {result.autofix?.attempted ? (
           <div className="mt-2 text-[13px] text-muted">{result.autofix.message}</div>
         ) : null}
@@ -1603,9 +1625,11 @@ function persistAmsSlotPlan(jobId: string | undefined, plan: AmsSlotPlan) {
 function AmsPlanBlock({
   plan,
   onReassign,
+  help,
 }: {
   plan: AmsSlotPlan;
   onReassign: (fromIndex: number, toIndex: number) => void;
+  help?: AmsHelpGuide;
 }) {
   return (
     <div className="mt-2 border-t border-line pt-1.5">
@@ -1648,6 +1672,19 @@ function AmsPlanBlock({
           ))}
         </ul>
       )}
+      {help ? (
+        <details className="mt-1.5">
+          <summary className="cursor-pointer text-ink">
+            AMS help{help.slot != null ? ` · AMS ${help.slot}` : ""}
+          </summary>
+          <ol className="mt-1 list-decimal space-y-0.5 pl-4">
+            {help.steps.map((step, index) => (
+              <li key={`${index}-${step}`}>{step}</li>
+            ))}
+          </ol>
+          {help.whenToRetrySoftware ? <div className="mt-1">{help.whenToRetrySoftware}</div> : null}
+        </details>
+      ) : null}
     </div>
   );
 }
@@ -1983,6 +2020,13 @@ function MachinePanel({
       </div>
       <AmsPlanBlock
         plan={plan}
+        help={
+          doctorHint?.amsGuide ??
+          selectAmsHelpGuide({
+            hint: status?.amsHint,
+            slot: status?.amsHint?.slot ?? doctorHint?.amsSlot,
+          })
+        }
         onReassign={(fromIndex, toIndex) => {
           const next = reassignAmsSlot(plan, fromIndex, toIndex);
           setManualPlan(next);

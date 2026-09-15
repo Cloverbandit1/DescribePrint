@@ -4,8 +4,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EXAMPLE_PROMPTS } from "@/lib/fixtures";
 import type { HealthReport, HealthTone } from "@/lib/health-types";
-import type { MachineApiResponse } from "@/lib/machine/api";
-import type { MidPrintCommand } from "@/lib/machine/types";
+import { useMachineMonitor } from "@/lib/machine/use-machine-monitor";
 import { diagnosePrintComplaint, looksLikePrintDoctorComplaint, type PrintDoctorResult } from "@/lib/print-doctor";
 import { defaultPrinter, filamentPreset, type PrinterProfile } from "@/lib/printers";
 import { formatMm } from "@/lib/units";
@@ -775,62 +774,29 @@ function MachinePanel({ printer, doctor }: { printer: PrinterProfile; doctor: Pr
   const [plateW, plateD, plateH] = printer.buildVolumeMm;
   const preset = filamentPreset(printer.defaultFilament, printer);
   const fallbackSlots = Array.from({ length: printer.ams.slotsPerUnit }, (_, i) => i + 1);
-  const [machine, setMachine] = useState<MachineApiResponse | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { prefs, setLanEnabled, setHost, setSerial, setAccessCode, machine, busy, sendCommand } =
+    useMachineMonitor();
   const [nozzleInput, setNozzleInput] = useState("");
   const [bedInput, setBedInput] = useState("");
 
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const response = await fetch("/api/machine", { cache: "no-store" });
-        if (!response.ok) return;
-        const data = (await response.json()) as MachineApiResponse;
-        if (!cancelled) setMachine(data);
-      } catch {
-        // Stay on the disconnected stub — CAD path must not depend on LAN.
-      }
-    };
-    void load();
-    const timer = window.setInterval(() => void load(), 4_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, []);
-
-  const sendCommand = async (command: MidPrintCommand) => {
-    setBusy(true);
-    try {
-      const response = await fetch("/api/machine", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ command }),
-      });
-      const data = (await response.json()) as MachineApiResponse & { error?: string };
-      if (response.ok) setMachine(data);
-    } catch {
-      // Keep last status. Command errors are shown from lastCommand when present.
-    } finally {
-      setBusy(false);
-    }
-  };
-
+  const envLocked = machine?.source === "env";
+  const lanOn = envLocked || prefs.enabled;
   const live = machine?.live === true;
   const status = machine?.status;
   const connected = live && status?.connection === "connected";
-  const connectionLabel = !live
-    ? "Disconnected · LAN later"
-    : status?.connection === "connected"
-      ? status.print === "idle"
-        ? "Connected · idle"
-        : `Connected · ${status.print}`
-      : status?.connection === "connecting"
-        ? "Connecting…"
-        : status?.message
-          ? `Disconnected · ${status.message}`
-          : "Disconnected";
+  const connectionLabel = !lanOn
+    ? "Disconnected"
+    : machine?.hint
+      ? machine.hint
+      : status?.connection === "connected"
+        ? status.print === "idle"
+          ? "Connected · idle"
+          : `Connected · ${status.print}`
+        : status?.connection === "connecting"
+          ? "Connecting…"
+          : status?.message
+            ? `Disconnected · ${status.message}`
+            : "Disconnected";
   const amsSlots = live && status ? status.amsSlots : [];
 
   return (
@@ -840,10 +806,62 @@ function MachinePanel({ printer, doctor }: { printer: PrinterProfile; doctor: Pr
       <div className="mt-1">
         Default printer · {plateW} × {plateD} × {plateH} mm · {printer.nozzleMm} mm nozzle
       </div>
+      <label className="mt-2 flex items-center gap-1.5 text-ink">
+        <input
+          type="checkbox"
+          checked={lanOn}
+          disabled={envLocked}
+          onChange={(event) => setLanEnabled(event.target.checked)}
+        />
+        LAN MQTT
+        {envLocked ? <span className="font-normal text-muted">· .env</span> : null}
+      </label>
+      {lanOn && !envLocked ? (
+        <div className="mt-1.5 grid grid-cols-[4.5rem_1fr] items-center gap-x-1.5 gap-y-1">
+          <label htmlFor="machine-lan-host">IP</label>
+          <input
+            id="machine-lan-host"
+            type="text"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="192.168.1.20"
+            value={prefs.host}
+            onChange={(event) => setHost(event.target.value)}
+            className="studio-field h-6 px-1.5 text-[11px]"
+          />
+          <label htmlFor="machine-lan-serial">Serial</label>
+          <input
+            id="machine-lan-serial"
+            type="text"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="01S00A…"
+            value={prefs.serial}
+            onChange={(event) => setSerial(event.target.value)}
+            className="studio-field h-6 px-1.5 text-[11px]"
+          />
+          <label htmlFor="machine-lan-access">Access code</label>
+          <input
+            id="machine-lan-access"
+            type="password"
+            autoComplete="off"
+            placeholder="8-digit LAN code"
+            value={prefs.accessCode}
+            onChange={(event) => setAccessCode(event.target.value)}
+            className="studio-field h-6 px-1.5 text-[11px]"
+          />
+        </div>
+      ) : null}
+      {envLocked && (machine?.host || machine?.serial) ? (
+        <div className="mt-1">
+          {machine.host}
+          {machine.serial ? ` · ${machine.serial}` : ""}
+        </div>
+      ) : null}
       <div
         className="mt-2 flex items-center gap-1.5"
         role="status"
-        aria-label={live ? connectionLabel : "Printer disconnected, LAN later"}
+        aria-label={lanOn ? connectionLabel : "Printer disconnected"}
       >
         <span
           className={`h-1.5 w-1.5 rounded-full ${

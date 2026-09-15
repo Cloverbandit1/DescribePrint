@@ -10,7 +10,7 @@ Default machine remains **Bambu Lab P2S** with one **AMS (4 slots)**.
 2. A **pluggable machine adapter** interface, a **mock** adapter, and typed stubs for live status, AMS slots, mid-print commands, 3MF→AMS mapping, and a remaining-layer reshape **planner** (ask CAD later — do not rewrite geometry here).
 3. A **Print doctor** keyword/rule stub: plain-language defect or machine complaint → structured diagnosis + proposed setting or physical steps. No LLM and no LAN I/O.
 
-The Print column shows a compact **Machine** panel. With the flag off (default) it stays the disconnected stub. With `BAMBU_LAN_MQTT=1` and LAN credentials it shows live P2S/AMS status and tiny pause/resume/speed/temp controls. Chat can route a complaint to Print doctor **without** calling the CAD generate path. STL/3MF export still works with no printer.
+The Print column shows a compact **Machine** panel. Everyday path: toggle **LAN MQTT**, enter IP / serial / LAN access code (saved in the browser). Off stays disconnected / mock. On with incomplete fields stays mock and shows a short hint — no crash. Env `BAMBU_LAN_MQTT=1` plus creds is a headless/dev override. Live P2S/AMS status and tiny pause/resume/speed/temp controls appear when connected. Chat can route a complaint to Print doctor **without** calling the CAD generate path. STL/3MF export still works with no printer.
 
 ## What this slice does not ship
 
@@ -33,7 +33,7 @@ Chat / Print column
                                             │
 MachineAdapter (interface)
         ├─ mock          ◄── default; tests + disconnected UI
-        └─ bambu-lan     ◄── BAMBU_LAN_MQTT=1 + LAN creds only
+        └─ bambu-lan     ◄── Machine panel toggle + access code, or BAMBU_LAN_MQTT=1 + env creds
                  │
                  ▼
         LiveMachineStatus (temps, layer, AMS slots)
@@ -53,9 +53,14 @@ MachineAdapter (interface)
 - `connect` / `disconnect` / `status`
 - `send(MidPrintCommand)` for mid-print adjust
 
-Register new machines with `registerMachineAdapter`. The default id is `mock`. `bambu-lan` is registered but **selected only** when `BAMBU_LAN_MQTT` is on and `BAMBU_HOST` / `BAMBU_SERIAL` / `BAMBU_ACCESS_CODE` are all set. `MACHINE_ADAPTER=mock` always wins. `MACHINE_ADAPTER=bambu-lan` without the flag+creds still falls back to mock.
+Register new machines with `registerMachineAdapter`. The default id is `mock`. `bambu-lan` is registered and selected when:
 
-Credentials (`host`, `serial`, `accessCode`) are typed and validated as strings only. They belong in `.env.local`. **Never commit them. Never log the access code.**
+1. The Machine panel turns **LAN MQTT** on and all three credential fields are filled (everyday path), or
+2. `BAMBU_LAN_MQTT` is on and `BAMBU_HOST` / `BAMBU_SERIAL` / `BAMBU_ACCESS_CODE` are all set (headless/dev override).
+
+`MACHINE_ADAPTER=mock` always wins, so CI cannot be forced onto LAN. `MACHINE_ADAPTER=bambu-lan` without the panel session or flag+creds still falls back to mock. Incomplete UI creds also stay on mock.
+
+Credentials (`host`, `serial`, `accessCode`) are typed and validated as strings only. Everyday use stores them in browser `localStorage` (`describeprint.machine.lan`). Env vars remain a valid override. **Never commit them. Never log the access code.** The API never returns the access code.
 
 ### LAN MQTT (flagged)
 
@@ -67,7 +72,7 @@ P2S LAN control uses **MQTT over TLS** (not Bambu Cloud):
 4. Status fields mapped when present: `gcode_state`, `nozzle_temper` / `nozzle_target_temper`, `bed_temper` / `bed_target_temper`, `layer_num` / `total_layer_num`, `mc_percent`, `spd_mag` / `spd_lvl`, AMS `tray_type` / `tray_color` / `remain`.
 5. Commands: `print.pause`, `print.resume`, `print.print_speed` (levels 1–4), temps via `print.gcode_line` (`M104` / `M140`). Risky temps still **pause first**. If a publish fails, the adapter returns Print-doctor-style physical steps (use the P2S screen).
 
-`GET /api/machine` auto-connects only when the live adapter is selected. Flag off: mock snapshot, no sockets. An unhealthy host fails safe (`error` / not connected, no throw, secrets redacted).
+`GET /api/machine` auto-connects only when the live adapter is selected (panel session or env override). Default / CI: mock snapshot, no sockets. The panel POSTs `{ lan, credentials }` to configure the in-memory session, then polls GET so temps / layer / AMS update live. An unhealthy host fails safe (`error` / not connected, no throw, secrets redacted).
 
 FTPS, camera, and send-to-printer are out of scope.
 
@@ -81,7 +86,7 @@ FTPS, camera, and send-to-printer are out of scope.
 - layer / total layers / progress
 - AMS slots: type, color, remaining % when the protocol exposes them
 
-The Machine panel polls `/api/machine` every few seconds. Flag off keeps the disconnected stub. Live + connected shows temps, layer/progress, AMS slots, and tiny controls. There is no camera stream.
+[`useMachineMonitor`](../lib/machine/use-machine-monitor.ts) is the client hook: it persists the toggle + three fields in `localStorage`, configures the server session, and polls `/api/machine` every few seconds so the panel updates while connected (temps, layer/progress, AMS, connection). LAN off keeps the disconnected stub. Live + connected shows status and tiny controls. There is no camera stream.
 
 ### Print doctor
 
@@ -132,7 +137,7 @@ Taken from Bambu’s published P2S specs / FAQ (see sources below):
 
 ## Tests
 
-`npm test` must pass **without** a physical printer. Coverage targets: profile tables, doctor diagnoses, AMS mapping, pause-before-risky, mock connection state machine, flag off = mock, live adapter + fake/unhealthy endpoint fails safe without leaking secrets.
+`npm test` must pass **without** a physical printer. Coverage targets: profile tables, doctor diagnoses, AMS mapping, pause-before-risky, mock connection state machine, flag off = mock, UI toggle + incomplete creds = mock + hint, UI toggle + complete creds selects `bambu-lan` without setting the env flag, env override still works, live adapter + fake/unhealthy endpoint fails safe without leaking secrets.
 
 ## Sources
 

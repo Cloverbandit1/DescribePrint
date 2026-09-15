@@ -35,10 +35,28 @@ export { MockMachineAdapter } from "./mock";
 export { BambuLanMachineAdapter } from "./bambu-lan";
 export {
   BAMBU_LAN_ADAPTER_ID,
+  INCOMPLETE_LAN_HINT,
   isBambuLanMqttEnabled,
+  machineLanHint,
+  machineLanSource,
   readBambuLanCredentials,
+  readLiveCredentials,
+  resolveActiveAdapterId,
   resolveMachineAdapterId,
 } from "./config";
+export {
+  credentialsComplete,
+  getMachineUiSession,
+  resetMachineUiSession,
+  setMachineUiSession,
+} from "./session";
+export {
+  MACHINE_LAN_STORAGE_KEY,
+  defaultMachineLanPrefs,
+  parseMachineLanPrefs,
+  serializeMachineLanPrefs,
+} from "./prefs";
+export { parseMachineConfigure, commandFromBody } from "./api";
 export {
   bambuTopics,
   buildBambuCommandPayload,

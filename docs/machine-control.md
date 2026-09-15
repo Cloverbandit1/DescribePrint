@@ -171,9 +171,9 @@ For Bella / CAD Core. Print Control emits this; CAD Core consumes it later.
 | `currentZ` | Already-printed stump height |
 | `remainingHeightMm` / `remainingLayers` | Unprinted remainder |
 | `suggestedNextStep` | New OpenSCAD/mesh for the unprinted region only |
-| `previousCode` | Optional original-part OpenSCAD when Print Control already has it |
-| `stumpCutPlaneBoundsMm` | Optional stump XY bounds at the cut plane (`{ minX, minY, maxX, maxY }` mm) |
-| `layerHeightMm` | Optional layer height (mm). CAD still will not invent `remainingHeightMm` from `remainingLayers` alone |
+| `previousCode` | Optional original-part OpenSCAD from the current generate job / latest in-memory result |
+| `stumpCutPlaneBoundsMm` | Optional stump XY bounds at the cut plane (`{ minX, minY, maxX, maxY }` mm) when the job mesh intersects current Z. Omitted when that cut cannot be measured — do not guess from the last-part AABB |
+| `layerHeightMm` | Optional layer height (mm): live machine status if present, else the selected material preset (or the last job’s preset). CAD still will not invent `remainingHeightMm` from `remainingLayers` alone |
 
 Do **not** generate that mesh in Print Control.
 
@@ -185,6 +185,8 @@ await runCadReshapeUpper({ handoff, prompt, previousCode, fixture: true });
 ```
 
 Or `POST /api/generate` with `{ prompt, cadHandoff, previousCode?, fixture? }`. After an attempted emergency reshape, the next CAD chat turn sends `cadHandoff` from the doctor plan. The result is the remaining upper only (sits on the cut plane). `cadFeedForReslice` attaches `jobId` / STL / 3MF URLs onto the existing reslice stub (`sendGcode: false`). Resume stays manual.
+
+When the emergency path builds a handoff, Print Control fills those three optionals from real sources and **omits** them when unknown. `remainingHeightMm` / `currentZ` stay live/mock measurements only — never `remainingLayers × layerHeightMm`.
 
 When present, CAD prefers `previousCode`, `stumpCutPlaneBoundsMm`, and `layerHeightMm` from the handoff. XY still falls back to the last part when cut-plane bounds are absent. CAD still refuses to invent `remainingHeightMm` from `remainingLayers` alone, even if `layerHeightMm` is set.
 
@@ -204,7 +206,7 @@ Taken from Bambu’s published P2S specs / FAQ (see sources below):
 
 ## Tests
 
-`npm test` must pass **without** a physical printer. Coverage targets: profile tables (including PA), material session parse, doctor diagnoses + “use PETG settings” / “best for PA”, 3MF preset metadata / sidecar fields, AMS mapping, pause-before-risky, mock connection state machine, flag off = mock, UI toggle + incomplete creds = mock + hint, UI toggle + complete creds selects `bambu-lan` without setting the env flag, env override still works, live adapter + fake/unhealthy endpoint fails safe without leaking secrets, camera stub `detectFailure` (stub only), live poll + detect (flag off = no detect; flag on + mock `none` = `camera: ok`; injected spaghetti / scrape / empty-bed surfaces on the panel and doctor without auto-pause), AMS autofix flag off (no commands) vs flag on (pause then autofix or physical steps), remaining-layer reshape flag off (no pause, no live plan) vs flag on + injected remaining height (pause + plan, no resume, `remainingHeightMm` / `currentZ` present).
+`npm test` must pass **without** a physical printer. Coverage targets: profile tables (including PA), material session parse, doctor diagnoses + “use PETG settings” / “best for PA”, 3MF preset metadata / sidecar fields, AMS mapping, pause-before-risky, mock connection state machine, flag off = mock, UI toggle + incomplete creds = mock + hint, UI toggle + complete creds selects `bambu-lan` without setting the env flag, env override still works, live adapter + fake/unhealthy endpoint fails safe without leaking secrets, camera stub `detectFailure` (stub only), live poll + detect (flag off = no detect; flag on + mock `none` = `camera: ok`; injected spaghetti / scrape / empty-bed surfaces on the panel and doctor without auto-pause), AMS autofix flag off (no commands) vs flag on (pause then autofix or physical steps), remaining-layer reshape flag off (no pause, no live plan) vs flag on + injected remaining height (pause + plan, no resume, `remainingHeightMm` / `currentZ` present). Handoff optionals (`previousCode`, `stumpCutPlaneBoundsMm`, `layerHeightMm`) are present when a job / live layer height / selected preset exists and omitted when those sources are unknown. `remainingHeightMm` is still not derived from remaining layer count.
 
 ## Sources
 

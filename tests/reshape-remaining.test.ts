@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { POST } from "@/app/api/machine/route";
+import { createJob, resetJobs } from "@/lib/jobs";
 import {
   CAD_RESHAPE_INSTRUCTION,
   MockMachineAdapter,
@@ -10,6 +11,8 @@ import {
   maybeEmergencyReshapeRemaining,
   planRemainingLayerReshape,
   resetSharedMachine,
+  resolveHandoffLayerHeightMm,
+  stumpCutPlaneBoundsFromMesh,
 } from "@/lib/machine";
 import {
   diagnosePrintComplaint,
@@ -17,14 +20,48 @@ import {
   looksLikeEmergencyReshape,
   looksLikePrintDoctorComplaint,
 } from "@/lib/print-doctor";
+import { printPresetSummary } from "@/lib/printers";
+import { makeAxisAlignedBoxMesh, writeBinaryStl } from "@/lib/stl";
+import type { PrintabilityReport } from "@/lib/types";
 
 const FLAG = "RESHAPE_REMAINING";
+
+beforeEach(() => {
+  resetJobs();
+});
 
 afterEach(() => {
   delete process.env[FLAG];
   delete process.env.BAMBU_CAMERA_STUB;
   resetSharedMachine();
+  resetJobs();
 });
+
+function testReport(size: [number, number, number] = [20, 15, 8]): PrintabilityReport {
+  return {
+    triangleCount: 12,
+    volumeMm3: size[0] * size[1] * size[2],
+    boundingBoxMm: { min: [0, 0, 0], max: size, size },
+    manifold: true,
+    watertight: true,
+    issues: [],
+    units: "mm",
+  };
+}
+
+function storeTestJob(opts?: { scad?: string; size?: [number, number, number]; material?: "pla" | "petg" | "pa" }) {
+  const size = opts?.size ?? ([20, 15, 8] as [number, number, number]);
+  const mesh = makeAxisAlignedBoxMesh(size);
+  return createJob({
+    stl: writeBinaryStl(mesh),
+    threemf: Buffer.from("PK"),
+    scad: opts?.scad ?? "size = 20;\nhole_d = 5;\ncube(size);",
+    report: testReport(size),
+    usedFixture: true,
+    retried: false,
+    printPreset: printPresetSummary(opts?.material ?? "pla"),
+  });
+}
 
 describe("RESHAPE_REMAINING flag", () => {
   it("stays off by default", () => {
@@ -131,6 +168,9 @@ describe("maybeEmergencyReshapeRemaining", () => {
     expect(result.cadHandoff?.instruction).toBe(CAD_RESHAPE_INSTRUCTION);
     expect(result.cadHandoff?.owner).toBe("allos-cad-core");
     expect(result.cadHandoff?.suggestedNextStep).toMatch(/unprinted region only/i);
+    expect(result.cadHandoff).not.toHaveProperty("previousCode");
+    expect(result.cadHandoff).not.toHaveProperty("stumpCutPlaneBoundsMm");
+    expect(result.cadHandoff).not.toHaveProperty("layerHeightMm");
     expect(result.reslice?.printerProfile).toBe("P2S");
     expect(result.reslice?.sendGcode).toBe(false);
     expect(result.commands.map((row) => row.message)).toEqual(["Paused."]);
@@ -274,5 +314,109 @@ describe("machine API emergency reshape", () => {
     expect(body.lastReshape?.paused).toBe(true);
     expect(body.lastReshape?.sentResume).toBe(false);
     expect(body.status.print).toBe("paused");
+  });
+});
+
+describe("CadReshapeHandoff optionals from Print Control sources", () => {
+  it("measures stump XY at the cut plane and omits when Z is unknown", () => {
+    const mesh = makeAxisAlignedBoxMesh([20, 15, 8]);
+    expect(stumpCutPlaneBoundsFromMesh(mesh, 2.4)).toEqual({ minX: 0, minY: 0, maxX: 20, maxY: 15 });
+    expect(stumpCutPlaneBoundsFromMesh(mesh, null)).toBeUndefined();
+    expect(stumpCutPlaneBoundsFromMesh(mesh, 40)).toBeUndefined();
+    expect(stumpCutPlaneBoundsFromMesh({ triangles: [] }, 2.4)).toBeUndefined();
+  });
+
+  it("uses live layer height before the selected preset, and omits when both are unknown", () => {
+    expect(resolveHandoffLayerHeightMm({ statusLayerHeightMm: 0.16, material: "petg" })).toBeCloseTo(0.16);
+    expect(resolveHandoffLayerHeightMm({ material: "petg" })).toBeCloseTo(0.2);
+    expect(resolveHandoffLayerHeightMm({ jobMaterial: "pa" })).toBeCloseTo(0.2);
+    expect(resolveHandoffLayerHeightMm({})).toBeUndefined();
+    expect(resolveHandoffLayerHeightMm({ statusLayerHeightMm: 0 })).toBeUndefined();
+  });
+
+  it("fills previousCode, stump bounds, and layerHeightMm when a job and live layer height exist", async () => {
+    const machine = new MockMachineAdapter();
+    await machine.connect();
+    machine.injectRemainingHeight({ remainingHeightMm: 5.6, currentHeightMm: 2.4, layerHeightMm: 0.16 });
+    storeTestJob({ scad: "size = 30;\nhole_d = 6;\ncube(size);", size: [20, 15, 8] });
+
+    const result = await maybeEmergencyReshapeRemaining({
+      adapter: machine,
+      complaint: "reshape the rest",
+      enabled: true,
+    });
+
+    expect(result.cadHandoff?.previousCode).toContain("size = 30");
+    expect(result.cadHandoff?.stumpCutPlaneBoundsMm).toEqual({ minX: 0, minY: 0, maxX: 20, maxY: 15 });
+    expect(result.cadHandoff?.layerHeightMm).toBeCloseTo(0.16);
+    expect(result.remainingHeightMm).toBeCloseTo(5.6);
+  });
+
+  it("uses the selected material preset layer height when live status has none", async () => {
+    const machine = new MockMachineAdapter();
+    await machine.connect();
+    machine.injectRemainingHeight({ remainingHeightMm: 5.6, currentHeightMm: 2.4 });
+
+    const result = await maybeEmergencyReshapeRemaining({
+      adapter: machine,
+      complaint: "reshape the rest",
+      enabled: true,
+      material: "petg",
+    });
+
+    expect(result.cadHandoff?.layerHeightMm).toBeCloseTo(0.2);
+    expect(result.cadHandoff).not.toHaveProperty("previousCode");
+    expect(result.cadHandoff).not.toHaveProperty("stumpCutPlaneBoundsMm");
+  });
+
+  it("does not invent remainingHeightMm from remainingLayers even when layerHeightMm is known", async () => {
+    const machine = new MockMachineAdapter();
+    await machine.connect();
+    machine.simulatePrinting({ layer: 12, totalLayers: 40, omitHeights: true, layerHeightMm: 0.2 });
+
+    const result = await maybeEmergencyReshapeRemaining({
+      adapter: machine,
+      complaint: "reshape the rest",
+      enabled: true,
+      material: "pla",
+    });
+
+    expect(result.remainingLayers).toBe(28);
+    expect(result.remainingHeightMm).toBeNull();
+    expect(result.currentZ).toBeNull();
+    expect(result.cadHandoff?.remainingHeightMm).toBeNull();
+    expect(result.cadHandoff?.currentZ).toBeNull();
+    expect(result.cadHandoff?.layerHeightMm).toBeCloseTo(0.2);
+    expect(result.cadHandoff).not.toHaveProperty("stumpCutPlaneBoundsMm");
+  });
+
+  it("fills optionals from the latest job through the machine API", async () => {
+    process.env[FLAG] = "1";
+    const machine = getSharedMachine() as MockMachineAdapter;
+    await machine.connect();
+    machine.injectRemainingHeight({ remainingHeightMm: 5.6, currentHeightMm: 2.4 });
+    storeTestJob({ scad: "cube(24);", size: [24, 18, 10], material: "pa" });
+
+    const response = await POST(
+      new Request("http://localhost/api/machine", {
+        method: "POST",
+        body: JSON.stringify({ complaint: "reshape the rest", material: "petg" }),
+      }),
+    );
+    const body = (await response.json()) as {
+      lastReshape?: {
+        remainingHeightMm: number | null;
+        cadHandoff?: {
+          previousCode?: string;
+          stumpCutPlaneBoundsMm?: { minX: number; minY: number; maxX: number; maxY: number };
+          layerHeightMm?: number;
+        };
+      };
+    };
+
+    expect(body.lastReshape?.remainingHeightMm).toBeCloseTo(5.6);
+    expect(body.lastReshape?.cadHandoff?.previousCode).toContain("cube(24)");
+    expect(body.lastReshape?.cadHandoff?.stumpCutPlaneBoundsMm).toEqual({ minX: 0, minY: 0, maxX: 24, maxY: 18 });
+    expect(body.lastReshape?.cadHandoff?.layerHeightMm).toBeCloseTo(0.2);
   });
 });

@@ -46,6 +46,8 @@ export type LiveMachineStatus = {
   objectHeightMm?: number;
   /** Injected or derived unprinted height. Mock tests can set this directly. */
   remainingHeightMm?: number;
+  /** Live layer height when the report or mock exposes it. Never invent from remaining layer count. */
+  layerHeightMm?: number;
   speedPercent?: number;
   amsSlots: AmsSlotStatus[];
   /** Live AMS hopper / feed-loop hint when the report exposes it. */

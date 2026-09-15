@@ -134,4 +134,8 @@ export {
   buildCadReshapeHandoff,
   buildReslicePlanStub,
   isStumpCutPlaneBoundsMm,
+  resolveHandoffLayerHeightMm,
+  resolveHandoffPreviousCode,
+  stumpCutPlaneBoundsFromJobStl,
+  stumpCutPlaneBoundsFromMesh,
 } from "./reshape-plan";

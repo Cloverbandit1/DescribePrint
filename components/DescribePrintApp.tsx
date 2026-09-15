@@ -3,12 +3,13 @@
 import dynamic from "next/dynamic";
 import { useMemo, useRef, useState } from "react";
 import { EXAMPLE_PROMPTS } from "@/lib/fixtures";
+import { defaultPrinter } from "@/lib/printers";
 import { formatMm } from "@/lib/units";
 import type { GenerateResult, PipelineStep, StatusEvent, Unit } from "@/lib/types";
 
 const Viewer = dynamic(() => import("./Viewer").then((m) => m.Viewer), {
   ssr: false,
-  loading: () => <div className="flex h-full items-center justify-center text-sm text-muted">Loading viewer…</div>,
+  loading: () => <div className="flex h-full items-center justify-center text-sm text-muted">Loading preview…</div>,
 });
 
 type ChatItem =
@@ -17,16 +18,17 @@ type ChatItem =
   | { id: string; kind: "result"; result: GenerateResult }
   | { id: string; kind: "error"; text: string };
 
-const STEP_LABEL: Record<PipelineStep, string> = {
-  queued: "Queued",
-  planning: "Planning",
-  codegen: "Writing CAD",
-  sanitize: "Sanitizing",
-  compile: "Compiling STL",
-  "mesh-check": "Mesh checks",
-  export: "Exporting",
-  retry: "Retrying",
-  done: "Done",
+/** Everyday status only — pipeline jargon stays out of the main view. */
+const FRIENDLY_STEP: Record<PipelineStep, string> = {
+  queued: "Starting…",
+  planning: "Reading your description…",
+  codegen: "Designing the part…",
+  sanitize: "Checking the design…",
+  compile: "Building the model…",
+  "mesh-check": "Making sure it can print…",
+  export: "Preparing files…",
+  retry: "Trying again…",
+  done: "Ready",
 };
 
 let counter = 0;
@@ -66,8 +68,10 @@ export function DescribePrintApp() {
   const [items, setItems] = useState<ChatItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<GenerateResult | null>(null);
-  const [showCode, setShowCode] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
+  const printer = defaultPrinter();
 
   const sizeNumber = useMemo(() => {
     const n = Number(sizeHint);
@@ -80,7 +84,7 @@ export function DescribePrintApp() {
     });
   };
 
-  async function generate(text: string) {
+  async function printPart(text: string) {
     const cleaned = text.trim();
     if (!cleaned || busy) return;
 
@@ -129,7 +133,7 @@ export function DescribePrintApp() {
           latest = data as GenerateResult;
         }
         if (event === "error") {
-          lastError = (data as { message?: string }).message ?? "Generation failed";
+          lastError = (data as { message?: string }).message ?? "Could not make this part";
         }
       });
 
@@ -142,13 +146,13 @@ export function DescribePrintApp() {
       const generated: GenerateResult = latest;
 
       setResult(generated);
-      setShowCode(false);
+      setShowDetails(false);
       setItems((prev) => [
         ...prev.map((item) => (item.id === statusId && item.kind === "status" ? { ...item, active: false } : item)),
         { id: nid(), kind: "result", result: generated },
       ]);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Generation failed";
+      const message = err instanceof Error ? err.message : "Could not make this part";
       setItems((prev) => [
         ...prev.map((item) => (item.id === statusId && item.kind === "status" ? { ...item, active: false } : item)),
         { id: nid(), kind: "error", text: message },
@@ -167,17 +171,21 @@ export function DescribePrintApp() {
           <Logo />
           <div>
             <div className="text-sm font-medium tracking-wide">DescribePrint</div>
-            <div className="text-xs text-muted">Describe anything → printable mesh</div>
+            <div className="text-xs text-muted">Describe → options → Print</div>
           </div>
         </div>
-        <div className="hidden text-xs text-muted sm:block">V0 · OpenSCAD · millimeters</div>
+        <div className="hidden text-xs text-muted sm:block">{printer.name}</div>
       </header>
 
-      <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(320px,420px)_1fr]">
+      <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(300px,400px)_1fr]">
         <section className="flex min-h-0 flex-col border-b border-line lg:border-b-0 lg:border-r">
-          <div ref={scroller} className="scrollbar-thin min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
+          <div ref={scroller} className="scrollbar-thin min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
             {items.length === 0 ? (
-              <EmptyState onPick={(value) => setPrompt(value)} />
+              <EmptyState
+                onPick={(value) => {
+                  setPrompt(value);
+                }}
+              />
             ) : (
               items.map((item) => <ChatBubble key={item.id} item={item} />)
             )}
@@ -187,54 +195,61 @@ export function DescribePrintApp() {
             className="border-t border-line bg-panel p-4"
             onSubmit={(e) => {
               e.preventDefault();
-              void generate(prompt);
+              void printPart(prompt);
             }}
           >
-            <label className="mb-2 block text-xs uppercase tracking-[0.14em] text-muted">
-              Describe what to print…
-            </label>
+            <label className="mb-2 block text-sm text-muted">Describe what to print</label>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  void generate(prompt);
+                  void printPart(prompt);
                 }
               }}
               rows={3}
-              placeholder="20mm cube with 5mm hole"
+              placeholder="A phone stand, or a 20 mm cube with a hole…"
               className="w-full resize-none rounded-xl border border-line bg-panel-2 px-3 py-2 text-sm outline-none ring-accent/40 placeholder:text-muted/70 focus:ring-2"
             />
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <input
-                type="number"
-                min={0}
-                step="any"
-                value={sizeHint}
-                onChange={(e) => setSizeHint(e.target.value)}
-                placeholder="Size hint"
-                className="w-24 rounded-lg border border-line bg-panel-2 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-accent/40"
-              />
-              <select
-                value={units}
-                onChange={(e) => setUnits(e.target.value as Unit)}
-                className="rounded-lg border border-line bg-panel-2 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-accent/40"
-              >
-                <option value="mm">mm</option>
-                <option value="in">inches</option>
-              </select>
+            <div className="mt-3 flex items-center gap-2">
               <button
                 type="submit"
                 disabled={busy || !prompt.trim()}
-                className="ml-auto rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-black disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-xl bg-accent px-5 py-2 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {busy ? "Generating…" : "Generate"}
+                {busy ? "Printing…" : "Print"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowAdvanced((v) => !v)}
+                className="text-xs text-muted underline-offset-2 hover:underline"
+              >
+                {showAdvanced ? "Hide options" : "More options"}
               </button>
             </div>
-            <p className="mt-2 text-[11px] text-muted">
-              Optional size is converted to mm. Shift+Enter for a newline.
-            </p>
+            {showAdvanced ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-line bg-panel-2 p-3">
+                <label className="text-xs text-muted">Size</label>
+                <input
+                  type="number"
+                  min={0}
+                  step="any"
+                  value={sizeHint}
+                  onChange={(e) => setSizeHint(e.target.value)}
+                  placeholder="optional"
+                  className="w-24 rounded-lg border border-line bg-panel px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-accent/40"
+                />
+                <select
+                  value={units}
+                  onChange={(e) => setUnits(e.target.value as Unit)}
+                  className="rounded-lg border border-line bg-panel px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-accent/40"
+                >
+                  <option value="mm">mm</option>
+                  <option value="in">inches</option>
+                </select>
+              </div>
+            ) : null}
           </form>
         </section>
 
@@ -244,11 +259,13 @@ export function DescribePrintApp() {
           </div>
           <aside className="border-t border-line bg-panel/95 p-4 backdrop-blur">
             {result ? (
-              <ResultBar result={result} showCode={showCode} onToggleCode={() => setShowCode((v) => !v)} />
+              <ResultBar
+                result={result}
+                showDetails={showDetails}
+                onToggleDetails={() => setShowDetails((v) => !v)}
+              />
             ) : (
-              <p className="text-sm text-muted">
-                Generate a part to see bounding box, volume, and downloads.
-              </p>
+              <p className="text-sm text-muted">Describe something, pick an option if you like, then Print.</p>
             )}
           </aside>
         </section>
@@ -265,21 +282,11 @@ function ChatBubble({ item }: { item: ChatItem }) {
   }
   if (item.kind === "status") {
     const latest = item.steps[item.steps.length - 1];
+    const label = latest ? FRIENDLY_STEP[latest.step] : "Starting…";
     return (
-      <div className="rounded-2xl border border-line bg-panel px-3 py-3">
-        <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-muted">
-          {item.active ? <span className="pulse-dot h-1.5 w-1.5 rounded-full bg-accent" /> : null}
-          {item.active ? "Working" : "Finished"}
-        </div>
-        <ol className="space-y-1.5">
-          {item.steps.map((step, i) => (
-            <li key={`${step.step}-${i}`} className="flex gap-2 text-sm">
-              <span className="font-mono text-xs text-accent-2">{STEP_LABEL[step.step]}</span>
-              <span className="text-muted">{step.message}</span>
-            </li>
-          ))}
-          {item.active && latest ? null : null}
-        </ol>
+      <div className="flex items-center gap-2 text-sm text-muted">
+        {item.active ? <span className="pulse-dot h-1.5 w-1.5 rounded-full bg-accent" /> : null}
+        <span>{item.active ? label : "Ready"}</span>
       </div>
     );
   }
@@ -293,12 +300,10 @@ function ChatBubble({ item }: { item: ChatItem }) {
   const { report } = item.result;
   return (
     <div className="rounded-2xl border border-ok/30 bg-ok/5 px-3 py-2 text-sm">
-      <div className="font-medium">Printable mesh ready</div>
+      <div className="font-medium">Ready to print</div>
       <div className="mt-1 text-muted">
         {formatMm(report.boundingBoxMm.size[0])} × {formatMm(report.boundingBoxMm.size[1])} ×{" "}
         {formatMm(report.boundingBoxMm.size[2])} mm
-        {item.result.usedFixture ? " · fixture path" : " · LLM path"}
-        {item.result.retried ? " · retried" : ""}
       </div>
     </div>
   );
@@ -306,75 +311,65 @@ function ChatBubble({ item }: { item: ChatItem }) {
 
 function ResultBar({
   result,
-  showCode,
-  onToggleCode,
+  showDetails,
+  onToggleDetails,
 }: {
   result: GenerateResult;
-  showCode: boolean;
-  onToggleCode: () => void;
+  showDetails: boolean;
+  onToggleDetails: () => void;
 }) {
   const { report } = result;
-  const errors = report.issues.filter((i) => i.severity === "error");
-  const warnings = report.issues.filter((i) => i.severity === "warning");
+  const issues = report.issues;
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <a
           href={result.stlUrl}
-          className="rounded-lg bg-ink px-3 py-1.5 text-sm font-medium text-black"
+          className="rounded-xl bg-ink px-4 py-2 text-sm font-semibold text-black"
         >
           Download STL
         </a>
         <a
           href={result.threemfUrl}
-          className="rounded-lg border border-line px-3 py-1.5 text-sm"
+          className="rounded-xl border border-line px-4 py-2 text-sm"
         >
           Download 3MF
         </a>
-        <a href={result.scadUrl} className="rounded-lg border border-line px-3 py-1.5 text-sm text-muted">
-          OpenSCAD
-        </a>
-        <button type="button" onClick={onToggleCode} className="ml-auto text-xs text-muted underline-offset-2 hover:underline">
-          {showCode ? "Hide code" : "Show generated code"}
+        <button type="button" onClick={onToggleDetails} className="ml-auto text-xs text-muted underline-offset-2 hover:underline">
+          {showDetails ? "Hide details" : "Details"}
         </button>
       </div>
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
-        <Stat label="Bounding box" value={`${formatMm(report.boundingBoxMm.size[0])} × ${formatMm(report.boundingBoxMm.size[1])} × ${formatMm(report.boundingBoxMm.size[2])} mm`} />
-        <Stat label="Volume" value={`${formatMm(report.volumeMm3, 1)} mm³`} />
-        <Stat label="Triangles" value={report.triangleCount.toLocaleString()} />
-        <Stat label="Manifold" value={report.watertight ? "Yes" : "Check flags"} />
-      </dl>
-      {errors.length + warnings.length > 0 ? (
+      <p className="text-sm text-muted">
+        {formatMm(report.boundingBoxMm.size[0])} × {formatMm(report.boundingBoxMm.size[1])} ×{" "}
+        {formatMm(report.boundingBoxMm.size[2])} mm
+        {issues.length === 0 ? " · looks good" : ""}
+      </p>
+      {issues.length > 0 ? (
         <ul className="space-y-1 text-xs">
-          {errors.map((issue) => (
-            <li key={issue.code} className="text-danger">
-              {issue.message}
-            </li>
-          ))}
-          {warnings.map((issue) => (
-            <li key={`${issue.code}-w`} className="text-warn">
+          {issues.map((issue) => (
+            <li key={`${issue.code}-${issue.severity}`} className={issue.severity === "error" ? "text-danger" : "text-warn"}>
               {issue.message}
             </li>
           ))}
         </ul>
-      ) : (
-        <p className="text-xs text-ok">No obvious printability issues.</p>
-      )}
-      {showCode ? (
-        <pre className="scrollbar-thin max-h-48 overflow-auto rounded-xl bg-bg p-3 font-mono text-[11px] leading-relaxed text-muted">
-          {result.code}
-        </pre>
       ) : null}
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-muted">{label}</dt>
-      <dd className="font-medium text-ink">{value}</dd>
+      {showDetails ? (
+        <div className="space-y-2 rounded-xl border border-line bg-panel-2 p-3">
+          <p className="text-xs text-muted">
+            Volume {formatMm(report.volumeMm3, 1)} mm³ · {report.triangleCount.toLocaleString()} triangles ·{" "}
+            {report.watertight ? "watertight" : "check mesh"}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <a href={result.scadUrl} className="text-xs text-muted underline-offset-2 hover:underline">
+              OpenSCAD source
+            </a>
+          </div>
+          <pre className="scrollbar-thin max-h-40 overflow-auto font-mono text-[11px] leading-relaxed text-muted">
+            {result.code}
+          </pre>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -383,8 +378,7 @@ function EmptyState({ onPick }: { onPick: (value: string) => void }) {
   return (
     <div className="space-y-4">
       <p className="text-sm leading-relaxed text-muted">
-        Describe a parametric or mechanical part. V0 compiles <span className="text-ink">OpenSCAD</span> to a
-        watertight-ish mesh, checks it, and lets you download STL and 3MF.
+        Type what you want, or pick one of these, then Print.
       </p>
       <div className="space-y-2">
         {EXAMPLE_PROMPTS.map((example) => (
@@ -392,7 +386,7 @@ function EmptyState({ onPick }: { onPick: (value: string) => void }) {
             key={example}
             type="button"
             onClick={() => onPick(example)}
-            className="block w-full rounded-xl border border-line bg-panel-2 px-3 py-2 text-left text-sm hover:border-accent/50"
+            className="block w-full rounded-xl border border-line bg-panel-2 px-3 py-2.5 text-left text-sm hover:border-accent/50"
           >
             {example}
           </button>

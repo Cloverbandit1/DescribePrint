@@ -52,8 +52,7 @@ export function Viewer({ stlUrl }: { stlUrl: string | null }) {
       </Canvas>
       {!stlUrl ? (
         <div className="pointer-events-none absolute inset-0 flex items-end justify-between p-5 text-sm text-muted">
-          <p>Empty build plate — generate a part to preview.</p>
-          <p className="font-mono text-xs">units: mm</p>
+          <p>Describe something, then Print.</p>
         </div>
       ) : null}
     </div>

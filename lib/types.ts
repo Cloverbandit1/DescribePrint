@@ -89,6 +89,7 @@ export type Mesh = {
  *    default P2S → propose/auto-apply settings → still-bad vs perfect feedback)
  * All stay in-app; users never need Blender or another DCC afterward.
  * V0 stays describe → CAD → STL/3MF.
+ * UX: everyday path is describe → clear options → Print; hide advanced CAD.
  *
  * Default printer: Bambu Lab P2S (see lib/printers.ts). In-app printer/settings
  * UI and full Bambu/Orca slice are later; V0 still exports STL/3MF.

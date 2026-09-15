@@ -80,6 +80,7 @@ export function DescribePrintApp() {
   const [workspace, setWorkspace] = useState<WorkspaceTab>("prepare");
   const [cameraView, setCameraView] = useState<CameraView>("iso");
   const [theme, setTheme] = useState<ViewerTheme>("dark");
+  const [wideLayout, setWideLayout] = useState(true);
   const scroller = useRef<HTMLDivElement>(null);
   const printer = defaultPrinter();
 
@@ -100,6 +101,14 @@ export function DescribePrintApp() {
     document.documentElement.dataset.theme = theme;
     window.localStorage.setItem(THEME_KEY, theme);
   }, [theme]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 1024px)");
+    const sync = () => setWideLayout(media.matches);
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
 
   const scrollToEnd = () => {
     requestAnimationFrame(() => {
@@ -199,7 +208,7 @@ export function DescribePrintApp() {
           <StudioMark />
           <div className="min-w-0">
             <div className="text-[13px] font-semibold leading-none">DescribePrint</div>
-            <div className="mt-0.5 truncate text-[10px] text-muted">Describe → options → Print</div>
+            <div className="mt-0.5 hidden truncate text-[10px] text-muted sm:block">Describe → options → Print</div>
           </div>
         </div>
 
@@ -229,7 +238,7 @@ export function DescribePrintApp() {
           </div>
           <button
             type="button"
-            className="studio-btn studio-btn-ghost h-7 w-7"
+            className="studio-btn studio-btn-ghost inline-flex h-7 w-7"
             onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
             aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
             title={theme === "dark" ? "Light theme" : "Dark theme"}
@@ -293,9 +302,11 @@ export function DescribePrintApp() {
               className="studio-field resize-none px-2.5 py-2 text-sm"
             />
             <div className="mt-2 flex items-center gap-2">
-              <button type="submit" disabled={!canPrint} className="studio-btn studio-btn-primary h-8 px-3.5 lg:hidden">
-                {busy ? "Preparing…" : "Print"}
-              </button>
+              <div className="lg:hidden">
+                <button type="submit" disabled={!canPrint} className="studio-btn studio-btn-primary inline-flex h-8 px-3.5">
+                  {busy ? "Preparing…" : "Print"}
+                </button>
+              </div>
               <button
                 type="button"
                 onClick={() => setShowAdvanced((v) => !v)}
@@ -367,6 +378,7 @@ export function DescribePrintApp() {
               plateMm={plateW}
               heightMm={plateH}
               theme={theme}
+              showGizmo={wideLayout}
             />
           </div>
         </section>
@@ -386,10 +398,13 @@ export function DescribePrintApp() {
               <div className="studio-label">Printer</div>
               <div className="rounded-md border border-line bg-panel-2 p-2.5">
                 <div className="text-sm font-medium">{printer.name}</div>
-                <div className="mt-1 text-[11px] leading-relaxed text-muted">
-                  {plateW} × {plateD} × {plateH} mm
-                  <br />
-                  {printer.nozzleMm} mm nozzle · {printer.filamentDiameterMm} mm filament
+                <div className="mt-1 space-y-0.5 text-[11px] leading-relaxed text-muted">
+                  <div>
+                    {plateW} × {plateD} × {plateH} mm
+                  </div>
+                  <div>
+                    {printer.nozzleMm} mm nozzle · {printer.filamentDiameterMm} mm filament
+                  </div>
                 </div>
               </div>
             </section>
@@ -408,7 +423,7 @@ export function DescribePrintApp() {
               type="button"
               disabled={!canPrint}
               onClick={() => void printPart(prompt)}
-              className="studio-btn studio-btn-primary h-10 w-full text-sm"
+              className="studio-btn studio-btn-primary inline-flex h-10 w-full text-sm"
             >
               {busy ? "Preparing…" : "Print"}
             </button>
@@ -512,10 +527,10 @@ function ResultPanel({
     <div className="space-y-3 border-t border-line pt-3">
       <div className="studio-label">Exports</div>
       <div className="flex flex-wrap items-center gap-2">
-        <a href={result.stlUrl} className="studio-btn studio-btn-ghost h-8 px-3">
+        <a href={result.stlUrl} className="studio-btn studio-btn-ghost inline-flex h-8 px-3">
           Download STL
         </a>
-        <a href={result.threemfUrl} className="studio-btn studio-btn-ghost h-8 px-3">
+        <a href={result.threemfUrl} className="studio-btn studio-btn-ghost inline-flex h-8 px-3">
           Download 3MF
         </a>
         <button type="button" onClick={onToggleDetails} className="ml-auto text-[11px] text-muted underline-offset-2 hover:underline">

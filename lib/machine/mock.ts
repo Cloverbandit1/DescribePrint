@@ -6,7 +6,9 @@ import {
   validateLanCredentials,
   type MachineAdapter,
 } from "./adapter";
+import { AMS_FEED_LOOP_SENTINEL, amsFeedLoopPhysicalSteps } from "./ams-autofix";
 import type {
+  AmsHint,
   AmsSlotStatus,
   CommandResult,
   ConnectionState,
@@ -69,6 +71,8 @@ export class MockMachineAdapter implements MachineAdapter {
   private objectHeightMm?: number;
   private speedPercent = 100;
   private slots: AmsSlotStatus[];
+  private amsHint?: AmsHint;
+  private amsSoftwareFixable = true;
 
   constructor(printerId: PrinterId = defaultPrinter().id) {
     this.printerId = printerId;
@@ -95,6 +99,20 @@ export class MockMachineAdapter implements MachineAdapter {
     this.nozzleTargetC = 220;
     this.bedTempC = 55;
     this.bedTargetC = 55;
+  }
+
+  /**
+   * Inject a fake AMS feed/unfeed loop so tests can prove pause-then-autofix
+   * vs diagnose-only. No sockets.
+   */
+  injectAmsFeedLoop(slot = 2, opts?: { softwareFixable?: boolean }): void {
+    this.amsSoftwareFixable = opts?.softwareFixable ?? true;
+    this.amsHint = {
+      kind: "feed-loop",
+      slot,
+      amsStatus: AMS_FEED_LOOP_SENTINEL,
+      message: `AMS ${slot} feed/unfeed loop (mock).`,
+    };
   }
 
   async connect(credentials?: MachineCredentials): Promise<LiveMachineStatus> {
@@ -131,6 +149,8 @@ export class MockMachineAdapter implements MachineAdapter {
     this.objectHeightMm = undefined;
     this.speedPercent = 100;
     this.slots = emptyAmsSlots(getPrinter(this.printerId).ams.slotsPerUnit);
+    this.amsHint = undefined;
+    this.amsSoftwareFixable = true;
   }
 
   async status(): Promise<LiveMachineStatus> {
@@ -204,6 +224,27 @@ export class MockMachineAdapter implements MachineAdapter {
             : `Bed target set to ${command.celsius} °C.`,
         };
       }
+      case "ams-stop-feed": {
+        if (!validAmsSlot(command.slot)) {
+          return { ok: false, pausedFirst, message: "AMS slot must be 1–20." };
+        }
+        return { ok: true, pausedFirst, message: `Stopped AMS ${command.slot} feed.` };
+      }
+      case "ams-retry-load": {
+        if (!validAmsSlot(command.slot)) {
+          return { ok: false, pausedFirst, message: "AMS slot must be 1–20." };
+        }
+        if (!this.amsSoftwareFixable) {
+          return {
+            ok: false,
+            pausedFirst,
+            message: `Software could not reload AMS ${command.slot}.`,
+            physicalSteps: amsFeedLoopPhysicalSteps(command.slot),
+          };
+        }
+        this.amsHint = undefined;
+        return { ok: true, pausedFirst, message: `Retried load on AMS ${command.slot}.` };
+      }
     }
   }
 
@@ -225,8 +266,13 @@ export class MockMachineAdapter implements MachineAdapter {
       objectHeightMm: this.objectHeightMm,
       speedPercent: this.speedPercent,
       amsSlots: this.slots.map((slot) => ({ ...slot })),
+      amsHint: this.amsHint ? { ...this.amsHint } : undefined,
     };
   }
+}
+
+function validAmsSlot(slot: number): boolean {
+  return Number.isInteger(slot) && slot >= 1 && slot <= 20;
 }
 
 registerMachineAdapter("mock", () => new MockMachineAdapter());

@@ -52,6 +52,8 @@ export function midPrintCommandRisk(command: MidPrintCommand): CommandRisk {
     case "pause":
     case "resume":
     case "set-speed":
+    case "ams-stop-feed":
+    case "ams-retry-load":
       return "safe";
     case "set-nozzle-temp":
     case "set-bed-temp":

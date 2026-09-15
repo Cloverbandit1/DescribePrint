@@ -2,6 +2,8 @@ import "./mock";
 import "./bambu-lan";
 
 export type {
+  AmsHint,
+  AmsHintKind,
   AmsMapping,
   AmsMappingMatch,
   AmsSlotStatus,
@@ -56,7 +58,30 @@ export {
   parseMachineLanPrefs,
   serializeMachineLanPrefs,
 } from "./prefs";
-export { parseMachineConfigure, commandFromBody } from "./api";
+export { parseMachineConfigure, parsePrintDoctorBody, commandFromBody } from "./api";
+export {
+  AMS_FEED_LOOP_SENTINEL,
+  amsFeedLoopPhysicalSteps,
+  amsHintFromReport,
+  detectsAmsFeedLoop,
+  isAmsAutofixEnabled,
+  isAmsPrintError,
+  maybeAutofixAmsFeedLoop,
+  trayIndexToSlot,
+  type AmsAutofixResult,
+} from "./ams-autofix";
+export {
+  MACHINE_CAMERA_STORAGE_KEY,
+  detectFailure,
+  futureLanJpegUrl,
+  isCameraStubEnabled,
+  mockCameraFrame,
+  parseCameraStubPref,
+  serializeCameraStubPref,
+  type CameraFailureKind,
+  type CameraFrame,
+  type FailureDetection,
+} from "./camera";
 export {
   bambuTopics,
   buildBambuCommandPayload,

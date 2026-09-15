@@ -20,6 +20,14 @@ export type PrintDoctorFix = {
   autoApplicable: boolean;
 };
 
+export type PrintDoctorAutofix = {
+  attempted: boolean;
+  ok: boolean;
+  pausedFirst: boolean;
+  message: string;
+  physicalSteps?: string[];
+};
+
 export type PrintDoctorResult = {
   defectId: string;
   title: string;
@@ -30,7 +38,12 @@ export type PrintDoctorResult = {
   amsSlot?: number;
   fixes: PrintDoctorFix[];
   physicalSteps: string[];
+  autofix?: PrintDoctorAutofix;
 };
+
+export function withAutofix(result: PrintDoctorResult, autofix: PrintDoctorAutofix): PrintDoctorResult {
+  return { ...result, autofix };
+}
 
 type DefectRule = {
   id: string;

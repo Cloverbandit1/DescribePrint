@@ -23,6 +23,7 @@ import {
 } from "./bambu-protocol";
 import { redactSecrets, safeErrorMessage } from "./redact";
 import type {
+  AmsHint,
   AmsSlotStatus,
   CommandResult,
   ConnectionState,
@@ -88,6 +89,7 @@ export class BambuLanMachineAdapter implements MachineAdapter {
   private progressPercent?: number;
   private speedPercent?: number;
   private slots: AmsSlotStatus[] = emptyAmsSlots();
+  private amsHint?: AmsHint;
 
   constructor(options: BambuLanAdapterOptions = {}) {
     this.options = options;
@@ -142,6 +144,7 @@ export class BambuLanMachineAdapter implements MachineAdapter {
     this.progressPercent = undefined;
     this.speedPercent = undefined;
     this.slots = emptyAmsSlots(getPrinter(this.printerId).ams.slotsPerUnit);
+    this.amsHint = undefined;
   }
 
   async status(): Promise<LiveMachineStatus> {
@@ -218,6 +221,11 @@ export class BambuLanMachineAdapter implements MachineAdapter {
         return `Bed target must be ${printer.minBedC}–${printer.maxBedC} °C.`;
       }
     }
+    if (command.type === "ams-stop-feed" || command.type === "ams-retry-load") {
+      if (!Number.isInteger(command.slot) || command.slot < 1 || command.slot > 20) {
+        return "AMS slot must be 1–20.";
+      }
+    }
     return null;
   }
 
@@ -238,6 +246,9 @@ export class BambuLanMachineAdapter implements MachineAdapter {
       case "set-bed-temp":
         this.bedTargetC = command.celsius;
         break;
+      case "ams-stop-feed":
+      case "ams-retry-load":
+        break;
     }
   }
 
@@ -257,6 +268,10 @@ export class BambuLanMachineAdapter implements MachineAdapter {
         return pausedFirst
           ? `Paused, then set bed to ${command.celsius} °C.`
           : `Bed target set to ${command.celsius} °C.`;
+      case "ams-stop-feed":
+        return `Stopped AMS ${command.slot} feed.`;
+      case "ams-retry-load":
+        return `Retried load on AMS ${command.slot}.`;
     }
   }
 
@@ -354,6 +369,7 @@ export class BambuLanMachineAdapter implements MachineAdapter {
       if (patch.progressPercent != null) this.progressPercent = patch.progressPercent;
       if (patch.speedPercent != null) this.speedPercent = patch.speedPercent;
       if (patch.amsSlots) this.slots = patch.amsSlots;
+      if (patch.amsHint) this.amsHint = patch.amsHint;
     } catch {
       // Ignore malformed printer payloads. Never echo them — they can contain serials.
     }
@@ -464,6 +480,7 @@ export class BambuLanMachineAdapter implements MachineAdapter {
       progressPercent: this.progressPercent,
       speedPercent: this.speedPercent,
       amsSlots: this.slots.map((slot) => ({ ...slot })),
+      amsHint: this.amsHint ? { ...this.amsHint } : undefined,
     };
   }
 }

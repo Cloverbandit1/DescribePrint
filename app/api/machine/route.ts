@@ -1,4 +1,11 @@
-import { commandFromBody, parseMachineConfigure, type MachineApiResponse } from "@/lib/machine/api";
+import {
+  commandFromBody,
+  parseMachineConfigure,
+  parsePrintDoctorBody,
+  type MachineApiResponse,
+} from "@/lib/machine/api";
+import { isAmsAutofixEnabled, maybeAutofixAmsFeedLoop } from "@/lib/machine/ams-autofix";
+import { isCameraStubEnabled } from "@/lib/machine/camera";
 import {
   BAMBU_LAN_ADAPTER_ID,
   machineLanHint,
@@ -8,6 +15,7 @@ import {
 import { defaultAdapterId } from "@/lib/machine/adapter";
 import { getSharedMachine } from "@/lib/machine/runtime";
 import { getMachineUiSession, setMachineUiSession } from "@/lib/machine/session";
+import { diagnosePrintComplaint, withAutofix } from "@/lib/print-doctor";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,6 +23,7 @@ export const dynamic = "force-dynamic";
 function payload(
   status: MachineApiResponse["status"],
   lastCommand?: MachineApiResponse["lastCommand"],
+  extras?: Pick<MachineApiResponse, "diagnosis" | "lastAutofix">,
 ): MachineApiResponse {
   const adapterId = defaultAdapterId();
   const live = adapterId === BAMBU_LAN_ADAPTER_ID;
@@ -31,8 +40,11 @@ function payload(
     hint: machineLanHint(),
     host,
     serial,
+    cameraStub: isCameraStubEnabled(),
+    amsAutofix: isAmsAutofixEnabled(),
     status,
     lastCommand,
+    ...extras,
   };
 }
 
@@ -85,6 +97,28 @@ export async function POST(request: Request) {
     return Response.json(payload(status, lastCommand), {
       headers: { "Cache-Control": "no-store" },
     });
+  }
+
+  const doctor = parsePrintDoctorBody(body);
+  if (doctor) {
+    const machine = getSharedMachine();
+    const diagnosis = doctor.complaint ? diagnosePrintComplaint({ complaint: doctor.complaint }) : undefined;
+    const patched = diagnosis && doctor.slot != null ? { ...diagnosis, amsSlot: doctor.slot } : diagnosis;
+    const status = await machine.status();
+    const lastAutofix = await maybeAutofixAmsFeedLoop({
+      adapter: machine,
+      diagnosis: patched,
+      complaint: doctor.complaint || undefined,
+      status,
+    });
+    const nextStatus = await machine.status();
+    return Response.json(
+      payload(nextStatus, lastAutofix.commands.at(-1), {
+        diagnosis: patched ? withAutofix(patched, lastAutofix) : undefined,
+        lastAutofix,
+      }),
+      { headers: { "Cache-Control": "no-store" } },
+    );
   }
 
   if (configure) {

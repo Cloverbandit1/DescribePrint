@@ -9,12 +9,13 @@ Default machine remains **Bambu Lab P2S** with one **AMS (4 slots)**.
 1. A richer P2S **profile** (volume, nozzles, AMS 4 slots, temp limits, PLA/PETG/ABS/TPU auto-best tables) in [`lib/printers.ts`](../lib/printers.ts).
 2. A **pluggable machine adapter** interface, a **mock** adapter, and typed stubs for live status, AMS slots, mid-print commands, 3MF→AMS mapping, and a remaining-layer reshape **planner** (ask CAD later — do not rewrite geometry here).
 3. A **Print doctor** keyword/rule stub: plain-language defect or machine complaint → structured diagnosis + proposed setting or physical steps. No LLM and no LAN I/O.
+4. A **camera / failure-detect stub** (flag off by default) and **AMS feed-loop autofix** (flag off by default).
 
 The Print column shows a compact **Machine** panel. Everyday path: toggle **LAN MQTT**, enter IP / serial / LAN access code (saved in the browser). Off stays disconnected / mock. On with incomplete fields stays mock and shows a short hint — no crash. Env `BAMBU_LAN_MQTT=1` plus creds is a headless/dev override. Live P2S/AMS status and tiny pause/resume/speed/temp controls appear when connected. Chat can route a complaint to Print doctor **without** calling the CAD generate path. STL/3MF export still works with no printer.
 
 ## What this slice does not ship
 
-- Bambu Cloud, camera streams, send-to-printer FTPS, or remaining-layer CAD reshape
+- Bambu Cloud, a real camera stream, send-to-printer FTPS, or remaining-layer CAD reshape
 - Changes to Ollama host/port or Agent Smith models
 - M1 Desktop Pack files (`Start-DescribePrint.cmd`, `scripts/windows/`, `packaging/windows/`, `/api/health`, OpenSCAD path discovery)
 
@@ -36,8 +37,8 @@ MachineAdapter (interface)
         └─ bambu-lan     ◄── Machine panel toggle + access code, or BAMBU_LAN_MQTT=1 + env creds
                  │
                  ▼
-        LiveMachineStatus (temps, layer, AMS slots)
-        MidPrintCommand  (pause / resume / speed / temp)
+        LiveMachineStatus (temps, layer, AMS slots, optional amsHint)
+        MidPrintCommand  (pause / resume / speed / temp / AMS stop-feed + retry-load)
                  │
                  ▼
         remaining-layer reshape planner (stub)
@@ -86,7 +87,27 @@ FTPS, camera, and send-to-printer are out of scope.
 - layer / total layers / progress
 - AMS slots: type, color, remaining % when the protocol exposes them
 
-[`useMachineMonitor`](../lib/machine/use-machine-monitor.ts) is the client hook: it persists the toggle + three fields in `localStorage`, configures the server session, and polls `/api/machine` every few seconds so the panel updates while connected (temps, layer/progress, AMS, connection). LAN off keeps the disconnected stub. Live + connected shows status and tiny controls. There is no camera stream.
+[`useMachineMonitor`](../lib/machine/use-machine-monitor.ts) is the client hook: it persists the toggle + three fields in `localStorage`, configures the server session, and polls `/api/machine` every few seconds so the panel updates while connected (temps, layer/progress, AMS, connection). LAN off keeps the disconnected stub. Live + connected shows status and tiny controls.
+
+### Camera stub (flagged, default OFF)
+
+No real camera stream. [`lib/machine/camera.ts`](../lib/machine/camera.ts) is a typed stub so a later revision can attach a LAN JPEG (`futureLanJpegUrl`) and classify failures (spaghetti, nozzle scrape, empty bed).
+
+- Off unless `BAMBU_CAMERA_STUB=1` **or** the Machine-panel **Camera stub** checkbox is on (also off by default; saved in `localStorage`).
+- When on, the panel shows a tiny `camera: stub` line.
+- `detectFailure()` returns `none` or `suspected-failure` with a print-doctor-style hint. Tests use the stub only — no pixels, no sockets.
+
+### AMS feed-loop autofix (flagged, default OFF)
+
+Print doctor always diagnoses “AMS 2 keeps looping” (and similar). Commands are sent **only** when `AMS_AUTOFIX=1`:
+
+1. Safe **pause** if a job is printing.
+2. Software autofix through the machine adapter: `ams-stop-feed` then `ams-retry-load` on that slot. On LAN MQTT these map to verified OpenBambuAPI writes: `print.ams_control` `param: "pause"` and `print.ams_change_filament` (0-based tray id).
+3. If software cannot fix it, return simple physical steps (“pull filament from AMS 2, check PTFE, retry”).
+
+Live reports can also raise an `amsHint` from `ams_status` / AMS-family `print_error` (HMS `0C…` hopper/feed). The mock adapter can `injectAmsFeedLoop(slot)` so CI proves pause-then-autofix vs diagnose-only without a printer.
+
+Chat-first: a complaint hits `/api/machine` with `{ complaint }`. When the flag is off the doctor result is diagnosis only — no `adapter.send`. When on, the same path pauses then autofixes (or returns physical steps).
 
 ### Print doctor
 
@@ -137,7 +158,7 @@ Taken from Bambu’s published P2S specs / FAQ (see sources below):
 
 ## Tests
 
-`npm test` must pass **without** a physical printer. Coverage targets: profile tables, doctor diagnoses, AMS mapping, pause-before-risky, mock connection state machine, flag off = mock, UI toggle + incomplete creds = mock + hint, UI toggle + complete creds selects `bambu-lan` without setting the env flag, env override still works, live adapter + fake/unhealthy endpoint fails safe without leaking secrets.
+`npm test` must pass **without** a physical printer. Coverage targets: profile tables, doctor diagnoses, AMS mapping, pause-before-risky, mock connection state machine, flag off = mock, UI toggle + incomplete creds = mock + hint, UI toggle + complete creds selects `bambu-lan` without setting the env flag, env override still works, live adapter + fake/unhealthy endpoint fails safe without leaking secrets, camera stub `detectFailure` (stub only), AMS autofix flag off (no commands) vs flag on (pause then autofix or physical steps).
 
 ## Sources
 

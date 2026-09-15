@@ -44,18 +44,29 @@ Filename: "{app}\Setup-DescribePrint.cmd"; Description: "Run first-time setup (n
 [Code]
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  BatDir, BatPath, Repo: string;
+  BatDir, BatPath, Template, HintDir, HintPath, Repo: string;
 begin
   if CurStep = ssPostInstall then
   begin
     Repo := ExpandConstant('{app}');
     BatDir := ExpandConstant('{userdesktop}\AllosWorstation');
     BatPath := BatDir + '\Start DescribePrint.bat';
+    Template := ExpandConstant('{app}\scripts\windows\templates\Start DescribePrint.bat');
     ForceDirectories(BatDir);
-    SaveStringToFile(BatPath,
-      '@echo off' + #13#10 +
-      'REM AllosWorstation / DescribePrint — one-click Start' + #13#10 +
-      'REM Contract: call the repo Start-DescribePrint.cmd' + #13#10 +
-      'call "' + Repo + '\Start-DescribePrint.cmd"' + #13#10, False);
+    { Shared detector bat -- do not bake {app} here (OneDrive syncs this file). }
+    if FileExists(Template) then
+      FileCopy(Template, BatPath, False)
+    else
+      SaveStringToFile(BatPath,
+        '@echo off' + #13#10 +
+        'setlocal EnableExtensions' + #13#10 +
+        'set "TARGET=%USERPROFILE%\AllosWorstation\DescribePrint"' + #13#10 +
+        'if not exist "%TARGET%\Start-DescribePrint.cmd" set "TARGET=%~dp0DescribePrint"' + #13#10 +
+        'cd /d "%TARGET%"' + #13#10 +
+        'call "%TARGET%\Start-DescribePrint.cmd"' + #13#10, False);
+    HintDir := ExpandConstant('{localappdata}\AllosWorstation');
+    HintPath := HintDir + '\repo-path.txt';
+    ForceDirectories(HintDir);
+    SaveStringToFile(HintPath, Repo + #13#10, False);
   end;
 end;

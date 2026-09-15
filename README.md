@@ -130,8 +130,10 @@ A later packaged build can copy a portable OpenSCAD into `vendor/openscad/` and 
 Near one-click from the repo folder:
 
 1. Install [Node.js LTS](https://nodejs.org) if needed.
-2. Double-click `Start-DescribePrint.cmd` (or run `npm run start:windows`).
-3. The script copies `.env.local` if missing, runs `npm install` on first launch, and opens [http://localhost:3000](http://localhost:3000).
+2. Double-click `Start-DescribePrint.cmd` (or run `npm run start:windows`). Desktop shortcuts should `call Start-DescribePrint.cmd` — that entry stays stable.
+3. The script copies `.env.local` if missing, runs `npm install` on first launch, runs a **preflight health check** (Ollama reachable + configured `MODEL` + OpenSCAD via `resolveOpenscad`), then opens [http://localhost:3000](http://localhost:3000).
+
+Missing Node/npm is a hard stop. Missing OpenSCAD or `MODEL` (or Ollama not running) is a **warning** — Start still launches the app so one-click is preserved; generate/compile will fail until those are fixed. Tips may say `ollama pull <MODEL>` only. Do not change the Ollama port. Leave Agent Smith models untouched.
 
 First-time machine prep (once):
 
@@ -228,9 +230,9 @@ Run as a Node process (`next dev` / `next start`). V0 is not aimed at serverless
 npm test
 ```
 
-Covers local LLM config defaults, OpenSCAD path resolution, launch health (Ollama + MODEL + OpenSCAD), code sanitization, the mesh-check / STL / 3MF path, the P2S profile, Print doctor, and machine-adapter stubs (no physical printer). If OpenSCAD is installed, an integration test compiles the default fixture.
+Covers local LLM config defaults, OpenSCAD path resolution, launch health (Ollama + MODEL + OpenSCAD), Start preflight exit codes (0 = pass, 2 = warn/soft fail and continue), code sanitization, the mesh-check / STL / 3MF path, the P2S profile, Print doctor, and machine-adapter stubs (no physical printer). If OpenSCAD is installed, an integration test compiles the default fixture.
 
-`GET /api/health` returns the same Local AI / OpenSCAD / P2S status the header chip shows.
+`GET /api/health` returns the same Local AI / OpenSCAD / P2S status the header chip shows. `npm run health:preflight` is the same check Start runs before `npm run dev`.
 
 ## Out of V0
 

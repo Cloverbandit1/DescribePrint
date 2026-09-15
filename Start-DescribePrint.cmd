@@ -1,4 +1,5 @@
 @echo off
+REM Desktop bats (Smith + laptop) call this file. Keep the Start-DescribePrint.cmd entry stable.
 setlocal
 cd /d "%~dp0"
 title DescribePrint
@@ -35,6 +36,13 @@ if not exist "node_modules\" (
     pause
     exit /b 1
   )
+)
+
+echo.
+echo Launch preflight (Ollama + MODEL + OpenSCAD)...
+call npm run --silent health:preflight
+if errorlevel 1 (
+  echo Preflight reported issues or could not finish. Starting anyway.
 )
 
 echo.

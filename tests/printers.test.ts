@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   BAMBU_LAB_P2S,
+  coolingHintFor,
   defaultPrinter,
   filamentPreset,
   FILAMENT_IDS,
   listFilamentPresets,
   normalizeFilamentId,
+  parseMaterialSession,
+  printPresetSidecarJson,
+  printPresetSummary,
+  serializeMaterialSession,
+  speedTierFor,
 } from "@/lib/printers";
 
 describe("printer profiles (P2S + AMS)", () => {
@@ -30,10 +36,10 @@ describe("printer profiles (P2S + AMS)", () => {
     expect(printer.hasActiveChamberHeat).toBe(false);
   });
 
-  it("ships auto-best tables for PLA, PETG, ABS, and TPU within P2S limits", () => {
+  it("ships auto-best tables for PLA, PETG, PA, ABS, and TPU within P2S limits", () => {
     const printer = defaultPrinter();
-    expect(FILAMENT_IDS).toEqual(["pla", "petg", "abs", "tpu"]);
-    expect(listFilamentPresets()).toHaveLength(4);
+    expect(FILAMENT_IDS).toEqual(["pla", "petg", "pa", "abs", "tpu"]);
+    expect(listFilamentPresets()).toHaveLength(5);
     expect(printer.defaultFilament).toBe("pla");
 
     for (const id of FILAMENT_IDS) {
@@ -48,13 +54,40 @@ describe("printer profiles (P2S + AMS)", () => {
 
     expect(filamentPreset("pla").nozzleC).toBe(220);
     expect(filamentPreset("petg").bedC).toBe(70);
+    expect(filamentPreset("pa").nozzleC).toBeGreaterThan(filamentPreset("pla").nozzleC);
+    expect(filamentPreset("pa").bedC).toBeGreaterThan(filamentPreset("petg").bedC);
+    expect(filamentPreset("pa").fanPercent).toBeLessThan(filamentPreset("pla").fanPercent);
     expect(filamentPreset("abs").fanPercent).toBeLessThan(filamentPreset("pla").fanPercent);
     expect(filamentPreset("tpu").printSpeedMms).toBeLessThan(filamentPreset("pla").printSpeedMms);
+    expect(filamentPreset("pa").notes).toMatch(/dry|door|enclosure/i);
   });
 
-  it("normalizes common filament names", () => {
+  it("normalizes common filament names including nylon / PA", () => {
     expect(normalizeFilamentId("PETG")).toBe("petg");
     expect(normalizeFilamentId("flexible TPU")).toBe("tpu");
+    expect(normalizeFilamentId("nylon PA6")).toBe("pa");
+    expect(normalizeFilamentId("PA-CF")).toBe("pa");
     expect(normalizeFilamentId("unknown")).toBeUndefined();
+  });
+
+  it("parses the Machine-panel material session and builds an advisory summary", () => {
+    expect(parseMaterialSession(null)).toBe("pla");
+    expect(parseMaterialSession("petg")).toBe("petg");
+    expect(parseMaterialSession("nylon")).toBe("pa");
+    expect(parseMaterialSession("nope")).toBe("pla");
+    expect(serializeMaterialSession("pa")).toBe("pa");
+
+    const pa = printPresetSummary("best for PA");
+    expect(pa.material).toBe("pa");
+    expect(pa.advisory).toBe(true);
+    expect(pa.printerId).toBe("bambu-lab-p2s");
+    expect(pa.nozzleC).toBe(270);
+    expect(pa.bedC).toBe(100);
+    expect(pa.speedTier).toBe("slow");
+    expect(pa.coolingHint).toMatch(/low fan/i);
+    expect(speedTierFor(filamentPreset("pla"))).toBe("fast");
+    expect(coolingHintFor(filamentPreset("pla"))).toBe("full cooling");
+    expect(printPresetSidecarJson(pa)).toContain('"material": "pa"');
+    expect(printPresetSidecarJson(pa)).toContain('"advisory": true');
   });
 });

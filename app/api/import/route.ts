@@ -14,6 +14,7 @@ async function readUpload(req: Request): Promise<{
   buffer: Buffer;
   fileName: string;
   options: ReturnType<typeof parseImageImportOptions>;
+  filament?: string | null;
 }> {
   const contentType = req.headers.get("content-type") ?? "";
   if (contentType.includes("multipart/form-data")) {
@@ -23,6 +24,7 @@ async function readUpload(req: Request): Promise<{
       throw new Error("Choose an STL, 3MF, or a PNG/JPG/WebP photo.");
     }
     const buffer = Buffer.from(await file.arrayBuffer());
+    const filamentRaw = form.get("filament");
     return {
       buffer,
       fileName: file.name || "imported.stl",
@@ -32,6 +34,7 @@ async function readUpload(req: Request): Promise<{
         targetMaxMm: form.get("targetMaxMm") ?? form.get("target_max_mm"),
         prompt: form.get("prompt") ?? form.get("note"),
       }),
+      filament: typeof filamentRaw === "string" ? filamentRaw : null,
     };
   }
 
@@ -45,6 +48,7 @@ async function readUpload(req: Request): Promise<{
     target_max_mm?: unknown;
     prompt?: unknown;
     note?: unknown;
+    filament?: unknown;
   } | null;
   if (!body?.bytesBase64) {
     throw new Error("Choose an STL, 3MF, or a PNG/JPG/WebP photo.");
@@ -53,6 +57,7 @@ async function readUpload(req: Request): Promise<{
     buffer: Buffer.from(body.bytesBase64, "base64"),
     fileName: body.fileName || "imported.stl",
     options: parseImageImportOptions(body),
+    filament: typeof body.filament === "string" ? body.filament : null,
   };
 }
 

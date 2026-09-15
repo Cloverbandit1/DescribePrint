@@ -9,7 +9,9 @@
 
 export type PrinterId = "bambu-lab-p2s";
 
-export type FilamentId = "pla" | "petg" | "abs" | "tpu";
+export type FilamentId = "pla" | "petg" | "pa" | "abs" | "tpu";
+
+export type SpeedTier = "slow" | "standard" | "fast";
 
 export type FilamentPreset = {
   id: FilamentId;
@@ -24,6 +26,29 @@ export type FilamentPreset = {
   flowPercent: number;
   notes?: string;
 };
+
+/** Advisory auto-best snapshot that travels with STL/3MF. Never a LAN write. */
+export type PrintPresetSummary = {
+  printerId: PrinterId;
+  printerName: string;
+  material: FilamentId;
+  name: string;
+  nozzleC: number;
+  bedC: number;
+  printSpeedMms: number;
+  travelSpeedMms: number;
+  speedTier: SpeedTier;
+  fanPercent: number;
+  coolingHint: string;
+  flowPercent: number;
+  retractionMm: number;
+  retractionSpeedMms: number;
+  notes?: string;
+  advisory: true;
+};
+
+/** Browser session key for the Machine-panel material picker. */
+export const MATERIAL_SESSION_KEY = "describeprint.material";
 
 export type AmsProfile = {
   /** Slots on the attached unit this profile models (typical combo: one AMS). */
@@ -54,7 +79,7 @@ export type PrinterProfile = {
   filamentPresets: Record<FilamentId, FilamentPreset>;
 };
 
-export const FILAMENT_IDS: FilamentId[] = ["pla", "petg", "abs", "tpu"];
+export const FILAMENT_IDS: FilamentId[] = ["pla", "petg", "pa", "abs", "tpu"];
 
 /** Smart defaults for a 0.4 mm P2S nozzle. Advanced knobs stay out of the everyday UI. */
 export const P2S_FILAMENT_PRESETS: Record<FilamentId, FilamentPreset> = {
@@ -82,6 +107,20 @@ export const P2S_FILAMENT_PRESETS: Record<FilamentId, FilamentPreset> = {
     fanPercent: 40,
     flowPercent: 95,
     notes: "Dry the spool. PETG strings if wet or a few degrees too hot.",
+  },
+  pa: {
+    id: "pa",
+    name: "PA",
+    nozzleC: 270,
+    bedC: 100,
+    printSpeedMms: 80,
+    travelSpeedMms: 250,
+    retractionMm: 0.8,
+    retractionSpeedMms: 30,
+    fanPercent: 15,
+    flowPercent: 96,
+    notes:
+      "Dry thoroughly — nylon is hygroscopic. P2S has no active chamber heater; keep the door closed. Advisory only, not a LAN command.",
   },
   abs: {
     id: "abs",
@@ -156,10 +195,65 @@ export function normalizeFilamentId(value: string | undefined | null): FilamentI
   const key = value.trim().toLowerCase();
   if (isFilamentId(key)) return key;
   if (key.includes("petg")) return "petg";
+  if (/\bnylon\b|\bpa(?:6|12|ht)?\b|\bpa-?cf\b/.test(key)) return "pa";
   if (key.includes("abs")) return "abs";
   if (/\btpu\b|flex/.test(key)) return "tpu";
   if (key.includes("pla")) return "pla";
   return undefined;
+}
+
+export function parseMaterialSession(raw: string | null | undefined): FilamentId {
+  return normalizeFilamentId(raw) ?? defaultPrinter().defaultFilament;
+}
+
+export function serializeMaterialSession(id: FilamentId): string {
+  return id;
+}
+
+export function speedTierFor(preset: FilamentPreset): SpeedTier {
+  if (preset.printSpeedMms <= 80) return "slow";
+  if (preset.printSpeedMms >= 220) return "fast";
+  return "standard";
+}
+
+export function coolingHintFor(preset: FilamentPreset): string {
+  if (preset.fanPercent >= 80) return "full cooling";
+  if (preset.fanPercent >= 35) return "moderate fan";
+  return "low fan / enclosure";
+}
+
+export function printPresetSummary(
+  id: FilamentId | string | undefined | null,
+  printer: PrinterProfile = defaultPrinter(),
+): PrintPresetSummary {
+  const material = normalizeFilamentId(typeof id === "string" ? id : undefined) ?? printer.defaultFilament;
+  const preset = filamentPreset(material, printer);
+  return {
+    printerId: printer.id,
+    printerName: printer.name,
+    material: preset.id,
+    name: preset.name,
+    nozzleC: preset.nozzleC,
+    bedC: preset.bedC,
+    printSpeedMms: preset.printSpeedMms,
+    travelSpeedMms: preset.travelSpeedMms,
+    speedTier: speedTierFor(preset),
+    fanPercent: preset.fanPercent,
+    coolingHint: coolingHintFor(preset),
+    flowPercent: preset.flowPercent,
+    retractionMm: preset.retractionMm,
+    retractionSpeedMms: preset.retractionSpeedMms,
+    notes: preset.notes,
+    advisory: true,
+  };
+}
+
+export function printPresetSidecarJson(summary: PrintPresetSummary): string {
+  return `${JSON.stringify(summary, null, 2)}\n`;
+}
+
+export function filamentPickerLabel(preset: FilamentPreset): string {
+  return preset.id === "pa" ? "PA / nylon" : preset.name;
 }
 
 /** Auto-best settings table for the selected printer (P2S today). */

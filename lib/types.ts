@@ -1,8 +1,9 @@
 import type { MachineDesignation } from "./alternate-machines";
 import type { ColorRegion } from "./color-regions";
 import type { CadReshapeHandoff, StumpCutPlaneBoundsMm } from "./machine/reshape-plan";
+import type { FilamentId, PrintPresetSummary } from "./printers";
 
-export type { ColorRegion, MachineDesignation };
+export type { ColorRegion, FilamentId, MachineDesignation, PrintPresetSummary };
 export type { CadReshapeHandoff, StumpCutPlaneBoundsMm };
 
 export type ImageRasterFormat = "png" | "jpeg" | "webp";
@@ -49,6 +50,8 @@ export type GenerateRequest = {
   wearableCategory?: WearableCategoryId | null;
   /** Print Control emergency-reshape handoff. When set, CAD generates the unprinted upper only. */
   cadHandoff?: CadReshapeHandoff | null;
+  /** Selected P2S material — stamps auto-best presets onto export metadata. */
+  filament?: FilamentId | string | null;
 };
 
 export type PipelineStep =
@@ -125,6 +128,9 @@ export type GenerateResult = {
   imageImport?: ImageImportMeta | null;
   /** Present when the solid does not fit the current printer (default P2S). */
   machineDesignation?: MachineDesignation | null;
+  /** Advisory P2S auto-best snapshot written into 3MF + sidecar JSON. */
+  printPreset: PrintPresetSummary;
+  printPresetUrl: string;
 };
 
 export type Triangle = {

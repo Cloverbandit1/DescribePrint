@@ -7,7 +7,7 @@ import {
   slugifyRegionName,
   type ColorRegion,
 } from "./color-regions";
-import { normalizeFilamentId } from "./printers";
+import { normalizeFilamentId, printPresetSummary, type FilamentId, type PrintPresetSummary } from "./printers";
 import type { Mesh, Triangle } from "./types";
 
 export type ThreeMfObject = {
@@ -74,18 +74,23 @@ function objectMeshXml(mesh: Mesh): { vertexXml: string; triangleXml: string } {
   };
 }
 
-function defaultObject(mesh: Mesh, name: string): ThreeMfObject {
+function defaultObject(mesh: Mesh, name: string, filament: FilamentId = "pla"): ThreeMfObject {
   return {
     name,
     mesh,
     colorHex: DEFAULT_COLOR_HEX,
     colorName: DEFAULT_COLOR_NAME,
-    filament: "pla",
+    filament,
     extruder: 1,
   };
 }
 
-export function objectsFromRegions(meshes: Mesh[], regions: ColorRegion[], fallbackName = "part"): ThreeMfObject[] {
+export function objectsFromRegions(
+  meshes: Mesh[],
+  regions: ColorRegion[],
+  fallbackName = "part",
+  fallbackFilament: FilamentId = "pla",
+): ThreeMfObject[] {
   if (meshes.length === 0) return [];
   if (meshes.length === 1 && regions.length <= 1) {
     const region = regions[0];
@@ -95,7 +100,7 @@ export function objectsFromRegions(meshes: Mesh[], regions: ColorRegion[], fallb
         mesh: meshes[0],
         colorHex: region?.colorHex ?? DEFAULT_COLOR_HEX,
         colorName: region?.colorName ?? DEFAULT_COLOR_NAME,
-        filament: region?.filament ?? "pla",
+        filament: region?.filament ?? fallbackFilament,
         extruder: region?.amsSlot ?? 1,
       },
     ];
@@ -107,7 +112,7 @@ export function objectsFromRegions(meshes: Mesh[], regions: ColorRegion[], fallb
       mesh,
       colorHex: region?.colorHex ?? DEFAULT_COLOR_HEX,
       colorName: region?.colorName ?? DEFAULT_COLOR_NAME,
-      filament: region?.filament ?? "pla",
+      filament: region?.filament ?? fallbackFilament,
       extruder: region?.amsSlot ?? Math.min(index + 1, 4),
     };
   });
@@ -149,8 +154,29 @@ ${blocks}
 `;
 }
 
-export async function meshesTo3mf(objects: ThreeMfObject[], name = "DescribePrint"): Promise<Buffer> {
-  const list = (objects.length ? objects : [defaultObject({ triangles: [] }, name)]).map((object, index) => ({
+function printPresetMetadataXml(preset: PrintPresetSummary): string {
+  const rows: Array<[string, string]> = [
+    ["DescribePrint:preset_material", preset.material],
+    ["DescribePrint:preset_name", preset.name],
+    ["DescribePrint:preset_nozzle_c", String(preset.nozzleC)],
+    ["DescribePrint:preset_bed_c", String(preset.bedC)],
+    ["DescribePrint:preset_speed_mms", String(preset.printSpeedMms)],
+    ["DescribePrint:preset_speed_tier", preset.speedTier],
+    ["DescribePrint:preset_fan_percent", String(preset.fanPercent)],
+    ["DescribePrint:preset_cooling", preset.coolingHint],
+    ["DescribePrint:preset_flow_percent", String(preset.flowPercent)],
+    ["DescribePrint:preset_advisory", "true"],
+  ];
+  return rows.map(([key, value]) => `  <metadata name="${xmlEscape(key)}">${xmlEscape(value)}</metadata>`).join("\n");
+}
+
+export async function meshesTo3mf(
+  objects: ThreeMfObject[],
+  name = "DescribePrint",
+  printPreset?: PrintPresetSummary | null,
+): Promise<Buffer> {
+  const preset = printPreset ?? printPresetSummary("pla");
+  const list = (objects.length ? objects : [defaultObject({ triangles: [] }, name, preset.material)]).map((object, index) => ({
     ...object,
     id: object.id ?? index + 2,
   }));
@@ -191,6 +217,7 @@ ${triangleXml}
 <model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:slic3rpe="http://schemas.slic3r.org/3mf/2017/06">
   <metadata name="Application">DescribePrint</metadata>
   <metadata name="Title">${xmlEscape(name)}</metadata>
+${printPresetMetadataXml(preset)}
   <resources>
     <basematerials id="1">
 ${materials}
@@ -207,7 +234,9 @@ ${buildItems}
   zip.file("[Content_Types].xml", CONTENT_TYPES);
   zip.folder("_rels")?.file(".rels", RELS);
   zip.folder("3D")?.file("3dmodel.model", model);
-  zip.folder("Metadata")?.file("model_settings.config", modelSettingsXml(list));
+  const metadata = zip.folder("Metadata");
+  metadata?.file("model_settings.config", modelSettingsXml(list));
+  metadata?.file("print_preset.json", `${JSON.stringify(preset)}\n`);
   const bytes = await zip.generateAsync({
     type: "uint8array",
     compression: "DEFLATE",
@@ -216,8 +245,12 @@ ${buildItems}
   return Buffer.from(bytes);
 }
 
-export async function meshTo3mf(mesh: Mesh, name = "DescribePrint"): Promise<Buffer> {
-  return meshesTo3mf([defaultObject(mesh, name)], name);
+export async function meshTo3mf(
+  mesh: Mesh,
+  name = "DescribePrint",
+  printPreset?: PrintPresetSummary | null,
+): Promise<Buffer> {
+  return meshesTo3mf([defaultObject(mesh, name, printPreset?.material ?? "pla")], name, printPreset);
 }
 
 const UNIT_TO_MM: Record<string, number> = {
@@ -346,7 +379,33 @@ function parseModelSettings(xml: string): Map<number, { extruder?: number; name?
 export type Parsed3mf = {
   mesh: Mesh;
   objects: ThreeMfObject[];
+  printPreset?: PrintPresetSummary;
 };
+
+function parseModelPrintPreset(xml: string): PrintPresetSummary | undefined {
+  const fields = new Map<string, string>();
+  for (const meta of xml.matchAll(/<[\w.:]*metadata\b([^>]*)>([\s\S]*?)<\/[\w.:]*metadata>/gi)) {
+    const key = (attr(meta[1] ?? "", "name") ?? "").toLowerCase();
+    const value = (meta[2] ?? "").trim();
+    if (key.startsWith("describeprint:preset_") && value) {
+      fields.set(key.replace("describeprint:preset_", ""), value);
+    }
+  }
+  const material = normalizeFilamentId(fields.get("material"));
+  if (!material) return undefined;
+  const summary = printPresetSummary(material);
+  const nozzleC = Number(fields.get("nozzle_c"));
+  const bedC = Number(fields.get("bed_c"));
+  return {
+    ...summary,
+    name: fields.get("name") || summary.name,
+    nozzleC: Number.isFinite(nozzleC) ? nozzleC : summary.nozzleC,
+    bedC: Number.isFinite(bedC) ? bedC : summary.bedC,
+    speedTier: (fields.get("speed_tier") as PrintPresetSummary["speedTier"]) || summary.speedTier,
+    coolingHint: fields.get("cooling") || summary.coolingHint,
+    advisory: true,
+  };
+}
 
 /**
  * Read a 3MF package into objects (colors preserved when present) plus a
@@ -371,9 +430,20 @@ export async function parse3mfDocument(buffer: Buffer): Promise<Parsed3mf> {
 
   const objects: ThreeMfObject[] = [];
   const triangles: Triangle[] = [];
+  let printPreset: PrintPresetSummary | undefined;
+  const presetFile = Object.keys(zip.files).find((name) => /print_preset\.json$/i.test(name));
+  if (presetFile) {
+    try {
+      const raw = JSON.parse(await zip.files[presetFile]!.async("string")) as PrintPresetSummary;
+      if (raw && normalizeFilamentId(raw.material)) printPreset = { ...printPresetSummary(raw.material), ...raw, advisory: true };
+    } catch {
+      // ignore malformed sidecar inside the package
+    }
+  }
 
   for (const name of modelFiles) {
     const xml = await zip.files[name]!.async("string");
+    printPreset ??= parseModelPrintPreset(xml);
     const scale = unitScale(xml);
     const materials = parseBaseMaterials(xml);
     const objectBlocks = xml.match(/<[\w.:]*object\b[\s\S]*?<\/[\w.:]*object>/gi) ?? [];
@@ -421,7 +491,7 @@ export async function parse3mfDocument(buffer: Buffer): Promise<Parsed3mf> {
   if (triangles.length === 0) {
     throw new Error("3MF mesh has no triangles");
   }
-  return { mesh: { triangles }, objects };
+  return { mesh: { triangles }, objects, printPreset };
 }
 
 /**

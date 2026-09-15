@@ -3,6 +3,7 @@ import {
   diagnosePrintComplaint,
   extractAmsSlot,
   inferMaterial,
+  looksLikeMaterialPresetRequest,
   looksLikePrintDoctorComplaint,
 } from "@/lib/print-doctor";
 
@@ -12,6 +13,32 @@ describe("print-doctor NLP stub", () => {
     expect(looksLikePrintDoctorComplaint("phone stand for iPhone 15, 60 degree tilt")).toBe(false);
     expect(looksLikePrintDoctorComplaint("parametric drawer knob diameter 40mm")).toBe(false);
     expect(looksLikePrintDoctorComplaint("reshape this cube to 20mm")).toBe(false);
+    expect(looksLikePrintDoctorComplaint("a PETG phone stand")).toBe(false);
+    expect(looksLikeMaterialPresetRequest("a PETG phone stand")).toBe(false);
+  });
+
+  it("switches to PETG or PA auto-best tables from chat", () => {
+    expect(looksLikeMaterialPresetRequest("use PETG settings")).toBe(true);
+    expect(looksLikePrintDoctorComplaint("use PETG settings")).toBe(true);
+    const petg = diagnosePrintComplaint({ complaint: "use PETG settings", material: "pla" });
+    expect(petg.defectId).toBe("material-preset");
+    expect(petg.material).toBe("petg");
+    expect(petg.appliedPreset).toBe(true);
+    expect(petg.diagnosis).toMatch(/PETG/i);
+    expect(petg.fixes.some((fix) => fix.key === "material" && fix.value === "petg")).toBe(true);
+    expect(petg.physicalSteps.join(" ")).toMatch(/not pushed|not sent/i);
+
+    expect(looksLikeMaterialPresetRequest("best for PA")).toBe(true);
+    const pa = diagnosePrintComplaint({ complaint: "best for nylon" });
+    expect(pa.defectId).toBe("material-preset");
+    expect(pa.material).toBe("pa");
+    expect(pa.fixes.some((fix) => fix.key === "material" && fix.value === "pa")).toBe(true);
+  });
+
+  it("keeps the session material when a defect does not name one", () => {
+    const result = diagnosePrintComplaint({ complaint: "stringing", material: "pa" });
+    expect(result.material).toBe("pa");
+    expect(result.defectId).toBe("stringing");
   });
 
   it("diagnoses PETG stringing with a cooler P2S setting", () => {

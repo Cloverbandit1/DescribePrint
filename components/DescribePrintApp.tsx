@@ -73,6 +73,21 @@ import {
 } from "@/lib/printers";
 import { formatMm, toMillimeters } from "@/lib/units";
 import {
+  applyUserProfileToRequest,
+  defaultUserProfile,
+  formatUserProfileSummary,
+  hasCustomUserProfile,
+  normalizeUserProfile,
+  parseUserProfile,
+  serializeUserProfile,
+  sessionDefaultsFromProfile,
+  upsertUserProfileAmsSlot,
+  USER_PROFILE_AMS_SLOT_COUNT,
+  USER_PROFILE_NOTE,
+  USER_PROFILE_STORAGE_KEY,
+  type UserProfile,
+} from "@/lib/user-profile";
+import {
   DEFAULT_WEARABLE_CATEGORY,
   MEASUREMENT_LABELS,
   WEARABLE_CATEGORY_IDS,
@@ -210,6 +225,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
   const scroller = useRef<HTMLDivElement>(null);
   const printer = defaultPrinter();
   const [material, setMaterial] = useState<FilamentId>(printer.defaultFilament);
+  const [userProfile, setUserProfile] = useState<UserProfile>(() => defaultUserProfile());
   const [packPlan, setPackPlan] = useState<PackPlan | null>(null);
   const [packOutlines, setPackOutlines] = useState<PackOutline[]>([]);
 
@@ -224,7 +240,18 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       setTheme(stored);
       document.documentElement.dataset.theme = stored;
     }
-    setMaterial(parseMaterialSession(window.localStorage.getItem(MATERIAL_SESSION_KEY)));
+    const rawProfile = window.localStorage.getItem(USER_PROFILE_STORAGE_KEY);
+    const storedMaterial = parseMaterialSession(window.localStorage.getItem(MATERIAL_SESSION_KEY));
+    const profile = rawProfile
+      ? parseUserProfile(rawProfile)
+      : normalizeUserProfile({ filament: storedMaterial });
+    setUserProfile(profile);
+    const defaults = sessionDefaultsFromProfile(profile);
+    setWearableSize(defaults.wearableSize);
+    setWearableCategory(defaults.wearableCategory);
+    setMaterial(defaults.filament);
+    setSizeHint(defaults.sizeHint);
+    setUnits(defaults.units);
   }, []);
 
   useEffect(() => {
@@ -294,13 +321,37 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
     scrollToEnd();
   }
 
+  function applyProfileSession(profile: UserProfile) {
+    const defaults = sessionDefaultsFromProfile(profile);
+    setWearableSize(defaults.wearableSize);
+    setWearableCategory(defaults.wearableCategory);
+    setMaterial(defaults.filament);
+    setSizeHint(defaults.sizeHint);
+    setUnits(defaults.units);
+  }
+
+  function commitUserProfile(next: UserProfile) {
+    const previous = userProfile;
+    const profile = normalizeUserProfile(next);
+    setUserProfile(profile);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(USER_PROFILE_STORAGE_KEY, serializeUserProfile(profile));
+    }
+    if (profile.wearableSize !== previous.wearableSize) setWearableSize(profile.wearableSize);
+    if (profile.wearableCategory !== previous.wearableCategory) setWearableCategory(profile.wearableCategory);
+    if (profile.filament !== previous.filament) setMaterial(profile.filament);
+    if (profile.partSizeHint !== previous.partSizeHint) {
+      setSizeHint(profile.partSizeHint != null ? String(profile.partSizeHint) : "");
+    }
+    if (profile.units !== previous.units) setUnits(profile.units);
+  }
+
   function resetConversation() {
     setItems([]);
     setResult(null);
     setDoctorResult(null);
     setDesignPrompt(null);
-    setWearableSize(null);
-    setWearableCategory(DEFAULT_WEARABLE_CATEGORY);
+    applyProfileSession(userProfile);
     setAppliedChoices([]);
     setHistory(emptyVersionHistory());
     setShowHistory(false);
@@ -352,8 +403,18 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
   ) {
     const cleaned = text.trim();
     if (!cleaned || busy) return;
-    const sizeForRequest = options?.wearableSize !== undefined ? options.wearableSize : wearableSize;
-    const categoryForRequest = options?.wearableCategory ?? wearableCategory;
+    const profiled = applyUserProfileToRequest(
+      {
+        wearableSize: options?.wearableSize !== undefined ? options.wearableSize : wearableSize ?? undefined,
+        wearableCategory: options?.wearableCategory ?? wearableCategory,
+        filament: options?.filament ?? material,
+        sizeHint: sizeNumber ?? undefined,
+        units,
+      },
+      userProfile,
+    );
+    const sizeForRequest = profiled.wearableSize;
+    const categoryForRequest = profiled.wearableCategory;
 
     const feedback = looksLikeDoctorFeedback(cleaned);
     if (feedback && doctorResult) {
@@ -430,15 +491,15 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: cleaned,
-          sizeHint: sizeNumber,
-          units,
+          sizeHint: profiled.sizeHint,
+          units: profiled.units,
           previousPrompt,
           previousCode,
           previousJobId,
           previousSource,
           wearableSize: sizeForRequest,
           wearableCategory: categoryForRequest,
-          filament: options?.filament ?? material,
+          filament: profiled.filament,
           choices: choicesForRequest,
           fixture: process.env.NODE_ENV === "test" ? true : undefined,
           cadHandoff:
@@ -671,6 +732,8 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       onUnitsChange={setUnits}
       keepWear={keepWear}
       onKeepWearChange={setKeepWear}
+      userProfile={userProfile}
+      onUserProfileChange={commitUserProfile}
       followUps={
         result && !busy
           ? result.editMode === "image-import"
@@ -684,8 +747,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
         if (value.toLowerCase().includes("new part")) {
           setPrompt("");
           setDesignPrompt(null);
-          setWearableSize(null);
-          setWearableCategory(DEFAULT_WEARABLE_CATEGORY);
+          applyProfileSession(userProfile);
           setAppliedChoices([]);
           setHistory(emptyVersionHistory());
           setShowHistory(false);
@@ -1049,6 +1111,8 @@ function ChatComposer({
   onUnitsChange,
   keepWear,
   onKeepWearChange,
+  userProfile,
+  onUserProfileChange,
   followUps,
   onFollowUp,
   onImport,
@@ -1070,6 +1134,8 @@ function ChatComposer({
   onUnitsChange: (value: Unit) => void;
   keepWear: boolean;
   onKeepWearChange: (value: boolean) => void;
+  userProfile: UserProfile;
+  onUserProfileChange: (profile: UserProfile) => void;
   followUps: readonly string[] | null;
   onFollowUp: (value: string) => void;
   onImport: () => void;
@@ -1131,6 +1197,11 @@ function ChatComposer({
         >
           {showAdvanced ? "Hide options" : "More options"}
         </button>
+        {hasCustomUserProfile(userProfile) ? (
+          <span className="hidden text-[10px] text-muted sm:inline">
+            Profile: {formatUserProfileSummary(userProfile)}
+          </span>
+        ) : null}
         <button
           type="button"
           onClick={onImport}
@@ -1177,6 +1248,7 @@ function ChatComposer({
             <input type="checkbox" checked={keepWear} onChange={(event) => onKeepWearChange(event.target.checked)} />
             Keep damage / wear
           </label>
+          <UserProfilePanel profile={userProfile} onChange={onUserProfileChange} />
         </div>
       ) : null}
     </form>
@@ -2188,8 +2260,9 @@ function EmptyState({ onPick }: { onPick: (value: string) => void }) {
       <p className="text-sm leading-relaxed text-muted">
         Describe a part in plain language, or <span className="text-ink">import an STL/3MF or a photo</span>. If a
         known fork is unclear, the chat offers a few chips — pick one, then <span className="text-ink">Print</span>.
-        Open <span className="text-ink">More options</span> only if you need a size. The plate is a Bambu Lab P2S
-        (256 × 256 × 256 mm) by default. A print defect (stringing, AMS loop) goes to Print doctor instead of CAD.
+        Open <span className="text-ink">More options</span> for a one-off size or saved profile defaults (this device
+        only). The plate is a Bambu Lab P2S (256 × 256 × 256 mm) by default. A print defect (stringing, AMS loop) goes
+        to Print doctor instead of CAD.
       </p>
       <div className="studio-label">Try saying</div>
       <div className="space-y-1.5">
@@ -2203,6 +2276,165 @@ function EmptyState({ onPick }: { onPick: (value: string) => void }) {
             {example}
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function UserProfilePanel({
+  profile,
+  onChange,
+}: {
+  profile: UserProfile;
+  onChange: (profile: UserProfile) => void;
+}) {
+  const printer = defaultPrinter();
+  const slotRows = Array.from({ length: USER_PROFILE_AMS_SLOT_COUNT }, (_, index) => {
+    return profile.amsSlots.find((slot) => slot.index === index) ?? { index, label: "" };
+  });
+
+  return (
+    <div className="mt-2 w-full space-y-2 border-t border-line pt-2">
+      <div className="studio-label">Profile defaults</div>
+      <p className="text-[10px] leading-relaxed text-muted">{USER_PROFILE_NOTE}</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="text-[11px] text-muted">
+          Printer
+          <input
+            value={printer.name}
+            readOnly
+            className="studio-field mt-0.5 w-40 px-2 py-1.5 text-sm"
+            aria-label="Default printer"
+          />
+        </label>
+        <label className="text-[11px] text-muted">
+          Category
+          <select
+            value={profile.wearableCategory}
+            onChange={(event) =>
+              onChange({ ...profile, wearableCategory: event.target.value as WearableCategoryId })
+            }
+            className="studio-field mt-0.5 w-36 px-2 py-1.5 text-sm"
+            aria-label="Default wearable category"
+          >
+            {WEARABLE_CATEGORY_IDS.map((id) => (
+              <option key={id} value={id}>
+                {getWearableCategory(id).shortLabel}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-[11px] text-muted">
+          Size
+          <select
+            value={profile.wearableSize ?? ""}
+            onChange={(event) =>
+              onChange({
+                ...profile,
+                wearableSize: isWearableSizeId(event.target.value) ? event.target.value : null,
+              })
+            }
+            className="studio-field mt-0.5 w-28 px-2 py-1.5 text-sm"
+            aria-label="Default wearable size"
+          >
+            <option value="">Native / unset</option>
+            {WEARABLE_SIZE_IDS.map((id) => (
+              <option key={id} value={id}>
+                {id} · {WEARABLE_SIZE_LABELS[id]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-[11px] text-muted">
+          Filament
+          <select
+            value={profile.filament}
+            onChange={(event) =>
+              onChange({
+                ...profile,
+                filament: isFilamentId(event.target.value) ? event.target.value : profile.filament,
+              })
+            }
+            className="studio-field mt-0.5 w-28 px-2 py-1.5 text-sm"
+            aria-label="Default filament"
+          >
+            {listFilamentPresets(printer).map((item) => (
+              <option key={item.id} value={item.id}>
+                {filamentPickerLabel(item)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-[11px] text-muted">
+          Part size
+          <input
+            type="number"
+            min={0}
+            step="any"
+            value={profile.partSizeHint ?? ""}
+            onChange={(event) => {
+              const n = Number(event.target.value);
+              onChange({
+                ...profile,
+                partSizeHint: event.target.value.trim() && Number.isFinite(n) && n > 0 ? n : null,
+              });
+            }}
+            placeholder="optional"
+            className="studio-field mt-0.5 w-20 px-2 py-1.5 text-sm"
+            aria-label="Default part size"
+          />
+        </label>
+        <label className="text-[11px] text-muted">
+          Units
+          <select
+            value={profile.units}
+            onChange={(event) => onChange({ ...profile, units: event.target.value as Unit })}
+            className="studio-field mt-0.5 w-auto px-2 py-1.5 text-sm"
+            aria-label="Default units"
+          >
+            <option value="mm">mm</option>
+            <option value="in">inches</option>
+          </select>
+        </label>
+      </div>
+      <div>
+        <div className="text-[11px] text-muted">AMS slot labels (prefs only)</div>
+        <div className="mt-1 grid gap-1.5 sm:grid-cols-2">
+          {slotRows.map((slot) => (
+            <div key={slot.index} className="flex items-center gap-1.5">
+              <span className="w-10 shrink-0 text-[10px] text-muted">AMS {slot.index + 1}</span>
+              <input
+                value={slot.label}
+                onChange={(event) =>
+                  onChange(upsertUserProfileAmsSlot(profile, { ...slot, label: event.target.value }))
+                }
+                placeholder="label"
+                className="studio-field min-w-0 flex-1 px-2 py-1 text-[11px]"
+                aria-label={`AMS ${slot.index + 1} label`}
+              />
+              <select
+                value={slot.material ?? ""}
+                onChange={(event) =>
+                  onChange(
+                    upsertUserProfileAmsSlot(profile, {
+                      ...slot,
+                      material: isFilamentId(event.target.value) ? event.target.value : undefined,
+                    }),
+                  )
+                }
+                className="studio-field w-20 px-1.5 py-1 text-[11px]"
+                aria-label={`AMS ${slot.index + 1} material`}
+              >
+                <option value="">—</option>
+                {listFilamentPresets(printer).map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

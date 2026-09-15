@@ -6,7 +6,16 @@
  * not a cloud account. AMS rows are prefs, not live tray mapping.
  */
 
-import { DEFAULT_PRINTER_ID, isFilamentId, normalizeFilamentId, type FilamentId, type PrinterId } from "./printers";
+import { useSyncExternalStore } from "react";
+import {
+  DEFAULT_PRINTER_ID,
+  MATERIAL_SESSION_KEY,
+  isFilamentId,
+  normalizeFilamentId,
+  parseMaterialSession,
+  type FilamentId,
+  type PrinterId,
+} from "./printers";
 import type { Unit, WearableCategoryId, WearableSizeId } from "./types";
 import {
   DEFAULT_WEARABLE_CATEGORY,
@@ -238,4 +247,56 @@ export function sessionDefaultsFromProfile(profile: UserProfile): {
     sizeHint: profile.partSizeHint != null ? String(profile.partSizeHint) : "",
     units: profile.units,
   };
+}
+
+const DEFAULT_PROFILE = defaultUserProfile();
+const listeners = new Set<() => void>();
+let cachedRaw: string | null | undefined;
+let cachedProfile: UserProfile = DEFAULT_PROFILE;
+
+function emitUserProfile() {
+  for (const listener of listeners) listener();
+}
+
+export function subscribeUserProfile(onStoreChange: () => void): () => void {
+  listeners.add(onStoreChange);
+  return () => {
+    listeners.delete(onStoreChange);
+  };
+}
+
+export function getServerUserProfile(): UserProfile {
+  return DEFAULT_PROFILE;
+}
+
+/** Cached parse — Object.is-stable while localStorage is unchanged. */
+export function getUserProfileSnapshot(): UserProfile {
+  if (typeof window === "undefined") return DEFAULT_PROFILE;
+  const raw = window.localStorage.getItem(USER_PROFILE_STORAGE_KEY);
+  if (raw === cachedRaw) return cachedProfile;
+  cachedRaw = raw;
+  cachedProfile = raw
+    ? parseUserProfile(raw)
+    : normalizeUserProfile({
+        filament: parseMaterialSession(window.localStorage.getItem(MATERIAL_SESSION_KEY)),
+      });
+  return cachedProfile;
+}
+
+export function writeUserProfile(profile: UserProfile): UserProfile {
+  const next = normalizeUserProfile(profile);
+  const raw = serializeUserProfile(next);
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(USER_PROFILE_STORAGE_KEY, raw);
+  }
+  cachedRaw = raw;
+  cachedProfile = next;
+  emitUserProfile();
+  return next;
+}
+
+/** Hydration-safe localStorage profile. Server snapshot is the empty default. */
+export function useUserProfile(): [UserProfile, (next: UserProfile) => void] {
+  const profile = useSyncExternalStore(subscribeUserProfile, getUserProfileSnapshot, getServerUserProfile);
+  return [profile, writeUserProfile];
 }

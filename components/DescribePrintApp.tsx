@@ -74,17 +74,13 @@ import {
 import { formatMm, toMillimeters } from "@/lib/units";
 import {
   applyUserProfileToRequest,
-  defaultUserProfile,
   formatUserProfileSummary,
   hasCustomUserProfile,
-  normalizeUserProfile,
-  parseUserProfile,
-  serializeUserProfile,
   sessionDefaultsFromProfile,
   upsertUserProfileAmsSlot,
+  useUserProfile,
   USER_PROFILE_AMS_SLOT_COUNT,
   USER_PROFILE_NOTE,
-  USER_PROFILE_STORAGE_KEY,
   type UserProfile,
 } from "@/lib/user-profile";
 import {
@@ -225,7 +221,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
   const scroller = useRef<HTMLDivElement>(null);
   const printer = defaultPrinter();
   const [material, setMaterial] = useState<FilamentId>(printer.defaultFilament);
-  const [userProfile, setUserProfile] = useState<UserProfile>(() => defaultUserProfile());
+  const [userProfile, commitUserProfile] = useUserProfile();
   const [packPlan, setPackPlan] = useState<PackPlan | null>(null);
   const [packOutlines, setPackOutlines] = useState<PackOutline[]>([]);
 
@@ -240,19 +236,23 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       setTheme(stored);
       document.documentElement.dataset.theme = stored;
     }
-    const rawProfile = window.localStorage.getItem(USER_PROFILE_STORAGE_KEY);
-    const storedMaterial = parseMaterialSession(window.localStorage.getItem(MATERIAL_SESSION_KEY));
-    const profile = rawProfile
-      ? parseUserProfile(rawProfile)
-      : normalizeUserProfile({ filament: storedMaterial });
-    setUserProfile(profile);
-    const defaults = sessionDefaultsFromProfile(profile);
+    setMaterial(parseMaterialSession(window.localStorage.getItem(MATERIAL_SESSION_KEY)));
+  }, []);
+
+  useEffect(() => {
+    const defaults = sessionDefaultsFromProfile(userProfile);
     setWearableSize(defaults.wearableSize);
     setWearableCategory(defaults.wearableCategory);
     setMaterial(defaults.filament);
     setSizeHint(defaults.sizeHint);
     setUnits(defaults.units);
-  }, []);
+  }, [
+    userProfile.wearableSize,
+    userProfile.wearableCategory,
+    userProfile.filament,
+    userProfile.partSizeHint,
+    userProfile.units,
+  ]);
 
   useEffect(() => {
     window.localStorage.setItem(MATERIAL_SESSION_KEY, serializeMaterialSession(material));
@@ -328,22 +328,6 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
     setMaterial(defaults.filament);
     setSizeHint(defaults.sizeHint);
     setUnits(defaults.units);
-  }
-
-  function commitUserProfile(next: UserProfile) {
-    const previous = userProfile;
-    const profile = normalizeUserProfile(next);
-    setUserProfile(profile);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(USER_PROFILE_STORAGE_KEY, serializeUserProfile(profile));
-    }
-    if (profile.wearableSize !== previous.wearableSize) setWearableSize(profile.wearableSize);
-    if (profile.wearableCategory !== previous.wearableCategory) setWearableCategory(profile.wearableCategory);
-    if (profile.filament !== previous.filament) setMaterial(profile.filament);
-    if (profile.partSizeHint !== previous.partSizeHint) {
-      setSizeHint(profile.partSizeHint != null ? String(profile.partSizeHint) : "");
-    }
-    if (profile.units !== previous.units) setUnits(profile.units);
   }
 
   function resetConversation() {

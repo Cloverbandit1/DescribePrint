@@ -1,10 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { resolveDesignOptions } from "@/lib/design-options";
 import { STORMTROOPER_HELMET_PROMPT } from "@/lib/knowledge";
 import {
   applyUserProfileToRequest,
   defaultUserProfile,
   formatUserProfileSummary,
+  getServerUserProfile,
+  getUserProfileSnapshot,
   hasCustomUserProfile,
   normalizeUserProfile,
   parseUserProfile,
@@ -13,6 +15,7 @@ import {
   upsertUserProfileAmsSlot,
   USER_PROFILE_NOTE,
   USER_PROFILE_STORAGE_KEY,
+  writeUserProfile,
 } from "@/lib/user-profile";
 
 describe("user profile stub", () => {
@@ -175,5 +178,28 @@ describe("user profile stub", () => {
         filament: profile.filament,
       }).needs_user_choice,
     ).toBe(false);
+  });
+
+  it("keeps the server snapshot identity-stable for useSyncExternalStore", () => {
+    expect(getServerUserProfile()).toBe(getServerUserProfile());
+    expect(getServerUserProfile()).toEqual(defaultUserProfile());
+  });
+
+  it("caches a localStorage snapshot until the profile is rewritten", () => {
+    const store = new Map<string, string>();
+    const localStorage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        store.set(key, value);
+      },
+    };
+    vi.stubGlobal("window", { localStorage });
+    const saved = writeUserProfile(
+      normalizeUserProfile({ wearableSize: "XL", filament: "abs", amsSlots: [{ index: 1, label: "accent" }] }),
+    );
+    expect(store.get(USER_PROFILE_STORAGE_KEY)).toBe(serializeUserProfile(saved));
+    expect(getUserProfileSnapshot()).toBe(saved);
+    expect(getUserProfileSnapshot()).toEqual(saved);
+    vi.unstubAllGlobals();
   });
 });

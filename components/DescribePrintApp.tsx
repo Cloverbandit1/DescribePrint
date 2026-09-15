@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EXAMPLE_PROMPTS } from "@/lib/fixtures";
+import type { HealthReport, HealthTone } from "@/lib/health-types";
 import { defaultPrinter } from "@/lib/printers";
 import { formatMm } from "@/lib/units";
 import type { GenerateResult, PipelineStep, StatusEvent, Unit } from "@/lib/types";
@@ -260,7 +261,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
           <StudioMark />
           <div className="min-w-0">
             <div className="text-[13px] font-semibold leading-none">DescribePrint</div>
-            <div className="mt-0.5 hidden truncate text-[10px] text-muted sm:block">Describe → talk → Print</div>
+            <div className="mt-0.5 hidden truncate text-[10px] text-muted sm:block">Describe → options → Print</div>
           </div>
         </div>
         <nav className="ml-2 flex items-center self-stretch" aria-label="Workspace">
@@ -277,17 +278,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
-          {localAi ? (
-            <div
-              className="flex items-center gap-1.5 rounded-full border border-ok/35 bg-ok/10 px-2 py-0.5 text-[11px] text-ok"
-              role="status"
-              aria-label="Local AI is active"
-              title="DescribePrint is using local Ollama. Agent Smith models are left untouched."
-            >
-              <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-hidden="true" />
-              Local AI
-            </div>
-          ) : null}
+          <ToolsStatus localAiHint={localAi} />
           {busy ? (
             <span className="hidden items-center gap-1.5 text-[11px] text-muted sm:flex">
               <span className="pulse-dot h-1.5 w-1.5 rounded-full bg-accent" />
@@ -403,7 +394,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
             <div className="rounded-md border border-line bg-panel-2 p-2.5 text-[11px] leading-relaxed text-muted">
               <div className="text-sm font-medium text-ink">{printer.name}</div>
               <div className="mt-1">
-                {plateW} × {plateD} × {plateH} mm · {printer.nozzleMm} mm nozzle
+                Default printer · {plateW} × {plateD} × {plateH} mm · {printer.nozzleMm} mm nozzle
               </div>
             </div>
 
@@ -423,7 +414,8 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
               <ResultPanel result={result} showDetails={showDetails} onToggleDetails={() => setShowDetails((v) => !v)} />
             ) : (
               <p className="rounded-md border border-dashed border-line px-2.5 py-2 text-[11px] text-muted">
-                Nothing on the plate yet — tell the chat what to make.
+                Nothing on the plate yet. Describe a part, use More options if you want a size, then Print. Files are
+                sized for the P2S.
               </p>
             )}
           </div>
@@ -672,8 +664,8 @@ function EmptyState({ onPick }: { onPick: (value: string) => void }) {
   return (
     <div className="space-y-3">
       <p className="text-sm leading-relaxed text-muted">
-        Talk to the workspace. Describe a part, then keep chatting to add, remove, or change it. The plate updates when
-        you Print.
+        Describe a part in plain language. Open <span className="text-ink">More options</span> only if you need a size.
+        Then <span className="text-ink">Print</span> — the plate is a Bambu Lab P2S (256 × 256 × 256 mm) by default.
       </p>
       <div className="studio-label">Try saying</div>
       <div className="space-y-1.5">
@@ -688,6 +680,145 @@ function EmptyState({ onPick }: { onPick: (value: string) => void }) {
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+function toneDot(tone: HealthTone): string {
+  if (tone === "ok") return "bg-ok";
+  if (tone === "warn") return "bg-warn";
+  if (tone === "danger") return "bg-danger";
+  return "bg-muted";
+}
+
+function toneChip(tone: HealthTone): string {
+  if (tone === "ok") return "border-ok/35 bg-ok/10 text-ok";
+  if (tone === "warn") return "border-warn/40 bg-warn/10 text-warn";
+  if (tone === "danger") return "border-danger/40 bg-danger/10 text-danger";
+  return "border-line bg-panel-2 text-muted";
+}
+
+function ToolsStatus({ localAiHint = false }: { localAiHint?: boolean }) {
+  const [health, setHealth] = useState<HealthReport | null>(null);
+  const [open, setOpen] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const response = await fetch("/api/health", { cache: "no-store" });
+        if (!response.ok) throw new Error("health failed");
+        const report = (await response.json()) as HealthReport;
+        if (!cancelled) {
+          setHealth(report);
+          setFailed(false);
+        }
+      } catch {
+        if (!cancelled) setFailed(true);
+      }
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 20_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const localTone: HealthTone = health?.localAi.tone ?? "neutral";
+  const scadTone: HealthTone = health?.openscad.tone ?? "neutral";
+  const localLabel = health?.localAi.label ?? (localAiHint ? "Local AI" : "Tools");
+  const summary = health
+    ? health.ready
+      ? "Local AI and OpenSCAD look ready"
+      : "Local AI / tools need a fix — click for tips"
+    : failed
+      ? "Could not check local AI / tools"
+      : "Checking local AI and OpenSCAD…";
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className={`flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] ${toneChip(
+          !health ? "neutral" : health.ready ? "ok" : localTone === "danger" ? "danger" : "warn",
+        )}`}
+        aria-expanded={open}
+        aria-label={summary}
+        title={summary}
+      >
+        <span className={`h-1.5 w-1.5 rounded-full ${toneDot(localTone)}`} aria-hidden="true" />
+        <span className="hidden sm:inline">{localLabel}</span>
+        <span className="sm:hidden">Tools</span>
+        <span className={`hidden h-1.5 w-1.5 rounded-full sm:inline-block ${toneDot(scadTone)}`} aria-hidden="true" />
+        <span className="hidden text-[10px] opacity-80 sm:inline">OpenSCAD</span>
+      </button>
+      {open ? (
+        <div
+          className="absolute right-0 z-30 mt-2 w-[min(22rem,calc(100vw-1.5rem))] space-y-2.5 rounded-md border border-line bg-panel p-3 text-[12px] shadow-lg"
+          role="status"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div className="studio-label">Local AI / tools</div>
+            <button type="button" className="text-[11px] text-muted hover:underline" onClick={() => setOpen(false)}>
+              Close
+            </button>
+          </div>
+          {health ? (
+            <>
+              <HealthBlock
+                tone={health.localAi.tone}
+                title={health.localAi.label}
+                detail={health.localAi.detail}
+                tips={health.localAi.tips}
+              />
+              <HealthBlock
+                tone={health.openscad.tone}
+                title={health.openscad.label}
+                detail={health.openscad.detail}
+                tips={health.openscad.tips}
+              />
+              <p className="text-[11px] text-muted">
+                Printer default: {health.printer.name} ({health.printer.buildVolumeMm.join(" × ")} mm). Agent Smith
+                models and the Ollama port stay untouched.
+              </p>
+            </>
+          ) : (
+            <p className="text-muted">{failed ? "Health check failed. Is the app still running?" : "Checking…"}</p>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function HealthBlock({
+  tone,
+  title,
+  detail,
+  tips,
+}: {
+  tone: HealthTone;
+  title: string;
+  detail: string;
+  tips: string[];
+}) {
+  return (
+    <div className={`rounded-md border px-2.5 py-2 ${toneChip(tone)}`}>
+      <div className="flex items-center gap-1.5 font-medium text-ink">
+        <span className={`h-1.5 w-1.5 rounded-full ${toneDot(tone)}`} aria-hidden="true" />
+        {title}
+      </div>
+      <p className="mt-1 text-[11px] leading-relaxed text-ink/90">{detail}</p>
+      {tips.length > 0 ? (
+        <ul className="mt-1.5 list-disc space-y-1 pl-4 text-[11px] leading-relaxed">
+          {tips.map((tip) => (
+            <li key={tip}>{tip}</li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }

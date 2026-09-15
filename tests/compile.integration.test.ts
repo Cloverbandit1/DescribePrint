@@ -3,12 +3,18 @@ import { describe, expect, it } from "vitest";
 import { compileOpenScad, withTempDir } from "@/lib/compile";
 import { defaultFixture } from "@/lib/fixtures";
 import { checkMesh, hasHardMeshFailure } from "@/lib/mesh-check";
+import { resolveOpenscad } from "@/lib/openscad";
 import { sanitizeOpenScad } from "@/lib/sanitize";
 import { parseStl } from "@/lib/stl";
 
 function hasOpenscad(): boolean {
-  const bin = process.env.OPENSCAD_BIN || "openscad";
-  const probe = spawnSync(bin, ["-v"], { encoding: "utf8" });
+  const resolved = resolveOpenscad();
+  if (!resolved.found && !process.env.OPENSCAD_BIN && !process.env.OPENSCAD_PATH) {
+    const probe = spawnSync(resolved.command, ["-v"], { encoding: "utf8" });
+    return probe.status === 0 || Boolean(probe.stderr || probe.stdout);
+  }
+  if (!resolved.found) return false;
+  const probe = spawnSync(resolved.command, ["-v"], { encoding: "utf8" });
   return probe.status === 0 || Boolean(probe.stderr || probe.stdout);
 }
 

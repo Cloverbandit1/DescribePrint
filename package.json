@@ -8,6 +8,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "setup": "node scripts/setup.mjs",
+    "start:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/Start-DescribePrint.ps1",
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest"

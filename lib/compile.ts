@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { resolveOpenscadBin } from "./openscad";
 
 const DEFAULT_TIMEOUT_MS = 45_000;
 
@@ -21,8 +22,8 @@ export class CompileError extends Error {
   }
 }
 
-function resolveOpenscadBin(): string {
-  return process.env.OPENSCAD_BIN?.trim() || "openscad";
+function compileOpenscadBin(): string {
+  return resolveOpenscadBin();
 }
 
 function timeoutMs(): number {
@@ -79,7 +80,7 @@ export async function compileOpenScad(code: string, workDir?: string): Promise<C
   const stlPath = path.join(dir, "model.stl");
   await writeFile(scadPath, code, "utf8");
 
-  const bin = resolveOpenscadBin();
+  const bin = compileOpenscadBin();
   const timeout = timeoutMs();
   const args = ["-o", stlPath, "--export-format=binstl", scadPath];
 
@@ -104,7 +105,7 @@ export async function compileOpenScad(code: string, workDir?: string): Promise<C
         );
       }
       throw new CompileError(
-        "OpenSCAD is not installed or not on PATH. See README.md for install steps (apt/brew), or set OPENSCAD_BIN.",
+        "OpenSCAD is not installed or not on PATH. Install from https://openscad.org/, set OPENSCAD_PATH to the executable, or place a portable copy in vendor/openscad/.",
         message,
       );
     }

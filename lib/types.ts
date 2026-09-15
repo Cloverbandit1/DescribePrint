@@ -6,6 +6,10 @@ export type GenerateRequest = {
   units?: Unit;
   /** Force the built-in fixture/heuristic path (no live LLM). */
   fixture?: boolean;
+  /** Last successful description, used so follow-ups can edit the same part. */
+  previousPrompt?: string | null;
+  /** Last successful OpenSCAD, used so follow-ups can add/remove/change the design. */
+  previousCode?: string | null;
 };
 
 export type PipelineStep =
@@ -79,6 +83,7 @@ export type Mesh = {
  * V0 extension points (not implemented — reserved for later versions).
  *
  * - describe-to-modify: follow-up "make the hole 8mm" using previous SCAD as context
+ *   (V0 already sends previousPrompt/previousCode on chat follow-ups)
  * - Style2Fab-style edit: in-app stylization while preserving functional regions
  *   (not a Blender plugin or other DCC — preview + STL/3MF in the web UI is the full path)
  * - organic mesh: swap the OpenSCAD backend for a neural / implicit surface generator
@@ -90,6 +95,10 @@ export type Mesh = {
  * 5. image import (single photo → full 3D solid including inferred backside
  *    and unseen geometry, not front-only; repair damage by default,
  *    keep cracks/missing chunks only if the user asks)
+ * Owner-approved extras (README Roadmap; later, do not block layout PR):
+ * profile, edit history/undo, time/filament/cost, AMS-aware design,
+ * print-doctor learning, project packs, plate packing, strength heatmap,
+ * assembly/explode, optional voice, and direct P2S+AMS control from chat.
  * All stay in-app; users never need Blender or another DCC afterward.
  * V0 stays describe → CAD → STL/3MF.
  * UX: everyday path is describe → clear options → Print; hide advanced CAD.

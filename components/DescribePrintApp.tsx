@@ -26,10 +26,10 @@ import {
 } from "@/lib/machine/ams";
 import { selectAmsHelpGuide, type AmsHelpGuide } from "@/lib/machine/ams-help";
 import {
-  CAMERA_PAUSE_NOW_PHRASE,
-  offersCameraPauseChip,
+  cameraDoctorMidPrintChips,
   takeCameraDoctorAnnouncement,
   type CameraDoctorHeld,
+  type CameraDoctorMidPrintChip,
 } from "@/lib/machine/camera-doctor-bridge";
 import type { AmsSlotPlan, AmsSlotStatus } from "@/lib/machine/types";
 import { MACHINE_RESHAPE_STORAGE_KEY, parseReshapeRemainingPref } from "@/lib/machine/reshape-pref";
@@ -912,7 +912,12 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
                 }}
               />
             ) : (
-              items.map((item, index) => (
+              items.map((item, index) => {
+                const cameraChips =
+                  item.kind === "doctor" && index === items.length - 1
+                    ? cameraDoctorMidPrintChips(item.result)
+                    : [];
+                return (
                 <ChatBubble
                   key={item.id}
                   item={item}
@@ -925,15 +930,11 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
                       ? applyDoctorFeedback
                       : undefined
                   }
-                  onPauseNow={
-                    item.kind === "doctor" &&
-                    index === items.length - 1 &&
-                    offersCameraPauseChip(item.result)
-                      ? () => void printPart(CAMERA_PAUSE_NOW_PHRASE)
-                      : undefined
-                  }
+                  cameraChips={cameraChips}
+                  onCameraChip={cameraChips.length ? (phrase) => void printPart(phrase) : undefined}
                 />
-              ))
+                );
+              })
             )}
           </div>
 
@@ -1361,13 +1362,15 @@ function ChatBubble({
   onPickOption,
   disabled,
   onDoctorFeedback,
-  onPauseNow,
+  cameraChips,
+  onCameraChip,
 }: {
   item: ChatItem;
   onPickOption?: (group: DesignOptionGroup, option: DesignOption) => void;
   disabled?: boolean;
   onDoctorFeedback?: (kind: DoctorFeedbackKind, spoken: string) => void;
-  onPauseNow?: () => void;
+  cameraChips?: CameraDoctorMidPrintChip[];
+  onCameraChip?: (phrase: string) => void;
 }) {
   if (item.kind === "user") {
     return (
@@ -1456,7 +1459,7 @@ function ChatBubble({
         {result.learned ? (
           <div className="mt-1 text-[11px] text-muted">Remembered for this printer + filament.</div>
         ) : null}
-        {(onDoctorFeedback && result.defectId !== "mid-print-control") || onPauseNow ? (
+        {(onDoctorFeedback && result.defectId !== "mid-print-control") || (onCameraChip && cameraChips?.length) ? (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {onDoctorFeedback && result.defectId !== "mid-print-control" ? (
               <>
@@ -1480,17 +1483,20 @@ function ChatBubble({
                 </button>
               </>
             ) : null}
-            {onPauseNow ? (
-              <button
-                type="button"
-                disabled={disabled}
-                onClick={onPauseNow}
-                className="studio-btn studio-btn-ghost h-6 px-2 text-[11px]"
-                aria-label="Pause now — mid-print pause if connected"
-              >
-                Pause now
-              </button>
-            ) : null}
+            {onCameraChip
+              ? cameraChips?.map((chip) => (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => onCameraChip(chip.phrase)}
+                    className="studio-btn studio-btn-ghost h-6 px-2 text-[11px]"
+                    aria-label={chip.ariaLabel}
+                  >
+                    {chip.label}
+                  </button>
+                ))
+              : null}
           </div>
         ) : null}
       </div>

@@ -182,7 +182,12 @@ export async function POST(request: Request) {
           amsHint: status.amsHint,
         })
       : diagnosisFromAmsHint(status.amsHint, { remainingPercent: liveRemain, material: doctor.material });
-    const midPrintIntent = doctor.complaint ? parseMidPrintCommandPhrase(doctor.complaint) : null;
+    const midPrintIntent = doctor.complaint
+      ? parseMidPrintCommandPhrase(doctor.complaint, {
+          material: doctor.material,
+          currentNozzleC: status.nozzleTargetC ?? status.nozzleTempC,
+        })
+      : null;
     if (midPrintIntent && diagnosis) {
       const lastCommand = await sendMidPrintIfConnected(machine, midPrintIntent.command);
       const attempted = status.connection === "connected";

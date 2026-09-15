@@ -7,6 +7,7 @@ import {
   type BambuSpeedLevel,
 } from "./bambu-protocol";
 import type { CommandResult, MidPrintCommand } from "./types";
+import { defaultPrinter, filamentPreset, isFilamentId, normalizeFilamentId, type FilamentId } from "../printers";
 
 /**
  * Chat-first mid-print control. Whole-utterance match only so CAD prompts
@@ -20,6 +21,19 @@ export const MID_PRINT_CONTROL_ID = "mid-print-control";
 export const CONNECT_LAN_FIRST =
   "Connect LAN first. Turn on LAN MQTT in the Machine panel and wait until the printer is connected.";
 
+/** Same whole-utterance phrases as camera doctor chips. */
+export const CAMERA_SLOW_DOWN_PHRASE = "slow down";
+export const CAMERA_COOL_NOZZLE_PHRASE = "cool nozzle";
+
+/** Cool-nozzle chip / chat: drop this many °C, then clamp to a material-safe floor. */
+export const COOL_NOZZLE_DELTA_C = 10;
+const PRESET_COOL_FLOOR_DELTA_C = 30;
+
+export type MidPrintParseOptions = {
+  material?: FilamentId | string;
+  currentNozzleC?: number;
+};
+
 export type MidPrintIntent = {
   command: MidPrintCommand;
   /** Bambu print_speed tier when the phrase set speed. */
@@ -27,13 +41,39 @@ export type MidPrintIntent = {
   label: string;
 };
 
+/** Material/preset floor so cool-nozzle never drops blindly below a printable min. */
+export function coolNozzleSafeMinC(material: FilamentId = defaultPrinter().defaultFilament): number {
+  const printer = defaultPrinter();
+  const preset = filamentPreset(material, printer);
+  return Math.max(printer.minNozzleC, preset.nozzleC - PRESET_COOL_FLOOR_DELTA_C);
+}
+
+export function coolNozzleTargetC(
+  material?: FilamentId | string,
+  currentNozzleC?: number,
+): number {
+  const printer = defaultPrinter();
+  const filament = (typeof material === "string" && isFilamentId(material)
+    ? material
+    : normalizeFilamentId(material)) ?? printer.defaultFilament;
+  const preset = filamentPreset(filament, printer);
+  const base =
+    currentNozzleC != null && Number.isFinite(currentNozzleC) && currentNozzleC > 0
+      ? currentNozzleC
+      : preset.nozzleC;
+  return Math.max(Math.round(base - COOL_NOZZLE_DELTA_C), coolNozzleSafeMinC(filament));
+}
+
 const LEAD = /^(?:please\s+)?/i;
 
 export function looksLikeMidPrintCommand(text: string): boolean {
   return parseMidPrintCommandPhrase(text) != null;
 }
 
-export function parseMidPrintCommandPhrase(text: string): MidPrintIntent | null {
+export function parseMidPrintCommandPhrase(
+  text: string,
+  opts?: MidPrintParseOptions,
+): MidPrintIntent | null {
   const cleaned = normalizeUtterance(text);
   if (!cleaned) return null;
 
@@ -47,7 +87,7 @@ export function parseMidPrintCommandPhrase(text: string): MidPrintIntent | null 
   const speed = parseSpeedPhrase(cleaned);
   if (speed) return speed;
 
-  const temp = parseTempPhrase(cleaned);
+  const temp = parseTempPhrase(cleaned, opts);
   if (temp) return temp;
 
   return null;
@@ -184,8 +224,14 @@ function parseSpeedPhrase(text: string): MidPrintIntent | null {
   return null;
 }
 
-function parseTempPhrase(text: string): MidPrintIntent | null {
+function parseTempPhrase(text: string, opts?: MidPrintParseOptions): MidPrintIntent | null {
   const body = stripPlease(text);
+  if (/^cool(?:\s+the)?\s+nozzle(?:\s+-?10(?:\s*°?\s*c)?)?$/i.test(body)) {
+    return {
+      command: { type: "set-nozzle-temp", celsius: coolNozzleTargetC(opts?.material, opts?.currentNozzleC) },
+      label: "nozzle-temp",
+    };
+  }
   const nozzle = body.match(
     /^(?:set\s+)?nozzle(?:\s+temp(?:erature)?)?(?:\s+to)?\s+(\d+)(?:\s*°?\s*c)?$/i,
   );

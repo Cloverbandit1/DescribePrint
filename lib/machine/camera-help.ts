@@ -13,11 +13,16 @@ export const CAMERA_HELP_GUIDE_IDS: readonly CameraHelpGuideId[] = [
   "empty-bed",
 ] as const;
 
+/** Suggested mid-print chips — never auto-sent. */
+export type CameraHelpMidPrintAction = "pause" | "slow-down" | "cool-nozzle";
+
 export type CameraHelpGuide = {
   id: CameraHelpGuideId;
   symptom: string;
   steps: string[];
   whenToRetrySoftware?: string;
+  /** User-confirmed chips on the doctor bubble. Empty-bed is pause only. */
+  midPrintActions: readonly CameraHelpMidPrintAction[];
 };
 
 type GuideTemplate = {
@@ -25,6 +30,16 @@ type GuideTemplate = {
   steps: string[];
   whenToRetrySoftware?: string;
 };
+
+const MID_PRINT_ACTIONS: Record<CameraHelpGuideId, readonly CameraHelpMidPrintAction[]> = {
+  spaghetti: ["pause", "slow-down", "cool-nozzle"],
+  "nozzle-scrape": ["pause", "slow-down"],
+  "empty-bed": ["pause"],
+};
+
+export function cameraHelpMidPrintActions(id: CameraHelpGuideId): readonly CameraHelpMidPrintAction[] {
+  return MID_PRINT_ACTIONS[id];
+}
 
 const GUIDE_TEMPLATES: Record<CameraHelpGuideId, GuideTemplate> = {
   spaghetti: {
@@ -75,6 +90,7 @@ export function buildCameraHelpGuide(id: CameraHelpGuideId): CameraHelpGuide {
     id,
     symptom: template.symptom,
     steps: [...template.steps],
+    midPrintActions: [...cameraHelpMidPrintActions(id)],
     ...(template.whenToRetrySoftware ? { whenToRetrySoftware: template.whenToRetrySoftware } : {}),
   };
 }

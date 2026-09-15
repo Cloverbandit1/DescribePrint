@@ -3,13 +3,17 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { GET, POST } from "@/app/api/machine/route";
 import {
+  CAMERA_COOL_NOZZLE_PHRASE,
   CAMERA_HELP_GUIDE_IDS,
   CAMERA_PAUSE_NOW_PHRASE,
+  CAMERA_SLOW_DOWN_PHRASE,
   CONNECT_LAN_FIRST,
   MID_PRINT_CONTROL_ID,
   MockMachineAdapter,
   buildCameraHelpGuide,
   cameraDoctorBridgeOwnsPrintControlOnly,
+  cameraDoctorMidPrintChips,
+  cameraHelpMidPrintActions,
   cameraPauseNowIntent,
   detectFailure,
   dismissCameraDoctor,
@@ -19,6 +23,7 @@ import {
   isCameraHelpGuideId,
   mockCameraFrame,
   offersCameraPauseChip,
+  parseMidPrintCommandPhrase,
   resetSharedMachine,
   shouldShowCameraOk,
   takeCameraDoctorAnnouncement,
@@ -49,12 +54,70 @@ describe("camera-specific doctor guides", () => {
     expect(result.cameraGuide?.id).toBe(id);
     expect(result.physicalSteps).toEqual(guide.steps);
     expect(offersCameraPauseChip(result)).toBe(true);
+    expect(guide.midPrintActions).toEqual(cameraHelpMidPrintActions(id));
   });
 
   it("does not attach a camera guide to unrelated defects", () => {
     const stringing = diagnosePrintComplaint({ complaint: "stringing with PETG" });
     expect(stringing.cameraGuide).toBeUndefined();
     expect(offersCameraPauseChip(stringing)).toBe(false);
+    expect(cameraDoctorMidPrintChips(stringing)).toEqual([]);
+  });
+});
+
+describe("camera defect → mid-print chips", () => {
+  it("exposes pause, slow, and cool chips on a spaghetti doctor message", () => {
+    expect(cameraHelpMidPrintActions("spaghetti")).toEqual(["pause", "slow-down", "cool-nozzle"]);
+    const spaghetti = diagnosisFromCameraDetect(detectFailure(mockCameraFrame("spaghetti")));
+    expect(spaghetti?.cameraGuide?.midPrintActions).toEqual(["pause", "slow-down", "cool-nozzle"]);
+    const chips = cameraDoctorMidPrintChips(spaghetti!);
+    expect(chips.map((chip) => chip.id)).toEqual(["pause", "slow-down", "cool-nozzle"]);
+    expect(chips.map((chip) => chip.phrase)).toEqual([
+      CAMERA_PAUSE_NOW_PHRASE,
+      CAMERA_SLOW_DOWN_PHRASE,
+      CAMERA_COOL_NOZZLE_PHRASE,
+    ]);
+    expect(chips.some((chip) => /slow down/i.test(chip.label))).toBe(true);
+    expect(chips.some((chip) => /cool nozzle/i.test(chip.label))).toBe(true);
+    expect(parseMidPrintCommandPhrase(CAMERA_SLOW_DOWN_PHRASE)).toMatchObject({
+      command: { type: "set-speed", percent: 50 },
+      speedLevel: 1,
+    });
+    expect(parseMidPrintCommandPhrase(CAMERA_COOL_NOZZLE_PHRASE, { material: "pla" })).toMatchObject({
+      command: { type: "set-nozzle-temp", celsius: 210 },
+    });
+  });
+
+  it("offers pause plus optional slow on nozzle scrape, and pause only on empty bed", () => {
+    const scrape = diagnosisFromCameraDetect(detectFailure(mockCameraFrame("nozzle-scrape")));
+    expect(scrape?.cameraGuide?.midPrintActions).toEqual(["pause", "slow-down"]);
+    expect(cameraDoctorMidPrintChips(scrape!).map((chip) => chip.id)).toEqual(["pause", "slow-down"]);
+
+    const empty = diagnosisFromCameraDetect(detectFailure(mockCameraFrame("empty-bed")));
+    expect(empty?.cameraGuide?.midPrintActions).toEqual(["pause"]);
+    const emptyChips = cameraDoctorMidPrintChips(empty!);
+    expect(emptyChips.map((chip) => chip.id)).toEqual(["pause"]);
+    expect(emptyChips.some((chip) => chip.id === "cool-nozzle")).toBe(false);
+    expect(emptyChips.some((chip) => /cool/i.test(chip.label))).toBe(false);
+  });
+
+  it("keeps chips on the debounced announcement, not every poll", () => {
+    const detect = toCameraDetectReport(detectFailure(mockCameraFrame("spaghetti")));
+    const diagnosis = diagnosisFromCameraDetect(detect);
+    const first = takeCameraDoctorAnnouncement(null, detect, diagnosis);
+    expect(cameraDoctorMidPrintChips(first.announce!)).toHaveLength(3);
+
+    const second = takeCameraDoctorAnnouncement(first.held, detect, diagnosis);
+    expect(second.announce).toBeUndefined();
+  });
+
+  it("clamps cool-nozzle to the material/preset safe min", () => {
+    expect(parseMidPrintCommandPhrase("cool nozzle", { material: "pla", currentNozzleC: 185 })).toMatchObject({
+      command: { type: "set-nozzle-temp", celsius: 190 },
+    });
+    expect(parseMidPrintCommandPhrase("cool nozzle -10°C", { material: "petg" })).toMatchObject({
+      command: { type: "set-nozzle-temp", celsius: 240 },
+    });
   });
 });
 
@@ -215,14 +278,44 @@ describe("Pause now chip uses the mid-print path", () => {
     expect(pausedBody.status.print).toBe("paused");
     expect(disconnected.sentCommands).toEqual([{ type: "pause" }]);
   });
+
+  it("does not send slow or cool chips while disconnected", async () => {
+    const spaghetti = diagnosisFromCameraDetect(detectFailure(mockCameraFrame("spaghetti")))!;
+    const chips = cameraDoctorMidPrintChips(spaghetti);
+    const slow = chips.find((chip) => chip.id === "slow-down");
+    const cool = chips.find((chip) => chip.id === "cool-nozzle");
+    expect(slow?.phrase).toBe(CAMERA_SLOW_DOWN_PHRASE);
+    expect(cool?.phrase).toBe(CAMERA_COOL_NOZZLE_PHRASE);
+
+    const machine = getSharedMachine() as MockMachineAdapter;
+    expect((await machine.status()).connection).toBe("disconnected");
+
+    for (const phrase of [slow!.phrase, cool!.phrase]) {
+      const refused = await POST(
+        new Request("http://localhost/api/machine", {
+          method: "POST",
+          body: JSON.stringify({ complaint: phrase, material: "pla" }),
+        }),
+      );
+      const body = (await refused.json()) as {
+        diagnosis?: { midPrint?: { attempted: boolean; ok: boolean; message: string } };
+      };
+      expect(body.diagnosis?.midPrint).toMatchObject({
+        attempted: false,
+        ok: false,
+        message: CONNECT_LAN_FIRST,
+      });
+    }
+    expect(machine.sentCommands).toEqual([]);
+  });
 });
 
 describe("camera doctor modules stay on Print Control", () => {
   it("does not import CAD assembly or pack files", () => {
     expect(cameraDoctorBridgeOwnsPrintControlOnly()).toBe(true);
     const root = process.cwd();
-    const banned = /plate-pack|project-pack|cad-reshape|openscad|assembly|knowledge\/pack|ollama/i;
-    for (const file of ["camera-help.ts", "camera-doctor-bridge.ts", "camera.ts"]) {
+    const banned = /plate-pack|project-pack|cad-reshape|openscad|assembly|knowledge\/pack|ollama|etch/i;
+    for (const file of ["camera-help.ts", "camera-doctor-bridge.ts", "camera.ts", "mid-print-commands.ts"]) {
       const imports = readFileSync(join(root, "lib/machine", file), "utf8")
         .split("\n")
         .filter((line) => /^\s*import\b/.test(line))

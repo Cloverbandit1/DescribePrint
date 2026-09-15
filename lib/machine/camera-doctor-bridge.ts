@@ -1,16 +1,35 @@
 /**
  * Debounced camera-detect → Print doctor chat.
  * One announcement per failure kind until the stub returns ok or the user dismisses.
- * Never sends LAN or auto-pauses — Pause now uses the mid-print phrase path.
+ * Never sends LAN or auto-pauses — chips use the mid-print phrase path.
  */
 
 import { diagnosisFromCameraDetect, type PrintDoctorResult } from "../print-doctor";
 import type { CameraDetectReport, CameraFailureKind } from "./camera";
-import { isCameraHelpGuideId, type CameraHelpGuideId } from "./camera-help";
-import { parseMidPrintCommandPhrase, type MidPrintIntent } from "./mid-print-commands";
+import {
+  cameraHelpMidPrintActions,
+  isCameraHelpGuideId,
+  type CameraHelpGuideId,
+  type CameraHelpMidPrintAction,
+} from "./camera-help";
+import {
+  CAMERA_COOL_NOZZLE_PHRASE,
+  CAMERA_SLOW_DOWN_PHRASE,
+  parseMidPrintCommandPhrase,
+  type MidPrintIntent,
+} from "./mid-print-commands";
 
 /** Same whole-utterance phrase as chat mid-print pause. */
 export const CAMERA_PAUSE_NOW_PHRASE = "pause now";
+export { CAMERA_COOL_NOZZLE_PHRASE, CAMERA_SLOW_DOWN_PHRASE };
+
+export type CameraDoctorMidPrintChip = {
+  id: CameraHelpMidPrintAction;
+  label: string;
+  phrase: string;
+  primary?: boolean;
+  ariaLabel: string;
+};
 
 export type CameraDoctorHeld = CameraHelpGuideId | null;
 
@@ -60,6 +79,44 @@ export function offersCameraPauseChip(result: Pick<PrintDoctorResult, "cameraGui
 
 export function cameraPauseNowIntent(): MidPrintIntent | null {
   return parseMidPrintCommandPhrase(CAMERA_PAUSE_NOW_PHRASE);
+}
+
+/**
+ * Chips for a camera-defect doctor message (the debounced announcement).
+ * Empty when there is no camera guide — polls must not invent chips.
+ */
+export function cameraDoctorMidPrintChips(
+  result: Pick<PrintDoctorResult, "cameraGuide"> | undefined | null,
+): CameraDoctorMidPrintChip[] {
+  if (!result?.cameraGuide) return [];
+  return cameraHelpMidPrintActions(result.cameraGuide.id).map(chipForAction);
+}
+
+function chipForAction(id: CameraHelpMidPrintAction): CameraDoctorMidPrintChip {
+  switch (id) {
+    case "pause":
+      return {
+        id,
+        label: "Pause now",
+        phrase: CAMERA_PAUSE_NOW_PHRASE,
+        primary: true,
+        ariaLabel: "Pause now — mid-print pause if connected",
+      };
+    case "slow-down":
+      return {
+        id,
+        label: "Slow down",
+        phrase: CAMERA_SLOW_DOWN_PHRASE,
+        ariaLabel: "Slow down — mid-print speed tier 1 if connected",
+      };
+    case "cool-nozzle":
+      return {
+        id,
+        label: "Cool nozzle -10°C",
+        phrase: CAMERA_COOL_NOZZLE_PHRASE,
+        ariaLabel: "Cool nozzle -10°C — mid-print temp if connected",
+      };
+  }
 }
 
 export function isCameraDoctorCueEnabled(cameraOn: boolean, detect?: CameraDetectReport): boolean {

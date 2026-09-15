@@ -4,6 +4,11 @@ import {
   selectAmsHelpGuideId,
   type AmsHelpGuide,
 } from "./machine/ams-help";
+import {
+  buildCameraHelpGuide,
+  isCameraHelpGuideId,
+  type CameraHelpGuide,
+} from "./machine/camera-help";
 import type { AmsHint, CommandResult, MidPrintCommand } from "./machine/types";
 import type { EmergencyRemainingReshapePlan } from "./machine/reshape-plan";
 import { physicalStepsForCommand } from "./machine/bambu-protocol";
@@ -80,6 +85,8 @@ export type PrintDoctorResult = {
   amsSlot?: number;
   /** Structured AMS physical guide when the complaint or live hint is an AMS fault. */
   amsGuide?: AmsHelpGuide;
+  /** Structured camera-defect guide when the stub or chat matches spaghetti / scrape / empty bed. */
+  cameraGuide?: CameraHelpGuide;
   fixes: PrintDoctorFix[];
   physicalSteps: string[];
   autofix?: PrintDoctorAutofix;
@@ -438,7 +445,7 @@ export function diagnoseByDefectId(
     ? (request.material as FilamentId)
     : normalizeFilamentId(request.material);
   const material = sessionMaterial ?? printer.defaultFilament;
-  const { fixes, steps, guide } = buildFixes(defectId, material, request.amsSlot);
+  const { fixes, steps, guide, cameraGuide } = buildFixes(defectId, material, request.amsSlot);
   const materialSwitch = defectId === "material-preset";
   return {
     defectId,
@@ -449,6 +456,7 @@ export function diagnoseByDefectId(
     material,
     amsSlot: request.amsSlot,
     ...(guide ? { amsGuide: guide } : {}),
+    ...(cameraGuide ? { cameraGuide } : {}),
     fixes: tagFixes(defectId, fixes),
     physicalSteps: steps,
     appliedPreset: materialSwitch,
@@ -542,11 +550,30 @@ function amsGuideFixes(defectId: string, amsSlot?: number): { fixes: PrintDoctor
   };
 }
 
+function cameraGuideFixes(defectId: string): {
+  fixes: PrintDoctorFix[];
+  steps: string[];
+  cameraGuide: CameraHelpGuide;
+} {
+  const cameraGuide = buildCameraHelpGuide(isCameraHelpGuideId(defectId) ? defectId : "spaghetti");
+  const pauseSummary =
+    cameraGuide.id === "spaghetti"
+      ? "Pause or abort immediately."
+      : cameraGuide.id === "nozzle-scrape"
+        ? "Pause before inspecting the nozzle or bed."
+        : "Pause and inspect the plate before reprinting.";
+  return {
+    cameraGuide,
+    fixes: [physical(cameraGuide.symptom, cameraGuide.id), setting(pauseSummary, "pause", "now", false)],
+    steps: cameraGuide.steps,
+  };
+}
+
 function buildFixes(
   defectId: string,
   material: FilamentId,
   amsSlot?: number,
-): { fixes: PrintDoctorFix[]; steps: string[]; guide?: AmsHelpGuide } {
+): { fixes: PrintDoctorFix[]; steps: string[]; guide?: AmsHelpGuide; cameraGuide?: CameraHelpGuide } {
   const preset = filamentPreset(material);
 
   switch (defectId) {
@@ -644,40 +671,9 @@ function buildFixes(
         ],
       };
     case "spaghetti":
-      return {
-        fixes: [
-          physical("The part has left the plate. Remaining plastic is scrap."),
-          setting("Pause or abort immediately.", "pause", "now", false),
-        ],
-        steps: [
-          "Pause/abort, clear the spaghetti, clean the plate, and fix first-layer adhesion before reprinting.",
-          "Emergency reshape of remaining layers is a later option (flag off by default).",
-        ],
-      };
     case "nozzle-scrape":
-      return {
-        fixes: [
-          physical("Check z-offset and whether the toolhead crashed into the plate."),
-          setting("Pause before inspecting the nozzle or bed.", "pause", "now", false),
-        ],
-        steps: [
-          "Pause.",
-          "Check z-offset and a crashed toolhead before reprinting.",
-          "Clear any gouged plastic from the plate.",
-        ],
-      };
     case "empty-bed":
-      return {
-        fixes: [
-          physical("The plate looks empty — the part may have come off."),
-          setting("Pause and inspect the plate before reprinting.", "pause", "now", false),
-        ],
-        steps: [
-          "Pause.",
-          "Inspect the plate and find the part.",
-          "Clean the plate and fix first-layer adhesion before reprinting.",
-        ],
-      };
+      return cameraGuideFixes(defectId);
     case "emergency-reshape":
       return {
         fixes: [
@@ -898,8 +894,9 @@ export function diagnosePrintComplaint(request: PrintDoctorRequest): PrintDoctor
   if (selectedGuideId && (defectId === "unknown" || defectId === "wet-filament" || isAmsHelpGuideId(defectId))) {
     defectId = selectedGuideId;
   }
-  const { fixes, steps, guide } = buildFixes(defectId, material, amsSlot);
+  const { fixes, steps, guide, cameraGuide: builtCameraGuide } = buildFixes(defectId, material, amsSlot);
   const amsGuide = guide ?? (isAmsHelpGuideId(defectId) ? buildAmsHelpGuide(defectId, amsSlot) : undefined);
+  const cameraGuide = builtCameraGuide ?? (isCameraHelpGuideId(defectId) ? buildCameraHelpGuide(defectId) : undefined);
 
   return {
     defectId,
@@ -910,8 +907,9 @@ export function diagnosePrintComplaint(request: PrintDoctorRequest): PrintDoctor
     material,
     amsSlot: slotAssignment ? slotAssignment.index + 1 : amsSlot,
     ...(amsGuide ? { amsGuide } : {}),
+    ...(cameraGuide ? { cameraGuide } : {}),
     fixes: tagFixes(defectId, fixes),
-    physicalSteps: amsGuide?.steps ?? steps,
+    physicalSteps: amsGuide?.steps ?? cameraGuide?.steps ?? steps,
     appliedPreset: materialSwitch,
     appliedSlotPlan: defectId === "ams-slot-assign",
     ...(slotAssignment ? { slotPlanAssignment: slotAssignment } : {}),

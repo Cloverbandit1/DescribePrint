@@ -112,11 +112,37 @@ export {
   resetCameraDetectState,
   serializeCameraStubPref,
   toCameraDetectReport,
+  cameraCue,
+  cameraSeverity,
   type CameraDetectReport,
   type CameraFailureKind,
   type CameraFrame,
+  type CameraSeverity,
   type FailureDetection,
 } from "./camera";
+export {
+  CAMERA_HELP_GUIDE_IDS,
+  buildCameraHelpGuide,
+  cameraHelpPhysicalSteps,
+  isCameraHelpGuideId,
+  selectCameraHelpGuide,
+  selectCameraHelpGuideId,
+  type CameraHelpGuide,
+  type CameraHelpGuideId,
+} from "./camera-help";
+export {
+  CAMERA_PAUSE_NOW_PHRASE,
+  cameraDoctorBridgeOwnsPrintControlOnly,
+  cameraFailureKind,
+  cameraPauseNowIntent,
+  dismissCameraDoctor,
+  isCameraDoctorCueEnabled,
+  offersCameraPauseChip,
+  shouldShowCameraOk,
+  takeCameraDoctorAnnouncement,
+  type CameraDoctorAnnouncement,
+  type CameraDoctorHeld,
+} from "./camera-doctor-bridge";
 export {
   bambuTopics,
   buildBambuCommandPayload,

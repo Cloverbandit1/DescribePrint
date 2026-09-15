@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { GET, POST } from "@/app/api/machine/route";
 import {
+  cameraCue,
   cameraDetectCallCount,
+  cameraSeverity,
   cameraStatusLine,
   detectFailure,
   futureLanJpegUrl,
@@ -13,6 +15,7 @@ import {
   parseCameraStubPref,
   resetSharedMachine,
   serializeCameraStubPref,
+  toCameraDetectReport,
 } from "@/lib/machine";
 import { diagnosisFromCameraDetect, diagnosePrintComplaint } from "@/lib/print-doctor";
 import { MockMachineAdapter } from "@/lib/machine/mock";
@@ -75,6 +78,11 @@ describe("camera / failure-detect stub", () => {
       "suspected nozzle scrape",
     );
     expect(cameraStatusLine({ kind: "suspected-failure", failure: "empty-bed" })).toBe("suspected empty bed");
+    expect(cameraSeverity({ kind: "none" })).toBe("ok");
+    expect(cameraSeverity({ kind: "suspected-failure" })).toBe("suspected");
+    expect(cameraCue({ kind: "none" })).toMatch(/ok/i);
+    expect(cameraCue({ kind: "suspected-failure", failure: "spaghetti" })).toMatch(/severity suspected/i);
+    expect(toCameraDetectReport(detectFailure(mockCameraFrame("spaghetti"))).severity).toBe("suspected");
   });
 
   it("sends the checkbox on each monitor poll path", () => {
@@ -87,6 +95,8 @@ describe("print-doctor camera hints", () => {
   it("maps injected camera failures to a chat-first doctor result", () => {
     const spaghetti = diagnosisFromCameraDetect(detectFailure(mockCameraFrame("spaghetti")));
     expect(spaghetti?.defectId).toBe("spaghetti");
+    expect(spaghetti?.cameraGuide?.id).toBe("spaghetti");
+    expect(spaghetti?.physicalSteps.length).toBeGreaterThanOrEqual(4);
     expect(spaghetti?.fixes.some((fix) => fix.key === "pause" && !fix.autoApplicable)).toBe(true);
 
     const scrape = diagnosisFromCameraDetect(detectFailure(mockCameraFrame("nozzle-scrape")));
@@ -132,6 +142,7 @@ describe("live monitor poll + detectFailure", () => {
     expect(body.cameraStub).toBe(true);
     expect(body.cameraDetect?.kind).toBe("none");
     expect(body.cameraDetect?.line).toBe("ok");
+    expect(body.cameraDetect?.severity).toBe("ok");
     expect(body.cameraDetect?.failure).toBeUndefined();
     expect(body.diagnosis).toBeUndefined();
     expect(cameraDetectCallCount()).toBe(1);
@@ -143,13 +154,16 @@ describe("live monitor poll + detectFailure", () => {
 
     injectStubCameraScene("spaghetti");
     const spaghetti = (await (await GET()).json()) as {
-      cameraDetect?: { kind: string; failure?: string; line: string; hint: string };
-      diagnosis?: { defectId: string; diagnosis: string };
+      cameraDetect?: { kind: string; failure?: string; line: string; hint: string; severity?: string; cue?: string };
+      diagnosis?: { defectId: string; diagnosis: string; cameraGuide?: { id: string } };
     };
     expect(spaghetti.cameraDetect?.kind).toBe("suspected-failure");
     expect(spaghetti.cameraDetect?.failure).toBe("spaghetti");
     expect(spaghetti.cameraDetect?.line).toBe("suspected spaghetti");
+    expect(spaghetti.cameraDetect?.severity).toBe("suspected");
+    expect(spaghetti.cameraDetect?.cue).toMatch(/pause recommended/i);
     expect(spaghetti.diagnosis?.defectId).toBe("spaghetti");
+    expect(spaghetti.diagnosis?.cameraGuide?.id).toBe("spaghetti");
     expect(spaghetti.diagnosis?.diagnosis).toMatch(/pause|abort|plate/i);
 
     injectStubCameraScene("nozzle-scrape");

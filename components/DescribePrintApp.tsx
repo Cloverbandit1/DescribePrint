@@ -6,7 +6,6 @@ import { EXAMPLE_PROMPTS } from "@/lib/fixtures";
 import type { HealthReport, HealthTone } from "@/lib/health-types";
 import { useMachineMonitor } from "@/lib/machine/use-machine-monitor";
 import { diagnosePrintComplaint, looksLikePrintDoctorComplaint, type PrintDoctorResult } from "@/lib/print-doctor";
-import { IMAGE_IMPORT_ACCEPT } from "@/lib/image-import";
 import { defaultPrinter, filamentPreset, type PrinterProfile } from "@/lib/printers";
 import { formatMm, toMillimeters } from "@/lib/units";
 import {
@@ -397,7 +396,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       <input
         ref={fileInput}
         type="file"
-        accept={IMAGE_IMPORT_ACCEPT}
+        accept=".stl,.3mf,.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp,model/stl,application/vnd.ms-package.3dmanufacturing-3dmodel+xml"
         className="hidden"
         onChange={(event) => {
           const file = event.target.files?.[0];

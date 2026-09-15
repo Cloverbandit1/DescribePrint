@@ -248,7 +248,7 @@ describe("paint follow-up keeps 3MF objects", () => {
     });
     expect(painted.colorRegions).toHaveLength(1);
     expect(painted.colorRegions[0]).toMatchObject({ colorName: "black" });
-    expect(painted.notes.join(" ")).toMatch(/single colored object/i);
+    expect(painted.notes.join(" ")).toMatch(/single colou?red(?: 3mf)? object/i);
     const job = getJob(painted.jobId);
     const exported = await parse3mfDocument(job!.threemf);
     expect(exported.objects).toHaveLength(1);

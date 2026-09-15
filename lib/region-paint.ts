@@ -51,8 +51,8 @@ const STATED_MM = /\b\d+(?:\.\d+)?\s*mm\b/i;
 
 const REGION_ALIASES: Record<string, string[]> = {
   letters: ["letter", "letters", "text", "logo", "inlay", "number", "numbers", "label", "icon"],
-  body: ["body", "plaque", "plate", "cube", "part", "stand"],
-  base: ["base", "stand", "plate"],
+  body: ["body", "plaque", "plate", "cube", "part", "stand", "base"],
+  base: ["base", "stand", "plate", "body"],
   accent: ["accent", "inlay", "logo", "icon"],
 };
 
@@ -180,6 +180,11 @@ function aliasIds(name: string): string[] {
 }
 
 export function findPaintTarget(regions: ColorRegion[], name: string): ColorRegion | undefined {
+  const slug = slugifyRegionName(canonicalRegionName(name));
+  const exact = regions.find(
+    (region) => slugifyRegionName(region.id) === slug || slugifyRegionName(region.name) === slug,
+  );
+  if (exact) return exact;
   const wanted = aliasIds(name);
   return (
     regions.find((region) => wanted.includes(slugifyRegionName(region.id))) ??

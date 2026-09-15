@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { matchConversationFixture, matchFixture, shouldUseFixture } from "@/lib/fixtures";
 import { BALL_FIXTURE_PROMPT, HINGE_FIXTURE_PROMPT, PIN_FIXTURE_PROMPT, SNAP_FIXTURE_PROMPT } from "@/lib/joints";
+import { CUBE_FILLET_PROMPT, CUBE_STEAMPUNK_PROMPT } from "@/lib/pretty-up";
 import { CUBE_ETCH_PROMPT, HELMET_EMBOSS_PROMPT } from "@/lib/relief";
 import { sanitizeOpenScad } from "@/lib/sanitize";
 import { toMillimeters } from "@/lib/units";
@@ -47,6 +48,10 @@ describe("fixtures + units", () => {
     const etched = matchFixture(CUBE_ETCH_PROMPT);
     expect(etched?.id).toBe("cube-etched-initials");
     expect(sanitizeOpenScad(etched!.code).ok).toBe(true);
+    const pretty = matchFixture(CUBE_FILLET_PROMPT);
+    expect(pretty?.id).toBe("cube-pretty-fillet");
+    expect(sanitizeOpenScad(pretty!.code).ok).toBe(true);
+    expect(matchFixture(CUBE_STEAMPUNK_PROMPT)?.id).toBe("cube-pretty-steampunk");
   });
 
   it("matches the three example prompts with sanitizable OpenSCAD", () => {

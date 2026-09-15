@@ -47,6 +47,7 @@ import {
   parseImportHoleSpec,
   type ImportHoleSpec,
 } from "./import-hole";
+import { formatPrettyUpNote, inferCadPrettyUp } from "./pretty-up";
 import { formatReliefNote, inferCadReliefs } from "./relief";
 import { parseMeshEditIntent, type MeshEditIntent } from "./mesh-edit";
 import {
@@ -310,11 +311,19 @@ function importedWrapHint(
 ) {
   const box = checkMesh(mesh).boundingBoxMm;
   const reliefs = prompt ? inferCadReliefs(prompt, box.size) : [];
+  const prettyUp = prompt
+    ? inferCadPrettyUp({
+        prompt,
+        holes: hole ? [{ d: hole.diameterMm, through: hole.through }] : undefined,
+        sizeMm: box.size,
+        reliefs,
+      })
+    : undefined;
   return {
     holeSpecNote: hole ? formatHoleSpecForPrompt(hole, box) : undefined,
     suggestedWrap:
-      hole || addTab || reliefs.length
-        ? buildImportedMeshWrapper({ mesh, hole, addTab, reliefs, prompt })
+      hole || addTab || reliefs.length || prettyUp?.applied
+        ? buildImportedMeshWrapper({ mesh, hole, addTab, reliefs, prettyUp, prompt })
         : undefined,
   };
 }
@@ -638,11 +647,21 @@ async function runImportedMeshEdit(
     size: box.sizeMm,
   }, intent.holeMm);
   const reliefs = inferCadReliefs(prompt, box.sizeMm);
-  const deterministic = canBuildDeterministicImportWrap(prompt, hole, intent.addTab, reliefs);
+  const prettyUp = inferCadPrettyUp({
+    prompt,
+    previousPrompt: request.previousPrompt,
+    previousCode: request.previousCode,
+    holes: hole ? [{ d: hole.diameterMm, through: hole.through }] : undefined,
+    sizeMm: box.sizeMm,
+    reliefs,
+  });
+  const deterministic = canBuildDeterministicImportWrap(prompt, hole, intent.addTab, reliefs, prettyUp);
   const wrapHint = importedWrapHint(hole, mesh, intent.addTab, prompt);
-  const engineered = wrapHint.suggestedWrap ?? buildImportedMeshWrapper({ mesh, hole, addTab: intent.addTab, reliefs, prompt });
+  const engineered = wrapHint.suggestedWrap ?? buildImportedMeshWrapper({ mesh, hole, addTab: intent.addTab, reliefs, prettyUp, prompt });
   if (hole) notes.push(...hole.notes);
   if (reliefs.length) notes.push(formatReliefNote(reliefs));
+  const prettyNote = formatPrettyUpNote(prettyUp);
+  if (prettyNote) notes.push(prettyNote);
   if ((previous.colorRegions?.length ?? 0) > 1) {
     notes.push(
       "Hole wrap compiles one OpenSCAD solid, so previous 3MF color objects were flattened. Describe colors again to re-split filaments.",
@@ -666,7 +685,10 @@ async function runImportedMeshEdit(
     }
     const wrapErrors = importedWrapErrors(sanitized.code, {
       requireHoleDifference: Boolean(hole),
-      allowUnionedRelief: reliefs.some((relief) => relief.kind === "emboss") || intent.addTab,
+      allowUnionedRelief:
+        reliefs.some((relief) => relief.kind === "emboss") ||
+        intent.addTab ||
+        Boolean(prettyUp?.applied && prettyUp.ops.some((op) => op.kind !== "chamfer")),
     });
     if (wrapErrors.length) {
       throw new Error(wrapErrors.join("; "));
@@ -965,6 +987,16 @@ async function runOpenscadGenerate(
   const notes = wearableSize ? [wearableChartNote(), describeWearableSize(wearableSize, wearableCategory)] : [];
   const reliefNote = formatReliefNote(plan?.reliefs ?? inferCadReliefs(prompt));
   if (reliefNote) notes.push(reliefNote);
+  const prettyUp = plan?.pretty_up ?? inferCadPrettyUp({
+    prompt,
+    previousPrompt: request.previousPrompt,
+    previousCode: request.previousCode,
+    holes: plan?.holes,
+    joints: plan?.joints,
+    reliefs: plan?.reliefs,
+  });
+  const prettyNote = formatPrettyUpNote(prettyUp);
+  if (prettyNote) notes.push(prettyNote);
   const exportedRegions = artifacts.colorRegions ?? colorRegions;
   if (!isDefaultOnlyRegions(exportedRegions)) {
     notes.push(colorRegionsNote(exportedRegions));

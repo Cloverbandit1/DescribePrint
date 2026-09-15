@@ -16,6 +16,13 @@ import {
   type ClearanceIntent,
 } from "./joints";
 import {
+  formatPrettyUpPromptHint,
+  inferCadPrettyUp,
+  normalizeCadPrettyUp,
+  parseCadPrettyUp,
+  type CadPrettyUp,
+} from "./pretty-up";
+import {
   formatReliefPromptHint,
   normalizeCadReliefs,
   parseCadReliefs,
@@ -75,6 +82,8 @@ export type CadPlan = {
   }>;
   /** Present only when the user asked for emboss / etch / crest / initials. */
   reliefs?: CadRelief[];
+  /** Present only when the user asked to pretty-up / restyle (not a structural edit). */
+  pretty_up?: CadPrettyUp;
 };
 
 export { LOCAL_AI_START_MESSAGE } from "./llm-config";
@@ -104,6 +113,7 @@ OpenSCAD best practices
 - Name parameters at the top (size, wall, hole_d, …) so follow-up edits are easy.
 - If the user names colors or materials (e.g. red body, black letters): emit one module per region named region_<name>(), wrap each call in color("#RRGGBB"), and union them for the preview solid. Prefer raised cubes/bars for letters — avoid text() (no fonts). color() is preview metadata; each region_* module must render alone.
 - Raised etchings / emboss only when asked: union a primitive motif onto the named face (emboss / raised) or difference it into that face (etch / engrave). Default region is the largest vertical face, ties to front (+Y). Default raised height 0.8 mm, recessed depth 0.6 mm. Etch must leave ≥ 1.6 mm remaining wall. Keep the host solid — do not rebuild a new part. No Style2Fab / fonts / text().
+- Pretty-up / restyle only when asked (pretty-up, restyle, fillet, chamfer, decorative ribs/panels, steampunk). Stylistic CSG only — primitive fillets (hull of cylinders), chamfers (inset-cube hull), ribs/panels/rivets. Keep planned holes, PIP joint gaps, mating faces, and ≥ 1.6 mm walls. Refuse pretty-up that would fuse print-in-place joints or close through-holes. Not neural Style2Fab.
 - Never use import(), include, use <>, surface(), or any file/network access.
 - Do not add echo() debug spam. Do not generate animation or $t.
 - Valid syntax only: every statement ends with ';'. Balance braces and parentheses. Define modules before calling them.
@@ -116,13 +126,14 @@ Safety
 const PLAN_SYSTEM_PROMPT = `You are a CAD planner for FDM 3D printing. Reply with ONLY compact JSON (no markdown, no prose).
 
 Schema:
-{"object":string,"one_piece":true,"units":"mm","overall_mm":{"x":n,"y":n,"z":n},"features":[{"name":string,"kind":string,"dims_mm":{"…":n},"notes":string}],"holes":[{"d":n,"purpose":string,"through":true}],"min_wall_mm":n,"clearance_mm":n,"sit_on_z0":true,"safety_notes":string,"joints":[{"type":"hinge|pin|ball|snap","intent":"print-in-place|multi-part","radial_mm":n,"axial_mm":n,"notes":string}],"clearance_intent":"print-in-place","color_regions":[{"name":string,"color":string,"hex":"#RRGGBB","filament":"pla","ams_slot":1}],"reliefs":[{"kind":"emboss|etch","motif":"text|crest|disc|bar","text":"DP","region":"front|back|left|right|top|bottom","height_mm":0.8,"depth_mm":0.6}]}
+{"object":string,"one_piece":true,"units":"mm","overall_mm":{"x":n,"y":n,"z":n},"features":[{"name":string,"kind":string,"dims_mm":{"…":n},"notes":string}],"holes":[{"d":n,"purpose":string,"through":true}],"min_wall_mm":n,"clearance_mm":n,"sit_on_z0":true,"safety_notes":string,"joints":[{"type":"hinge|pin|ball|snap","intent":"print-in-place|multi-part","radial_mm":n,"axial_mm":n,"notes":string}],"clearance_intent":"print-in-place","color_regions":[{"name":string,"color":string,"hex":"#RRGGBB","filament":"pla","ams_slot":1}],"reliefs":[{"kind":"emboss|etch","motif":"text|crest|disc|bar","text":"DP","region":"front|back|left|right|top|bottom","height_mm":0.8,"depth_mm":0.6}],"pretty_up":{"applied":true,"refused":false,"style":"fillet|chamfer|ribs|panels|steampunk|motif","ops":[{"kind":"fillet","mm":2}],"functional_regions":[{"kind":"functional","role":"hole","note":"keep through-hole"}],"decorative_regions":[{"kind":"decorative","role":"fillet","note":"2 mm rounds"}]}}
 
 Rules:
 - Millimeters only. Real-world dimensions. One piece first unless the user clearly asks for an assembly / multi-part kit or a moving joint.
 - Joints: omit the joints array unless the user asks for a hinge, pin, ball, snap, or other motion. Prefer print-in-place (one print, separate solids with radial/axial gaps). Use multi-part only when they ask for separate / removable pieces. Hinge, pin, ball, and snap are real CSG (captive ball-in-socket; cantilever or annular snap). Not a full gimbal / living-hinge library.
 - If the user names colors or materials, fill color_regions (named body or painted feature, hex, optional pla/petg/pa/abs/tpu). ams_slot is 1–4 export metadata, not a live printer. Omit color_regions when no color is mentioned.
 - Reliefs: omit the reliefs array unless the user asks to emboss, etch, engrave, raise a crest/logo, or cut initials. kind is emboss (raised, union) or etch (recessed, difference). motif is text (block initials), crest, disc, or bar. region is a face hint (front/back/left/right/top/bottom). Default region: largest vertical face, ties to front. Default height_mm 0.8, depth_mm 0.6. Etch must leave 1.6 mm walls. Honest CSG stub — not Style2Fab.
+- Pretty-up: omit pretty_up unless the user asks to pretty-up, restyle, fillet, chamfer, add decorative ribs/panels, or make it look steampunk. Separate from structural edits. Mark functional vs decorative regions. Refuse (applied=false, refused=true) if pretty-up would fuse PIP joints or close through-holes. Heuristic CSG only — not neural Style2Fab.
 - Every feature must attach to the main solid unless it is a planned joint member. Through-holes fully pierce (overshoot 0.2–1 mm).
 - min_wall_mm >= 1.6 unless the user insists thinner. clearance_mm ~ 0.3 for ordinary fits; for joints use the documented radial_mm. Sit the part on z=0.
 - Fit overall_mm on the target printer bed unless they asked for a larger object.
@@ -268,7 +279,7 @@ Units and output
 
 Edits
 - Scale, rotate, and translate the imported mesh to apply size / orientation requests.
-- Add holes, slots, tabs, or relief with cube()/cylinder() differenced (holes / etch) or unioned (tabs / emboss that share a face) against the import. Keep import() as the host. No Style2Fab / text().
+- Add holes, slots, tabs, relief, or pretty-up (fillet nubs / chamfer cuts / decorative ribs) with cube()/cylinder() differenced (holes / etch / chamfer) or unioned (tabs / emboss / ribs) against the import. Keep import() as the host. Never close existing through-holes or fuse PIP gaps for style. No neural Style2Fab / text().
 - Name parameters at the top (hole_d, scale_f, …).
 - Prefer the smallest change that matches the request. Do not replace the imported part with a new primitive-only model unless the user asked to start over.
 
@@ -392,6 +403,9 @@ export function buildUserPrompt(input: {
     if (input.plan.reliefs?.length) {
       parts.push(formatReliefPromptHint(input.plan.reliefs));
     }
+    if (input.plan.pretty_up) {
+      parts.push(formatPrettyUpPromptHint(input.plan.pretty_up));
+    }
   }
   if (input.previousCode) {
     if (wantsNewDesign(input.prompt)) {
@@ -431,7 +445,7 @@ export function buildPlanPrompt(input: {
       parts.push(`The user wants a new object. Plan from scratch.`);
     } else {
       parts.push(
-        `This is a follow-up edit. Update only the requested dimensions/features. Keep one_piece true unless they asked for an assembly or a moving joint. Keep joints only if they still want motion. Keep reliefs only if they still want emboss/etch. Do not start over.`,
+        `This is a follow-up edit. Update only the requested dimensions/features. Keep one_piece true unless they asked for an assembly or a moving joint. Keep joints only if they still want motion. Keep reliefs only if they still want emboss/etch. Keep pretty_up only if they still want restyle. Do not start over.`,
       );
     }
     if (input.previousPrompt) {
@@ -577,6 +591,7 @@ export function parseCadPlan(raw: string): CadPlan | null {
       const parsed = parseCadReliefs(rec.reliefs ?? rec.relief ?? rec.emboss ?? rec.etch);
       return parsed.length ? parsed : undefined;
     })(),
+    pretty_up: parseCadPrettyUp(rec.pretty_up ?? rec.prettyup ?? rec.style),
   };
 }
 
@@ -790,6 +805,21 @@ export function normalizeCadPlan(
     ? [overall_mm.x, overall_mm.y, overall_mm.z]
     : undefined;
   const reliefs = normalizeCadReliefs(plan.reliefs ?? [], input.prompt, sizeMm);
+  const pretty_up = normalizeCadPrettyUp(plan.pretty_up ?? inferCadPrettyUp({
+    prompt: input.prompt,
+    previousCode: input.previousCode,
+    holes: plan.holes,
+    joints,
+    sizeMm,
+    reliefs,
+  }), {
+    prompt: input.prompt,
+    previousCode: input.previousCode,
+    holes: plan.holes,
+    joints,
+    sizeMm,
+    reliefs,
+  });
 
   let one_piece = true;
   if (intent === "print-in-place") {
@@ -811,5 +841,6 @@ export function normalizeCadPlan(
     clearance_intent,
     color_regions,
     reliefs: reliefs.length ? reliefs : undefined,
+    pretty_up,
   };
 }

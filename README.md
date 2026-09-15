@@ -229,8 +229,11 @@ Secrets stay in the browser (Machine panel) or `.env.local`. Do not commit `.env
 - `snap-fit clip`
 - `helmet with embossed crest on the back`
 - `20mm cube with etched initials on the front`
+- `20mm cube with 5mm hole, round the edges`
+- `20mm cube with 5mm hole, make it look steampunk`
+- `20mm cube with 5mm hole, add decorative ribs`
 
-The first three match built-in single-body fixtures (used when `USE_FIXTURE` is on, or in tests). The plaque prompt is a two-color fixture: OpenSCAD `region_*` modules compile separately so the downloaded 3MF has two objects (red body, black letters) with AMS slot metadata. The hinge, pin, ball, and snap prompts are print-in-place fixtures with documented P2S / 0.4 mm-nozzle clearances (separate solids, not a fused blob). The helmet / cube relief prompts are the **raised etchings / emboss stub**: primitive crest or block initials applied to a named face. With local AI running, the same UI asks the dedicated Ollama model for OpenSCAD (optional two-pass plan → code when `SMART_PIPELINE=1`), sanitizes it, compiles, and retries up to twice with structured compiler or printability feedback if OpenSCAD fails or the mesh is disconnected, off the plate, non-manifold, or thinner than 2× the 0.4 mm nozzle. Print-in-place joints are allowed to be disconnected solids — that warning does not trigger a fuse-together retry.
+The first three match built-in single-body fixtures (used when `USE_FIXTURE` is on, or in tests). The plaque prompt is a two-color fixture: OpenSCAD `region_*` modules compile separately so the downloaded 3MF has two objects (red body, black letters) with AMS slot metadata. The hinge, pin, ball, and snap prompts are print-in-place fixtures with documented P2S / 0.4 mm-nozzle clearances (separate solids, not a fused blob). The helmet / cube relief prompts are the **raised etchings / emboss stub**: primitive crest or block initials applied to a named face. The cube pretty-up prompts are the **Style2Fab-adjacent restyle stub**: primitive fillets/chamfers, decorative ribs, or steampunk discs/rivets while the through-hole stays open. With local AI running, the same UI asks the dedicated Ollama model for OpenSCAD (optional two-pass plan → code when `SMART_PIPELINE=1`), sanitizes it, compiles, and retries up to twice with structured compiler or printability feedback if OpenSCAD fails or the mesh is disconnected, off the plate, non-manifold, or thinner than 2× the 0.4 mm nozzle. Print-in-place joints are allowed to be disconnected solids — that warning does not trigger a fuse-together retry.
 
 ## What V0 does
 
@@ -241,7 +244,7 @@ The first three match built-in single-body fixtures (used when `USE_FIXTURE` is 
 5. Preview in Three.js (`react-three-fiber`).
 6. Download **STL** and **3MF** (plus the `.scad` source and **Print settings** JSON). The selected Machine-panel material (PLA / PETG / PA / ABS / TPU) is written as advisory auto-best metadata on the 3MF and as `describeprint.print.json`. If the description names colors or materials, the 3MF also carries **separate objects** with `basematerials` display colors and extruder / AMS 1–4 metadata so a slicer can assign filaments. No colors mentioned → one default object. This is CAD export, not live AMS control. OpenSCAD itself is one mesh; split bodies need `region_*` modules or `color()` groups (the two-color fixture does this). Importing a colored 3MF preserves those objects.
 
-Printability report: bounding box (mm), volume, triangle count, manifold flag, and issues (empty mesh, zero volume, huge triangle count, oversized vs the P2S 256 mm bed, undersized / thin walls vs the 0.4 mm nozzle, off-bed, disconnected solids). Soft printability issues are fed back into CAD retries. Plans are normalized to one-piece, 1.6 mm walls, and through-holes unless the user clearly asks otherwise. Joints (`hinge` / `pin` / `ball` / `snap` plus `print-in-place` or `multi-part` clearance) are added only when the prompt asks for motion; otherwise the planner stays one fused solid. Reliefs (`emboss` / `etch`, motif, region, height/depth mm) are added only when the prompt asks for raised or recessed detail.
+Printability report: bounding box (mm), volume, triangle count, manifold flag, and issues (empty mesh, zero volume, huge triangle count, oversized vs the P2S 256 mm bed, undersized / thin walls vs the 0.4 mm nozzle, off-bed, disconnected solids). Soft printability issues are fed back into CAD retries. Plans are normalized to one-piece, 1.6 mm walls, and through-holes unless the user clearly asks otherwise. Joints (`hinge` / `pin` / `ball` / `snap` plus `print-in-place` or `multi-part` clearance) are added only when the prompt asks for motion; otherwise the planner stays one fused solid. Reliefs (`emboss` / `etch`, motif, region, height/depth mm) are added only when the prompt asks for raised or recessed detail. Pretty-up (`fillet` / `chamfer` / `ribs` / `panels` / `steampunk`) is added only when the prompt asks to restyle — it is not a structural edit and is refused if it would fuse a PIP joint or close a through-hole.
 
 ### Raised etchings / emboss (honest CSG stub)
 
@@ -256,6 +259,26 @@ Region-aware relief from a description (later: images). Not Style2Fab / neural s
 | Motif | block initials / crest / disc / bar | No `text()` / fonts |
 
 Fixtures: `helmet with embossed crest on the back`, `20mm cube with etched initials on the front`. Import wraps can union/difference the same motifs onto `imported.stl` when the prompt is relief-only (or relief + hole). Remaining limits: no image-driven motifs, no organic sculpt, no font rendering.
+
+### Pretty-up / restyle (honest CSG stub)
+
+Style2Fab-adjacent restyle from describe or a chat follow-up (`make it look steampunk`, `round the edges`, `add decorative ribs`) while **keeping functional regions**. In-app only — not a Blender plugin, not neural style transfer.
+
+| | Default | Notes |
+| --- | --- | --- |
+| Intent | pretty-up / restyle, separate from holes / size / joints | Plan field `pretty_up` plus chat follow-up |
+| Fillet | **2 mm** corner rounds | Hull of cylinders — not `minkowski()` |
+| Chamfer | **2 mm** vertical bevels | Hull of inset cubes |
+| Ribs / panels | **1.6 mm** thick, **1.2 mm** proud | Offset from holes and mating faces |
+| Steampunk | ribs + disc + rivets | Reuses relief-adjacent disc primitives |
+| Functional preserve | holes, PIP joints, mating faces, **1.6 mm** walls (#11) | Decorative stock never fills a bore or joint gap |
+| Refuse | fuse/fill PIP joints; close/plug through-holes | Working fixture/CSG is left intact; plan notes say why |
+
+**Functional preserve** means: planned through-holes still pierce, print-in-place members stay separate solids with documented clearances, mating/knuckle/socket faces stay undecorated, and walls stay ≥ 1.6 mm. Pretty-up is stylistic CSG on decorative regions only.
+
+Fixtures: `20mm cube with 5mm hole, round the edges`, `20mm cube with 5mm hole, make it look steampunk`, `20mm cube with 5mm hole, add decorative ribs`. Chat follow-up on a cube-with-hole applies the same wrap. Pretty-up on a PIP hinge/pin/ball/snap is planned but **skipped** on moving members; “fuse the joint” / “close the hole” is **refused**. Import wraps can union decorative ribs/nubs (or difference chamfer cuts) onto `imported.stl` without closing a hole.
+
+**Remaining limits:** not neural Style2Fab / image style transfer / organic sculpt. Imported-mesh fillets are bbox corner nubs (the STL cannot be hull-filleted honestly). No texture maps, no learned materials.
 
 ### Joint clearances (Bambu Lab P2S, 0.4 mm nozzle)
 
@@ -282,7 +305,7 @@ Shipped as an in-app stub trio on top of the OpenSCAD create path. No Blender / 
 | --- | --- | --- |
 | **STL/3MF import** | Upload onto the plate, preview, mesh-check, sit on z=0, re-export STL/3MF. Colored 3MF objects / materials are preserved on re-export | No repair sculpt; build-item transforms still ignored. Hole wraps flatten color objects into one solid |
 | **Photo → solid** | Single PNG/JPG/WebP upload; silhouette + **luminance-depth / tapered-rounded backside** (full solid, sit-on-bed, not a front-only relief); **fragment identify** (crack / missing chunk / disconnected pieces vs the intended whole) with repair-by-default restoring missing volume unless Keep damage / wear is on; **match-and-complete** for head / helmet / bust partials (photo loaf + parametric neck/torso); if the bbox exceeds the P2S 256³, the plate still exports and **designates** a stub alternate machine (K1 Max / H2D / Prusa XL) | Not photogrammetry, NeRF, or identity-accurate. Backside is a loaf/luminance heuristic; invented body is parametric proportions from wearable charts. WebP pixels are inferred from the file header (PNG/JPG decode the real silhouette). Not Style2Fab / neural pretty-up. Not a machine farm or slicer picker |
-| **Describe-to-edit (imported)** | Scale / rotate / sit-on-bed and S–XL edit the real triangles. “Add an 8 mm hole” (and similar) **differences** `import("imported.stl")` — through-holes by default, axis/offset inferred from the prompt, sit-on-bed + one-piece checks kept. Repair retries stay on the wrap (no from-scratch rewrite) | Full triangle sculpt / Style2Fab / organic remesh is **not** ready. Blind holes and multi-feature wraps are still CSG, not mesh sculpt |
+| **Describe-to-edit (imported)** | Scale / rotate / sit-on-bed and S–XL edit the real triangles. “Add an 8 mm hole” (and similar) **differences** `import("imported.stl")` — through-holes by default, axis/offset inferred from the prompt, sit-on-bed + one-piece checks kept. Pretty-up / restyle wraps decorative CSG (ribs, corner nubs, chamfer cuts) without closing holes. Repair retries stay on the wrap (no from-scratch rewrite) | Full triangle sculpt / neural Style2Fab / organic remesh is **not** ready. Blind holes and multi-feature wraps are still CSG, not mesh sculpt |
 | **Wearable size** | Category + S/M/L/XL picker and chat (“helmet size L”) scale the current mesh from documented mm charts and show the assumed size + key measurements | Not a custom-fit / saved-body grade; scale is **uniform** from the category primary measurement (preserves walls and holes) |
 
 **Wearable charts (mm)** — pick a category (or say “helmet”, “cuirass”, “gauntlet”, “bracer” in chat) then S–XL:
@@ -298,7 +321,7 @@ Scale is **uniform**: `primary(to) / primary(from)`. Native mesh is Medium. Not 
 
 ### Match-and-complete (honest stub)
 
-When a photo (or chat) looks like a **head / helmet / bust / fragment** partial, CAD Core completes a **plausible matching body** into one printable solid. Pretty-up / Style2Fab is deferred.
+When a photo (or chat) looks like a **head / helmet / bust / fragment** partial, CAD Core completes a **plausible matching body** into one printable solid. Neural Style2Fab remains later; heuristic pretty-up is a separate describe/chat path.
 
 | | Behavior |
 | --- | --- |
@@ -328,13 +351,13 @@ Run as a Node process (`next dev` / `next start`). V0 is not aimed at serverless
 npm test
 ```
 
-Covers local LLM config defaults, OpenSCAD path resolution, launch health (Ollama + MODEL + OpenSCAD), Start preflight exit codes (0 = pass, 2 = warn/soft fail and continue), code sanitization, mesh-check / STL / 3MF (including multi-object color / AMS-slot encoding), import, photo → solid (upload validation, luminance-depth backside, fragment identify, match-and-complete head/helmet/bust, repair-by-default, oversize → machine designation), wearable measurement charts + size application, imported-mesh describe-edit (hole difference / placement / wrap repair / emboss-etch wrap / complete-the-body), joint clearance helpers + plan parsing + hinge/pin/ball/snap fixtures, raised etchings / emboss plan fields + fixtures, the P2S profile, Print doctor, and machine adapters (mock + flagged LAN MQTT, no physical printer). If OpenSCAD is installed, an integration test compiles the default fixture, an imported-mesh hole wrap, the two-color plaque regions, the print-in-place hinge / pin / ball / snap fixtures, and the helmet-emboss / cube-etch fixtures (skipped if the binary is missing).
+Covers local LLM config defaults, OpenSCAD path resolution, launch health (Ollama + MODEL + OpenSCAD), Start preflight exit codes (0 = pass, 2 = warn/soft fail and continue), code sanitization, mesh-check / STL / 3MF (including multi-object color / AMS-slot encoding), import, photo → solid (upload validation, luminance-depth backside, fragment identify, match-and-complete head/helmet/bust, repair-by-default, oversize → machine designation), wearable measurement charts + size application, imported-mesh describe-edit (hole difference / placement / wrap repair / emboss-etch wrap / pretty-up wrap / complete-the-body), joint clearance helpers + plan parsing + hinge/pin/ball/snap fixtures, raised etchings / emboss plan fields + fixtures, pretty-up / restyle plan fields + functional-preserve / refuse + cube fixtures, the P2S profile, Print doctor, and machine adapters (mock + flagged LAN MQTT, no physical printer). If OpenSCAD is installed, an integration test compiles the default fixture, an imported-mesh hole wrap, the two-color plaque regions, the print-in-place hinge / pin / ball / snap fixtures, the helmet-emboss / cube-etch fixtures, and the pretty-up fillet / steampunk fixtures (skipped if the binary is missing).
 
 `GET /api/health` returns the same Local AI / OpenSCAD / P2S status the header chip shows. `npm run health:preflight` is the same check Start runs before `npm run dev`.
 
 ## Out of V0
 
-Style2Fab, neural organic mesh, FEA / MechStyle, multi-agent CAD, full Bambu Studio / Orca slicer embedding, and the owner-approved extras below (profile, AMS-aware design, live P2S control, and the rest). Those extras are **approved**, not V0 work, and they must **not** block the Bambu-layout + chat-first PR.
+Neural Style2Fab / image style transfer, neural organic mesh, FEA / MechStyle, multi-agent CAD, full Bambu Studio / Orca slicer embedding, and the owner-approved extras below (profile, AMS-aware design, live P2S control, and the rest). Heuristic CSG pretty-up is a shipped stub. Those extras are **approved**, not V0 work, and they must **not** block the Bambu-layout + chat-first PR.
 
 ## Roadmap
 
@@ -396,7 +419,7 @@ Approved. Do **not** implement these in the current V0 / layout work. They come 
 ## Extension points (later)
 
 - **Richer describe-to-modify** — V0 already threads the last prompt + OpenSCAD into chat follow-ups; later work can deepen multi-part / selection-aware edits.
-- **Style2Fab-style edit** — in-app stylization while keeping functional regions (not a Blender plugin).
+- **Style2Fab-style edit** — **Heuristic CSG stub shipped** (`pretty_up` plan + fillet/chamfer/ribs/steampunk fixtures; refuses fuse-joint / close-hole). Later: neural Style2Fab / image style transfer. Still in-app, not a Blender plugin.
 - **Organic mesh** — swap the OpenSCAD backend for a neural / implicit generator, still exported from the app.
 
 See `FutureEditMode` in [`lib/types.ts`](lib/types.ts). The pipeline is already split so those backends can sit beside `runGeneratePipeline`.

@@ -3,6 +3,7 @@
  * Defaults come from the V0 P2S stub in printers.ts (256³ mm, 0.4 mm nozzle).
  */
 import { formatJointConstraints } from "./joints";
+import { formatPrettyUpConstraints } from "./pretty-up";
 import { formatReliefConstraints } from "./relief";
 import { defaultPrinter, type PrinterProfile } from "./printers";
 import type { PrintabilityReport } from "./types";
@@ -130,6 +131,7 @@ export function formatPrinterConstraints(rules: PrintRules = printRules()): stri
     `- Clearance ~${rules.clearanceMm} mm per side on fits. One connected solid on z=0 unless the user asked for a joint / moving assembly.`,
     formatJointConstraints(),
     formatReliefConstraints(),
+    formatPrettyUpConstraints(),
   ].join("\n");
 }
 

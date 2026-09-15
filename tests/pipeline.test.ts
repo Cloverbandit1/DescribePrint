@@ -110,6 +110,32 @@ describe("generate pipeline (local AI + fixtures)", () => {
     expect(events.some((e) => e.step === "codegen" && /fixture/i.test(e.message))).toBe(true);
   });
 
+  it("notes pretty-up functional preserve on the fixture path", async () => {
+    mockedCompile.mockResolvedValue(compileOk());
+    const result = await runGeneratePipeline({
+      prompt: "20mm cube with 5mm hole, round the edges",
+      fixture: true,
+    });
+    expect(result.usedFixture).toBe(true);
+    expect(result.code).toMatch(/fillet_r/);
+    expect(result.code).toMatch(/hole_d = 5/);
+    expect(result.notes.join(" ")).toMatch(/Pretty-up stub/i);
+    expect(result.notes.join(" ")).toMatch(/Functional preserve/i);
+  });
+
+  it("refuses a pretty-up that would fuse a print-in-place hinge", async () => {
+    mockedCompile.mockResolvedValue(compileOk());
+    const result = await runGeneratePipeline({
+      prompt: "fuse the joint to pretty it up",
+      previousPrompt: "hinged box lid print-in-place",
+      previousCode: "module box_body() {}\nmodule hinge_pin() {}\n// Separate solids — do not union.",
+      fixture: true,
+    });
+    expect(result.code).toContain("module hinge_pin()");
+    expect(result.notes.join(" ")).toMatch(/refused/i);
+    expect(result.notes.join(" ")).toMatch(/fuse print-in-place/i);
+  });
+
   it("does not retry the fixture path when compile fails", async () => {
     mockedCompile.mockRejectedValue(new CompileError("OpenSCAD exited with code 1: syntax error"));
     await expect(runGeneratePipeline({ prompt: "20mm cube with 5mm hole", fixture: true })).rejects.toThrow(
@@ -430,7 +456,7 @@ describe("generate pipeline (local AI + fixtures)", () => {
       const events: StatusEvent[] = [];
       await runGeneratePipeline(
         {
-          prompt: "fillet the edges and add an 8mm hole",
+          prompt: "slot the side and remesh, add an 8mm hole",
           previousJobId: imported.jobId,
           previousSource: "imported-mesh",
           previousPrompt: "Imported part.stl",

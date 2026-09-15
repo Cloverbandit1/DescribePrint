@@ -83,14 +83,23 @@ The built-in fixture/heuristic path is still available (`USE_FIXTURE=true`, or `
 
 ## Printer profiles
 
-Default printer target: **Bambu Lab P2S**.
+Default printer target: **Bambu Lab P2S** + one AMS (4 slots).
 
-| | V0 (stub) | Later (in-app) |
+| | Today | Later (in-app) |
 | --- | --- | --- |
-| Printer | P2S assumed: 256 × 256 × 256 mm bed, **0.4 mm** nozzle (0.2 / 0.6 / 0.8 supported), 1.75 mm filament | User can change printer and print settings in the web UI |
-| Output | STL + 3MF download | Same, plus in-app slice / send — no separate slicer required |
+| Printer | P2S: 256 × 256 × 256 mm, **0.4 mm** nozzle (0.2 / 0.6 / 0.8), 1.75 mm filament, 300 °C / 110 °C limits, PLA/PETG/ABS/TPU auto-best tables | User can change printer and print settings in the web UI |
+| Output | STL + 3MF download (works disconnected) | Same, plus LAN connect / send — no separate slicer required |
 
-Sensible P2S defaults live in [`lib/printers.ts`](lib/printers.ts). V0 does not ship Bambu Studio or Orca; it only names P2S as the default profile so parts are sized and flagged against that volume.
+Profile data lives in [`lib/printers.ts`](lib/printers.ts). V0 does not ship Bambu Studio or Orca.
+
+## Machine control
+
+First slice of **in-app** P2S + AMS control. Architecture and stubs: [`docs/machine-control.md`](docs/machine-control.md). This is not live send-to-printer and not farm/digital-twin mode.
+
+- **Connect (later):** a future `bambu-lan` adapter will use the printer’s **LAN** path (IP + serial + access code). Those values belong in `.env.local` or local-only storage — never commit them. Reserved names are in `.env.example`. This PR does **not** open MQTT/FTPS or talk to Bambu Cloud.
+- **Machine panel** (Print column): shows the P2S profile, disconnected status, four AMS slots, and the PLA smart default. CAD export still works with no printer.
+- **Print doctor:** type a defect or machine complaint in the existing chat (`stringing with PETG`, `AMS 2 keeps looping feed/unfeed`). A keyword stub returns a diagnosis plus proposed settings or physical steps. It does not call the CAD pipeline and does not need an LLM or a live printer.
+- **Mock adapter:** tests and the disconnected UI use an in-memory adapter (connection state, AMS mapping, pause-before-risky temp changes, remaining-layer reshape **planner** stub that only says “pause / remaining height H / ask CAD”).
 
 ## Why OpenSCAD (not build123d)
 
@@ -180,6 +189,8 @@ xvfb-run -a npm run dev
 | `OPENSCAD_PATH` | no | Preferred OpenSCAD executable **or** folder (portable ZIP, custom install). |
 | `OPENSCAD_BIN` | no | Legacy executable override. Bare `openscad` still searches well-known locations. |
 | `OPENSCAD_TIMEOUT_MS` | no | Compile timeout (default `45000`) |
+| `MACHINE_ADAPTER` | no | Default `mock`. `bambu-lan` is reserved and not implemented. |
+| `BAMBU_HOST` / `BAMBU_SERIAL` / `BAMBU_ACCESS_CODE` | no | Reserved for a later LAN adapter. Leave unset. Never commit real values. |
 
 Secrets stay in the environment only. Do not commit `.env.local`.
 
@@ -217,7 +228,7 @@ Run as a Node process (`next dev` / `next start`). V0 is not aimed at serverless
 npm test
 ```
 
-Covers local LLM config defaults, OpenSCAD path resolution, launch health (Ollama + MODEL + OpenSCAD), code sanitization, and the mesh-check / STL / 3MF path. If OpenSCAD is installed, an integration test compiles the default fixture.
+Covers local LLM config defaults, OpenSCAD path resolution, launch health (Ollama + MODEL + OpenSCAD), code sanitization, the mesh-check / STL / 3MF path, the P2S profile, Print doctor, and machine-adapter stubs (no physical printer). If OpenSCAD is installed, an integration test compiles the default fixture.
 
 `GET /api/health` returns the same Local AI / OpenSCAD / P2S status the header chip shows.
 

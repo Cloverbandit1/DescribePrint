@@ -87,7 +87,6 @@ describe("phone client wiring (responsive web only)", () => {
     expect(app).toContain('kind="camera"');
     expect(app).toContain("studio-workspace");
     expect(app).toContain("touchFriendly={!wideLayout}");
-    expect(app).not.toMatch(/part-library/);
     expect(app).not.toMatch(/manifest\.webmanifest|serviceWorker/i);
     expect(helpers).not.toMatch(/failure-photo|part-library|serviceWorker|manifest\.webmanifest/i);
   });

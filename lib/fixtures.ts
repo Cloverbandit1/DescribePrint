@@ -32,13 +32,19 @@ import {
 import {
   CUBE_ETCH_PROMPT,
   HELMET_EMBOSS_PROMPT,
+  chestPlateEmbossFixtureScad,
   cubeEtchFixtureScad,
   cubeEtchSizeFromPrompt,
+  gauntletCuffEtchFixtureScad,
   helmetEmbossFixtureScad,
+  helmetMultiReliefFixtureScad,
   initialsFromPrompt,
+  isChestChevronPrompt,
   isCubeEtchPrompt,
   isEtchFollowUp,
+  isGauntletCuffPrompt,
   isHelmetEmbossPrompt,
+  isHelmetMultiReliefPrompt,
 } from "./relief";
 import { toMillimeters } from "./units";
 import type { Unit } from "./types";
@@ -145,6 +151,30 @@ export function matchFixture(
 ): FixtureMatch | null {
   const text = prompt.toLowerCase();
   const hinted = sizeHint && sizeHint > 0 ? toMillimeters(sizeHint, units) : null;
+
+  if (isHelmetMultiReliefPrompt(text)) {
+    return {
+      id: "helmet-multi-relief",
+      title: "Helmet with crest and etched initials",
+      code: helmetMultiReliefFixtureScad(),
+    };
+  }
+
+  if (isChestChevronPrompt(text)) {
+    return {
+      id: "chest-chevron-emboss",
+      title: "Chest plate with embossed chevron",
+      code: chestPlateEmbossFixtureScad(),
+    };
+  }
+
+  if (isGauntletCuffPrompt(text)) {
+    return {
+      id: "gauntlet-cuff-etch",
+      title: "Gauntlet with etched cuff ring",
+      code: gauntletCuffEtchFixtureScad(),
+    };
+  }
 
   if (isHelmetEmbossPrompt(text)) {
     return { id: "helmet-emboss-crest", title: "Helmet with embossed crest", code: helmetEmbossFixtureScad() };
@@ -331,6 +361,12 @@ export function matchConversationFixture(
           ? "ball-joint"
           : /module\s+snap_hook\s*\(/.test(previousCode ?? "")
             ? "snap-fit"
+            : /module\s+chest_plate\s*\(/.test(previousCode ?? "")
+            ? "chest-chevron-emboss"
+            : /module\s+gauntlet_cuff\s*\(/.test(previousCode ?? "")
+            ? "gauntlet-cuff-etch"
+            : /etch_depth\s*=/.test(previousCode ?? "") && /module\s+helmet_shell\s*\(/.test(previousCode ?? "")
+            ? "helmet-multi-relief"
             : /module\s+helmet_shell\s*\(/.test(previousCode ?? "")
             ? "helmet-emboss-crest"
             : /steampunk_disc\s*\(/.test(previousCode ?? "")
@@ -440,7 +476,38 @@ export function matchConversationFixture(
     }
   }
 
+  if (baseId === "helmet-multi-relief") {
+    return {
+      id: "helmet-multi-relief",
+      title: "Helmet with crest and etched initials",
+      code: helmetMultiReliefFixtureScad(),
+    };
+  }
+
+  if (baseId === "chest-chevron-emboss") {
+    return {
+      id: "chest-chevron-emboss",
+      title: "Chest plate with embossed chevron",
+      code: chestPlateEmbossFixtureScad(),
+    };
+  }
+
+  if (baseId === "gauntlet-cuff-etch") {
+    return {
+      id: "gauntlet-cuff-etch",
+      title: "Gauntlet with etched cuff ring",
+      code: gauntletCuffEtchFixtureScad(),
+    };
+  }
+
   if (baseId === "helmet-emboss-crest") {
+    if (isHelmetMultiReliefPrompt(text)) {
+      return {
+        id: "helmet-multi-relief",
+        title: "Helmet with crest and etched initials",
+        code: helmetMultiReliefFixtureScad(),
+      };
+    }
     return { id: "helmet-emboss-crest", title: "Helmet with embossed crest", code: helmetEmbossFixtureScad() };
   }
 

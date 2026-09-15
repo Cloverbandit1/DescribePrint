@@ -6,7 +6,13 @@ import { compileOpenScad, withTempDir } from "@/lib/compile";
 import { defaultFixture, matchFixture } from "@/lib/fixtures";
 import { BALL_FIXTURE_PROMPT, HINGE_FIXTURE_PROMPT, PIN_FIXTURE_PROMPT, SNAP_FIXTURE_PROMPT } from "@/lib/joints";
 import { CUBE_FILLET_PROMPT, CUBE_STEAMPUNK_PROMPT } from "@/lib/pretty-up";
-import { CUBE_ETCH_PROMPT, HELMET_EMBOSS_PROMPT } from "@/lib/relief";
+import {
+  CHEST_CHEVRON_PROMPT,
+  CUBE_ETCH_PROMPT,
+  GAUNTLET_CUFF_PROMPT,
+  HELMET_EMBOSS_PROMPT,
+  HELMET_MULTI_RELIEF_PROMPT,
+} from "@/lib/relief";
 import { buildImportedMeshWrapper, parseImportHoleSpec } from "@/lib/import-hole";
 import { boundingBoxMm, checkMesh, countSolidComponents, hasHardMeshFailure } from "@/lib/mesh-check";
 import { resolveOpenscad } from "@/lib/openscad";
@@ -162,6 +168,30 @@ describe("OpenSCAD compile path", () => {
       expect(hasHardMeshFailure(report)).toBe(false);
       expect(report.volumeMm3).toBeGreaterThan(0);
       expect(countSolidComponents(parseStl(compiled.stl))).toBeGreaterThan(1);
+    });
+  });
+
+  it.skipIf(!hasOpenscad())("compiles chest, gauntlet, and multi-relief fixtures", async () => {
+    const chest = matchFixture(CHEST_CHEVRON_PROMPT);
+    const cuff = matchFixture(GAUNTLET_CUFF_PROMPT);
+    const multi = matchFixture(HELMET_MULTI_RELIEF_PROMPT);
+    expect(chest && cuff && multi).toBeTruthy();
+    const chestOk = sanitizeOpenScad(chest!.code);
+    const cuffOk = sanitizeOpenScad(cuff!.code);
+    const multiOk = sanitizeOpenScad(multi!.code);
+    expect(chestOk.ok && cuffOk.ok && multiOk.ok).toBe(true);
+    if (!chestOk.ok || !cuffOk.ok || !multiOk.ok) return;
+
+    await withTempDir(async (dir) => {
+      const chestMesh = parseStl((await compileOpenScad(chestOk.code, dir)).stl);
+      const cuffMesh = parseStl((await compileOpenScad(cuffOk.code, dir)).stl);
+      const multiMesh = parseStl((await compileOpenScad(multiOk.code, dir)).stl);
+      expect(hasHardMeshFailure(checkMesh(chestMesh))).toBe(false);
+      expect(hasHardMeshFailure(checkMesh(cuffMesh))).toBe(false);
+      expect(hasHardMeshFailure(checkMesh(multiMesh))).toBe(false);
+      expect(checkMesh(chestMesh).volumeMm3).toBeGreaterThan(0);
+      expect(checkMesh(cuffMesh).volumeMm3).toBeGreaterThan(0);
+      expect(checkMesh(multiMesh).volumeMm3).toBeGreaterThan(0);
     });
   });
 

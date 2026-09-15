@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import { matchConversationFixture, matchFixture, shouldUseFixture } from "@/lib/fixtures";
 import { BALL_FIXTURE_PROMPT, HINGE_FIXTURE_PROMPT, PIN_FIXTURE_PROMPT, SNAP_FIXTURE_PROMPT } from "@/lib/joints";
 import { CUBE_FILLET_PROMPT, CUBE_STEAMPUNK_PROMPT } from "@/lib/pretty-up";
-import { CUBE_ETCH_PROMPT, HELMET_EMBOSS_PROMPT } from "@/lib/relief";
+import {
+  CHEST_CHEVRON_PROMPT,
+  CUBE_ETCH_PROMPT,
+  GAUNTLET_CUFF_PROMPT,
+  HELMET_EMBOSS_PROMPT,
+  HELMET_MULTI_RELIEF_PROMPT,
+} from "@/lib/relief";
 import { sanitizeOpenScad } from "@/lib/sanitize";
 import { toMillimeters } from "@/lib/units";
 
@@ -52,6 +58,9 @@ describe("fixtures + units", () => {
     expect(pretty?.id).toBe("cube-pretty-fillet");
     expect(sanitizeOpenScad(pretty!.code).ok).toBe(true);
     expect(matchFixture(CUBE_STEAMPUNK_PROMPT)?.id).toBe("cube-pretty-steampunk");
+    expect(matchFixture(CHEST_CHEVRON_PROMPT)?.id).toBe("chest-chevron-emboss");
+    expect(matchFixture(GAUNTLET_CUFF_PROMPT)?.id).toBe("gauntlet-cuff-etch");
+    expect(matchFixture(HELMET_MULTI_RELIEF_PROMPT)?.id).toBe("helmet-multi-relief");
   });
 
   it("matches the three example prompts with sanitizable OpenSCAD", () => {

@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CompileError } from "@/lib/compile";
 import { completeChat } from "@/lib/llm";
 import { compileOpenScad } from "@/lib/compile";
-import { MAX_COMPILE_ATTEMPTS, MAX_COMPILE_RETRIES, runGeneratePipeline, runImportPipeline } from "@/lib/pipeline";
+import { MAX_COMPILE_ATTEMPTS, MAX_COMPILE_RETRIES, runGeneratePipeline, runImageImportPipeline, runImportPipeline } from "@/lib/pipeline";
+import { encodePng } from "@/lib/image-raster";
 import { makeAxisAlignedBoxMesh, writeBinaryStl } from "@/lib/stl";
 import type { StatusEvent } from "@/lib/types";
 
@@ -567,5 +568,66 @@ describe("generate pipeline (local AI + fixtures)", () => {
       expect(retry[1]?.content).not.toMatch(/rebuild with cube\/cylinder\/sphere/i);
       expect(events.some((e) => e.step === "retry")).toBe(true);
     });
+  });
+
+  it("applies an uploaded logo as image emboss on the imported mesh", async () => {
+    mockedCompile.mockResolvedValue(compileOk());
+    const imported = await runImportPipeline({
+      buffer: writeBinaryStl(makeAxisAlignedBoxMesh([20, 20, 20])),
+      fileName: "cube.stl",
+    });
+    const width = 16;
+    const height = 16;
+    const pixels = new Uint8Array(width * height * 4);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const on = x > 4 && x < 12 && y > 4 && y < 12;
+        pixels.set(on ? [16, 16, 20, 255] : [255, 255, 255, 255], (y * width + x) * 4);
+      }
+    }
+    const result = await runImageImportPipeline({
+      buffer: encodePng(width, height, pixels),
+      fileName: "crest.png",
+      options: {
+        repair: true,
+        keepWear: false,
+        targetMaxMm: null,
+        prompt: "emboss this logo on the front",
+      },
+      previousJobId: imported.jobId,
+      previousPrompt: "Imported cube.stl",
+    });
+    expect(result.editMode).toBe("describe-wrapper");
+    expect(result.code).toMatch(/import\("imported\.stl"/);
+    expect(result.code).toMatch(/relief: emboss image/);
+    expect(result.notes.join(" ")).toMatch(/silhouette/i);
+    expect(mockedChat).not.toHaveBeenCalled();
+    expect(mockedCompile).toHaveBeenCalled();
+  });
+
+  it("builds a standalone image-emboss host when no part is on the plate", async () => {
+    mockedCompile.mockResolvedValue(compileOk());
+    const width = 12;
+    const height = 12;
+    const pixels = new Uint8Array(width * height * 4);
+    pixels.fill(255);
+    for (let i = 0; i < width * height; i++) {
+      if (i % 5 === 0) pixels.set([10, 10, 12, 255], i * 4);
+    }
+    const result = await runImageImportPipeline({
+      buffer: encodePng(width, height, pixels),
+      fileName: "logo.png",
+      options: {
+        repair: true,
+        keepWear: false,
+        targetMaxMm: null,
+        prompt: "emboss this logo on the front of a 20mm cube",
+      },
+    });
+    expect(result.editMode).toBe("create");
+    expect(result.source).toBe("openscad");
+    expect(result.code).toMatch(/cube\(\[/);
+    expect(result.code).not.toMatch(/import\(/);
+    expect(result.notes.join(" ")).toMatch(/silhouette/i);
   });
 });

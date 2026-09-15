@@ -346,7 +346,10 @@ export function buildImportedMeshWrapper(input: {
   }
   if (reliefs.length) {
     const first = reliefs[0];
-    lines.push(`// relief: ${first?.kind} ${first?.motif} on ${first?.region}`);
+    const labels = reliefs
+      .map((relief) => `${relief.kind} ${relief.motif} on ${relief.target ?? relief.region}`)
+      .join("; ");
+    lines.push(`// relief: ${labels}`);
     lines.push(`relief_extent = ${fmt(first?.kind === "etch" ? first.depth_mm : first?.height_mm ?? 0.8)};`);
   }
   if (prettyUp?.applied) {
@@ -380,10 +383,19 @@ export function buildImportedMeshWrapper(input: {
   const extras = [input.addTab ? tabBlock : "", embossBody, prettyExtras].filter(Boolean);
 
   if (extras.length) {
-    lines.push(`union() {
+    const united = `union() {
   ${etchedHost}
   ${extras.join("\n  ")}
+}`;
+    // Re-cut the hole after raised stock so emboss cannot plug a through-hole.
+    if (hole) {
+      lines.push(`difference() {
+  ${united}
+  ${holeCutter(hole, box)}
 }`);
+    } else {
+      lines.push(united);
+    }
   } else {
     lines.push(etchedHost);
   }

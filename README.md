@@ -2,7 +2,7 @@
 
 Describe anything in plain language and get a **printable 3D model** (STL + 3MF), with a real preview.
 
-V0 is the **create** path for parametric / mechanical parts: a chat-style web app, an OpenSCAD generation pipeline, mesh checks, and downloads. You can run the whole loop without a live LLM via the fixture/mock path.
+V0 is the **create** path for parametric / mechanical parts: a Bambu Studio–inspired workspace (prepare / plate / print), an OpenSCAD generation pipeline, mesh checks, and downloads. You can run the whole loop without a live LLM via the fixture/mock path.
 
 ## Product principles
 
@@ -12,7 +12,8 @@ DescribePrint is **fully end-to-end in the web app**. Users must **never** need 
 - Those files are for printing, not for cleanup in Blender or another DCC.
 - Future Style2Fab-like edit, organic mesh, and other mesh work stay **in-app**. They are not a Blender plugin or an external DCC dependency.
 - **Long-term, a separate slicer app is not required** for the core path. Users pick a printer and print settings in DescribePrint.
-- **Very simple to use and print.** The everyday path is **describe → clear options → Print**. Smart defaults (mm, Bambu Lab P2S). Advanced controls stay hidden. Prefer a clean chat + preview layout over a dense CAD UI.
+- **Very simple to use and print.** The everyday path is **describe → clear options → Print**. Smart defaults (mm, Bambu Lab P2S). Advanced controls stay hidden.
+- **Bambu-inspired layout, original chrome.** The desktop workspace follows Bambu Studio / Bambu Lab slicer structure: **Prepare** on the left, a large **3D plate preview** in the center, and **Print / options** on the right, with Prepare → Preview tabs. Dark and light themes use a compact studio palette (green actions, muted panels). The app does **not** use Bambu trademarks, logos, or proprietary assets — only a familiar workspace feel. Mobile stacks the plate first and keeps the same describe → Print path.
 
 V0 already follows the mesh path: the viewer plus STL/3MF download is the complete user path today. Full Bambu / Orca integration is **not** a V0 blocker.
 
@@ -86,7 +87,7 @@ These three match built-in fixtures, so they work **without an API key**. With a
 
 ## What V0 does
 
-1. Simple chat + preview UI: describe → example options → **Print** (size/units and CAD details stay under More options / Details).
+1. Studio-style UI: describe in **Prepare** → optional size/units → **Print** on the right (CAD details stay under More options / Details). The center plate previews the model; STL and 3MF download from the Print panel.
 2. LLM (or fixture) → OpenSCAD text.
 3. Sanitize / validate (no network, no filesystem escapes); run OpenSCAD in a subprocess with a timeout.
 4. Parse the STL; check non-empty, volume, triangle count, edge-manifold / watertight-ish.

@@ -8,11 +8,23 @@ V0 is the **create** path for parametric / mechanical parts: a chat-style web ap
 
 DescribePrint is **fully end-to-end in the web app**. Users must **never** need Blender, Meshmixer, or any other DCC after generation.
 
-- The complete path is: describe → preview in the UI → download **STL** and **3MF**.
-- Those files are meant to go to a slicer / printer, not to a modeling tool for cleanup.
+- The complete path is: describe → preview in the UI → download **STL** and **3MF** (and, later, slice/print from the same UI).
+- Those files are for printing, not for cleanup in Blender or another DCC.
 - Future Style2Fab-like edit, organic mesh, and other mesh work stay **in-app**. They are not a Blender plugin or an external DCC dependency.
+- **Long-term, a separate slicer app is not required** for the core path. Users pick a printer and print settings in DescribePrint.
 
-V0 already follows this: the viewer plus STL/3MF download is the whole user path.
+V0 already follows the mesh path: the viewer plus STL/3MF download is the complete user path today. Full Bambu / Orca integration is **not** a V0 blocker.
+
+## Printer profiles
+
+Default printer target: **Bambu Lab P2S**.
+
+| | V0 (stub) | Later (in-app) |
+| --- | --- | --- |
+| Printer | P2S assumed: 256 × 256 × 256 mm bed, **0.4 mm** nozzle (0.2 / 0.6 / 0.8 supported), 1.75 mm filament | User can change printer and print settings in the web UI |
+| Output | STL + 3MF download | Same, plus in-app slice / send — no separate slicer required |
+
+Sensible P2S defaults live in [`lib/printers.ts`](lib/printers.ts). V0 does not ship Bambu Studio or Orca; it only names P2S as the default profile so parts are sized and flagged against that volume.
 
 ## Why OpenSCAD (not build123d)
 
@@ -99,7 +111,7 @@ Covers code sanitization and the mesh-check / STL / 3MF path. If OpenSCAD is ins
 
 ## Out of V0
 
-Style2Fab, neural organic mesh, FEA / MechStyle, multi-agent CAD, slicer integration.
+Style2Fab, neural organic mesh, FEA / MechStyle, multi-agent CAD, and full Bambu Studio / Orca slicer integration.
 
 ## Roadmap after V0
 
@@ -110,6 +122,8 @@ Priority order from the product owner (not in V0):
 3. **Articulated / functional assemblies** — real joints with print clearances, multi-part export, and material-aware thickness/strength so moving parts (e.g. robot arms) don’t break.
 
 All of the above ship **inside the web UI** (preview + printable export). None of them assume Blender or another DCC after the fact.
+
+**Printer profiles (later, not a V0 blocker):** in-app picker to change printer and print settings (layer height, nozzle, material). Default remains Bambu Lab P2S. Long-term the core path slices in-app so users do not need a separate slicer; V0 only exports STL/3MF against the P2S stub profile.
 
 ## Extension points (later)
 

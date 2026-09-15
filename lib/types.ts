@@ -86,6 +86,9 @@ export type Mesh = {
  * Product roadmap after V0 (README; do not implement here):
  * 1. wearable/cosplay sizing  2. raised etchings/emboss  3. articulated assemblies
  * All stay in-app; users never need Blender or another DCC afterward.
+ *
+ * Default printer: Bambu Lab P2S (see lib/printers.ts). In-app printer/settings
+ * UI and full Bambu/Orca slice are later; V0 still exports STL/3MF.
  */
 export type FutureEditMode =
   | "create"

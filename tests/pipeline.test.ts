@@ -272,6 +272,64 @@ describe("generate pipeline (local AI + fixtures)", () => {
     });
   });
 
+  it("seeds pack dims when a known character is named", async () => {
+    await withEnv({ SMART_PIPELINE: "1" }, async () => {
+      const weakHelmet = JSON.stringify({
+        object: "part",
+        one_piece: true,
+        units: "mm",
+        features: [],
+        holes: [],
+        min_wall_mm: 1.6,
+        clearance_mm: 0.3,
+        sit_on_z0: true,
+      });
+      mockedChat.mockResolvedValueOnce(weakHelmet).mockResolvedValueOnce(GOOD_SCAD);
+      mockedCompile.mockResolvedValue(compileOk());
+      const result = await runGeneratePipeline({ prompt: "stormtrooper helmet" });
+      const [planMessages] = mockedChat.mock.calls[0] as unknown as [{ role: string; content: string }[]];
+      expect(planMessages[1]?.content).toContain("stormtrooper-helmet");
+      const [codeMessages] = mockedChat.mock.calls[1] as unknown as [{ role: string; content: string }[]];
+      const user = codeMessages[1]?.content ?? "";
+      expect(user).toMatch(/"x":165/);
+      expect(user).toMatch(/"y":195/);
+      expect(user).toMatch(/"z":200/);
+      expect(user).toMatch(/visor/);
+      expect(result.notes.join(" ")).toMatch(/Knowledge pack/i);
+      expect(result.notes.join(" ")).toMatch(/stormtrooper/i);
+      expect(result.notes.join(" ")).toMatch(/not a live web crawl/i);
+    });
+  });
+
+  it("does not crash when the character is unknown", async () => {
+    await withEnv({ SMART_PIPELINE: "1" }, async () => {
+      mockedChat.mockResolvedValueOnce(PLAN_JSON).mockResolvedValueOnce(GOOD_SCAD);
+      mockedCompile.mockResolvedValue(compileOk());
+      const result = await runGeneratePipeline({
+        prompt: "xyzzy warrior helmet for the gandalf-adjacent oc",
+      });
+      expect(result.usedFixture).toBe(false);
+      expect(result.notes.join(" ")).not.toMatch(/stormtrooper-helmet/);
+      expect(result.notes.join(" ")).not.toMatch(/Knowledge pack/);
+      const [planMessages] = mockedChat.mock.calls[0] as unknown as [{ role: string; content: string }[]];
+      expect(planMessages[1]?.content).not.toContain("stormtrooper-helmet");
+    });
+  });
+
+  it("enriches plan notes when a tech keyword is named", async () => {
+    await withEnv({ SMART_PIPELINE: "1" }, async () => {
+      mockedChat.mockResolvedValueOnce(PLAN_JSON).mockResolvedValueOnce(GOOD_SCAD);
+      mockedCompile.mockResolvedValue(compileOk());
+      const result = await runGeneratePipeline({ prompt: "20mm cube with 5mm hole in PETG" });
+      const [planMessages] = mockedChat.mock.calls[0] as unknown as [{ role: string; content: string }[]];
+      expect(planMessages[1]?.content).toMatch(/PETG/);
+      const [codeMessages] = mockedChat.mock.calls[1] as unknown as [{ role: string; content: string }[]];
+      expect(codeMessages[1]?.content).toMatch(/PETG/);
+      expect(result.notes.join(" ")).toMatch(/PETG/i);
+      expect(result.notes.join(" ")).toMatch(/Knowledge pack/i);
+    });
+  });
+
   it("falls back to single codegen when the plan JSON is unusable", async () => {
     await withEnv({ SMART_PIPELINE: "1" }, async () => {
       mockedChat.mockResolvedValueOnce("I refuse to plan this").mockResolvedValueOnce(GOOD_SCAD);

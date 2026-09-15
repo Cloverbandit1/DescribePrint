@@ -1,0 +1,349 @@
+{
+  "meta": {
+    "version": "1.0.0",
+    "kind": "describeprint-knowledge-pack",
+    "updated": "2026-09-15",
+    "curated": true,
+    "live_web_crawl": false,
+    "notes": "In-repo curated stub for SMART_PIPELINE. Not a live web crawl, not official licensed measurements, not a RAG product. Typical fan-print / display-scale proportions and print-tech cross-links only."
+  },
+  "characters": [
+    {
+      "id": "stormtrooper-helmet",
+      "name": "stormtrooper helmet",
+      "category": "helmet",
+      "wearableCategory": "helmet_mask",
+      "aliases": [
+        "stormtrooper",
+        "storm trooper",
+        "trooper helmet",
+        "tk helmet",
+        "tk-helmet"
+      ],
+      "reference_mm": { "x": 230, "y": 270, "z": 280 },
+      "printable_mm": { "x": 165, "y": 195, "z": 200 },
+      "features": [
+        {
+          "name": "dome",
+          "kind": "shell",
+          "dims_mm": { "w": 165, "d": 195, "h": 110, "wall": 2.4 },
+          "notes": "Upper dome; keep wall ≥ 1.6 mm. Display scale unless the user asked 1:1 / wearable."
+        },
+        {
+          "name": "visor",
+          "kind": "opening",
+          "dims_mm": { "w": 110, "h": 28, "depth": 12 },
+          "notes": "Brow visor slot — through or deep recess; do not knife-edge the rim."
+        },
+        {
+          "name": "neck_ring",
+          "kind": "collar",
+          "dims_mm": { "od": 150, "h": 18, "wall": 2.4 },
+          "notes": "Lower neck opening. Wearable 1:1 uses the helmet_mask chart (head circ), not this display OD."
+        }
+      ],
+      "notes": [
+        "Typical fan-print trooper lid proportions for planner use — not an official kit.",
+        "1:1 wearable (~230×270×280 mm) exceeds the P2S 256³ bed; default to the display scale that fits, or split / designate a larger stub machine."
+      ],
+      "sources": [
+        "Curated display/1:1 bands from common FDM cosplay helmet prints (in-repo stub).",
+        "Wearable fit: lib/wearable-sizes.ts helmet_mask chart (EN 960-style head circ)."
+      ]
+    },
+    {
+      "id": "vader-helmet",
+      "name": "vader helmet",
+      "category": "helmet",
+      "wearableCategory": "helmet_mask",
+      "aliases": [
+        "vader",
+        "darth vader",
+        "sith helmet"
+      ],
+      "reference_mm": { "x": 250, "y": 300, "z": 310 },
+      "printable_mm": { "x": 175, "y": 210, "z": 215 },
+      "features": [
+        {
+          "name": "dome",
+          "kind": "shell",
+          "dims_mm": { "w": 175, "d": 200, "h": 95, "wall": 2.4 },
+          "notes": "Tri-panel dome. Display scale."
+        },
+        {
+          "name": "faceplate",
+          "kind": "mask",
+          "dims_mm": { "w": 160, "d": 90, "h": 120, "wall": 2.4 },
+          "notes": "Lower face / cheek assembly; keep mouth vents as slots ≥ 2.5 mm."
+        },
+        {
+          "name": "neck_shroud",
+          "kind": "collar",
+          "dims_mm": { "w": 170, "d": 80, "h": 40, "wall": 2.0 },
+          "notes": "Rear neck shroud. 1:1 height will not fit P2S Z."
+        }
+      ],
+      "notes": [
+        "Typical fan-print vader lid — not official licensed geometry.",
+        "1:1 (~250×300×310 mm) misses P2S on Y and Z; display scale is the default plan."
+      ],
+      "sources": [
+        "Curated display/1:1 bands from common FDM cosplay helmet prints (in-repo stub).",
+        "Wearable fit: lib/wearable-sizes.ts helmet_mask chart."
+      ]
+    },
+    {
+      "id": "iron-man-helmet",
+      "name": "iron-man helmet",
+      "category": "helmet",
+      "wearableCategory": "helmet_mask",
+      "aliases": [
+        "iron man",
+        "iron-man",
+        "ironman",
+        "stark helmet",
+        "mk helmet",
+        "mk85",
+        "mk 85"
+      ],
+      "reference_mm": { "x": 220, "y": 260, "z": 250 },
+      "printable_mm": { "x": 170, "y": 200, "z": 190 },
+      "features": [
+        {
+          "name": "shell",
+          "kind": "shell",
+          "dims_mm": { "w": 170, "d": 200, "h": 190, "wall": 2.0 },
+          "notes": "Closed clamshell helmet. Faceplate can be a separate solid if the user asks for a hinge."
+        },
+        {
+          "name": "eye_slit",
+          "kind": "opening",
+          "dims_mm": { "w": 120, "h": 14, "depth": 8 },
+          "notes": "Narrow eye bar — keep ≥ 2.5 mm opening if through-cut."
+        },
+        {
+          "name": "jaw",
+          "kind": "plate",
+          "dims_mm": { "w": 130, "h": 45, "d": 50 },
+          "notes": "Lower jaw / cheek. Optional faceplate joint uses joints.ts hinge clearances."
+        }
+      ],
+      "notes": [
+        "Typical fan-print stark-style lid — not official licensed geometry.",
+        "1:1 is close to the P2S 256 mm Y limit; display scale is the safe default."
+      ],
+      "sources": [
+        "Curated display/1:1 bands from common FDM cosplay helmet prints (in-repo stub).",
+        "Wearable fit: lib/wearable-sizes.ts helmet_mask chart."
+      ]
+    },
+    {
+      "id": "master-chief-helmet",
+      "name": "spartan helmet",
+      "category": "helmet",
+      "wearableCategory": "helmet_mask",
+      "aliases": [
+        "master chief",
+        "halo helmet",
+        "spartan helmet",
+        "mjolnir helmet"
+      ],
+      "reference_mm": { "x": 240, "y": 280, "z": 280 },
+      "printable_mm": { "x": 175, "y": 205, "z": 200 },
+      "features": [
+        {
+          "name": "shell",
+          "kind": "shell",
+          "dims_mm": { "w": 175, "d": 205, "h": 200, "wall": 2.4 },
+          "notes": "Bulky visor housing. Display scale."
+        },
+        {
+          "name": "visor",
+          "kind": "opening",
+          "dims_mm": { "w": 140, "h": 55, "depth": 20 },
+          "notes": "Gold-visor recess or through opening; leave a printable rim."
+        },
+        {
+          "name": "ear_caps",
+          "kind": "boss",
+          "dims_mm": { "w": 28, "h": 70, "d": 40 },
+          "notes": "Side ear caps — union to the shell, ≥ 1.6 mm attachment."
+        }
+      ],
+      "notes": [
+        "Typical fan-print spartan lid — not official licensed geometry.",
+        "1:1 (~240×280×280 mm) exceeds P2S Y/Z; display scale is the default plan."
+      ],
+      "sources": [
+        "Curated display/1:1 bands from common FDM cosplay helmet prints (in-repo stub).",
+        "Wearable fit: lib/wearable-sizes.ts helmet_mask chart."
+      ]
+    },
+    {
+      "id": "saber-hilt",
+      "name": "saber hilt",
+      "category": "prop",
+      "aliases": [
+        "lightsaber",
+        "light saber",
+        "saber hilt",
+        "sabre hilt",
+        "saber handle"
+      ],
+      "reference_mm": { "x": 40, "y": 40, "z": 280 },
+      "printable_mm": { "x": 38, "y": 38, "z": 240 },
+      "features": [
+        {
+          "name": "grip",
+          "kind": "cylinder",
+          "dims_mm": { "d": 32, "h": 140, "wall": 2.4 },
+          "notes": "Hollow grip; wall ≥ 1.6 mm. Sit on z=0 (emitter up or pommel down)."
+        },
+        {
+          "name": "emitter",
+          "kind": "crown",
+          "dims_mm": { "od": 38, "id": 22, "h": 45 },
+          "notes": "Emitter bore ≥ 2.5 mm if through. Leave a blade-socket recess, not a knife edge."
+        },
+        {
+          "name": "pommel",
+          "kind": "cap",
+          "dims_mm": { "d": 36, "h": 28 },
+          "notes": "Pommel cap. Optional 1/4-20 style boss is a 6.5 mm hole with 0.3 mm clearance."
+        }
+      ],
+      "notes": [
+        "Typical fan-print hilt envelope — not official licensed geometry.",
+        "1:1 length (~280 mm) misses P2S Z if printed standing; default printable is 240 mm standing or lay the hilt on X."
+      ],
+      "sources": [
+        "Curated display/1:1 bands from common FDM prop hilts (in-repo stub)."
+      ]
+    }
+  ],
+  "tech": [
+    {
+      "id": "pla",
+      "name": "PLA",
+      "category": "material",
+      "aliases": ["pla", "polylactic"],
+      "crossLinks": { "filament": "pla" },
+      "notes": [
+        "Default P2S everyday material. Use printers.ts PLA auto-best (advisory, not a LAN write)."
+      ]
+    },
+    {
+      "id": "petg",
+      "name": "PETG",
+      "category": "material",
+      "aliases": ["petg"],
+      "crossLinks": { "filament": "petg" },
+      "notes": [
+        "Tougher than PLA; strings if wet or a few degrees too hot. Dry the spool."
+      ]
+    },
+    {
+      "id": "pa",
+      "name": "PA / nylon",
+      "category": "material",
+      "aliases": ["nylon", "pa6", "pa12", "pa-cf", "pa filament", "pa"],
+      "crossLinks": { "filament": "pa" },
+      "notes": [
+        "Hygroscopic. P2S has no active chamber heater — keep the door closed. Advisory preset only."
+      ]
+    },
+    {
+      "id": "abs",
+      "name": "ABS",
+      "category": "material",
+      "aliases": ["abs"],
+      "crossLinks": { "filament": "abs" },
+      "notes": [
+        "P2S has no active chamber heater — keep the door closed and use internal circulation."
+      ]
+    },
+    {
+      "id": "tpu",
+      "name": "TPU",
+      "category": "material",
+      "aliases": ["tpu", "flex filament", "flexible filament"],
+      "crossLinks": { "filament": "tpu" },
+      "notes": [
+        "Print slowly. Soft TPU can struggle through AMS feed paths. Keep walls ≥ 1.6 mm; do not knife-edge flex features."
+      ]
+    },
+    {
+      "id": "nozzle-layer",
+      "name": "0.4 mm nozzle / 0.2 mm layer",
+      "category": "nozzle",
+      "aliases": [
+        "0.4 mm nozzle",
+        "0.4mm nozzle",
+        "0.2 mm layer",
+        "0.2mm layer",
+        "layer height",
+        "nozzle diameter"
+      ],
+      "crossLinks": { "printer": "bambu-lab-p2s" },
+      "planHints": { "layer_height_mm": 0.2, "nozzle_mm": 0.4 },
+      "notes": [
+        "P2S default is a 0.4 mm nozzle and 0.2 mm advisory layer height (printers.ts). Walls stay ≥ 1.6 mm (4× nozzle)."
+      ]
+    },
+    {
+      "id": "joint-clearances",
+      "name": "joint clearances",
+      "category": "joint",
+      "aliases": [
+        "joint clearance",
+        "joint clearances",
+        "pip clearance",
+        "print-in-place clearance"
+      ],
+      "crossLinks": { "joints": true },
+      "notes": [
+        "Use lib/joints.ts P2S / 0.4 mm-nozzle radial/axial tables. Do not invent tighter gaps."
+      ]
+    },
+    {
+      "id": "p2s-volume",
+      "name": "P2S build volume",
+      "category": "printer",
+      "aliases": [
+        "p2s volume",
+        "p2s bed",
+        "build volume",
+        "256 mm bed",
+        "256mm bed"
+      ],
+      "crossLinks": { "printer": "bambu-lab-p2s" },
+      "notes": [
+        "Default printer is Bambu Lab P2S at 256×256×256 mm (lib/printers.ts). Oversize designates a stub alternate (K1 Max / H2D / Prusa XL), it does not silently crop."
+      ]
+    },
+    {
+      "id": "print-in-place",
+      "name": "print-in-place",
+      "category": "technique",
+      "aliases": ["print-in-place", "print in place", "pip joint"],
+      "crossLinks": { "joints": true },
+      "notes": [
+        "Print-in-place: one print, separate solids, documented radial/axial gaps. Never union the pin, lid, rotor, ball, or snap hook."
+      ]
+    },
+    {
+      "id": "split-for-bed",
+      "name": "split for bed",
+      "category": "technique",
+      "aliases": [
+        "split for bed",
+        "split the part",
+        "print in halves",
+        "cut to fit the bed"
+      ],
+      "notes": [
+        "When 1:1 exceeds 256³, prefer a planned split or a designated larger stub machine over a crushed scale — unless the user asked for a miniature."
+      ]
+    }
+  ]
+}

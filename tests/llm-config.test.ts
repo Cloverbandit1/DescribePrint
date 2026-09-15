@@ -99,6 +99,17 @@ describe("local LLM config defaults", () => {
     expect(LIGHTER_MODELS).not.toContain(DEFAULT_MODEL);
   });
 
+  it("allows qwen2.5-coder:14b and :7b as lighter MODEL overrides", () => {
+    withEnv({ MODEL: "qwen2.5-coder:14b" }, () => {
+      expect(getLlmConfig().model).toBe("qwen2.5-coder:14b");
+      expect(DEFAULT_MODEL).toBe("qwen2.5-coder:32b");
+    });
+    withEnv({ MODEL: "qwen2.5-coder:7b" }, () => {
+      expect(getLlmConfig().model).toBe("qwen2.5-coder:7b");
+      expect(DEFAULT_MODEL).toBe("qwen2.5-coder:32b");
+    });
+  });
+
   it("keeps the default Ollama loopback URL (does not retarget the server)", () => {
     expect(DEFAULT_OPENAI_BASE_URL).toBe("http://127.0.0.1:11434/v1");
     expect(DEFAULT_OPENAI_BASE_URL).not.toMatch(/11435|openai.com/);

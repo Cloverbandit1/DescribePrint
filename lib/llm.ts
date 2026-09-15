@@ -3,6 +3,7 @@ import {
   getLlmTimeoutMs,
   isLocalOpenAiBaseUrl,
   LOCAL_AI_START_MESSAGE,
+  withLlmQueue,
   type LlmConfig,
 } from "./llm-config";
 import { isDefaultOnlyRegions, mergeColorRegionSources } from "./color-regions";
@@ -710,6 +711,13 @@ function normalizeChatOptions(timeoutMsOrOptions?: number | CompleteChatOptions)
 }
 
 export async function completeChat(
+  messages: ChatMessage[],
+  timeoutMsOrOptions?: number | CompleteChatOptions,
+): Promise<string> {
+  return withLlmQueue(() => completeChatNow(messages, timeoutMsOrOptions));
+}
+
+async function completeChatNow(
   messages: ChatMessage[],
   timeoutMsOrOptions?: number | CompleteChatOptions,
 ): Promise<string> {

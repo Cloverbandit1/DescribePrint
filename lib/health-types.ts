@@ -13,6 +13,10 @@ export type HealthTone = "ok" | "warn" | "danger" | "neutral";
 
 export type LocalAiMode = "local" | "cloud" | "fixture";
 
+export type QwenCoderTier = "32b" | "14b" | "7b";
+
+export type HostContention = "clear" | "busy" | "heavy";
+
 export type LocalAiHealth = {
   mode: LocalAiMode;
   configured: boolean;
@@ -24,6 +28,12 @@ export type LocalAiHealth = {
   label: string;
   detail: string;
   tips: string[];
+  /** MODEL env / compiled default before adaptive throttle. */
+  configuredModel?: string;
+  /** Active qwen2.5-coder tier after throttle. Null for cloud / non-qwen. */
+  activeTier?: QwenCoderTier | null;
+  /** Host contention used to pick the active tier. */
+  contention?: HostContention | null;
 };
 
 export type OpenscadHealth = {

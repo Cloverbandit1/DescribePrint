@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { getHealthReport, modelIsInstalled, openscadFixTips } from "@/lib/health";
-import { DEFAULT_MODEL, DEFAULT_OPENAI_BASE_URL, LOCAL_AI_START_MESSAGE } from "@/lib/llm-config";
+import { DEFAULT_MODEL, DEFAULT_OPENAI_BASE_URL, LOCAL_AI_START_MESSAGE, resetAdaptiveTierForTests } from "@/lib/llm-config";
+import { HOST_SIGNAL_ENV } from "@/lib/llm-tier";
 
-const TRACKED = ["OPENAI_API_KEY", "OPENAI_BASE_URL", "MODEL", "USE_FIXTURE"] as const;
+const TRACKED = ["OPENAI_API_KEY", "OPENAI_BASE_URL", "MODEL", "USE_FIXTURE", HOST_SIGNAL_ENV.contention] as const;
 
 function withEnv(vars: Record<string, string | undefined>, fn: () => Promise<void> | void) {
   const prev = new Map<string, string | undefined>();
@@ -30,6 +31,8 @@ function withEnv(vars: Record<string, string | undefined>, fn: () => Promise<voi
 describe("health report", () => {
   afterEach(() => {
     delete process.env.USE_FIXTURE;
+    delete process.env[HOST_SIGNAL_ENV.contention];
+    resetAdaptiveTierForTests();
   });
 
   it("matches the configured MODEL exactly (32b is not satisfied by 7b)", () => {
@@ -112,6 +115,36 @@ describe("health report", () => {
       expect(report.localAi.model).toBe("qwen2.5-coder:32b");
       expect(report.openscad.version).toBe("2021.01");
     });
+  });
+
+  it("shows the active qwen tier on the Local AI badge after a busy host signal", async () => {
+    await withEnv(
+      { MODEL: undefined, USE_FIXTURE: undefined, [HOST_SIGNAL_ENV.contention]: "busy" },
+      async () => {
+        const report = await getHealthReport({
+          probeLocalModels: async () => ({
+            reachable: true,
+            models: ["qwen2.5-coder:32b", "qwen2.5-coder:14b", "qwen2.5-coder:7b", "smith-minicpm5"],
+          }),
+          resolveOpenscad: () => ({
+            command: "/usr/bin/openscad",
+            found: true,
+            source: "linux-install",
+            candidates: [],
+          }),
+          probeOpenscadVersion: async () => "2021.01",
+        });
+        expect(report.localAi.model).toBe("qwen2.5-coder:14b");
+        expect(report.localAi.activeTier).toBe("14b");
+        expect(report.localAi.configuredModel).toBe(DEFAULT_MODEL);
+        expect(report.localAi.label).toBe("Local AI · 14b");
+        expect(report.localAi.detail).toMatch(/qwen2\.5-coder:14b/);
+        expect(report.localAi.tips.join(" ")).toMatch(/Active tier: 14b/);
+        expect(report.localAi.tips.join(" ")).toMatch(/queued/);
+        expect(report.localAi.tips.join(" ")).not.toMatch(/smith-minicpm5|minicpm5/);
+        expect(report.ready).toBe(true);
+      },
+    );
   });
 
   it("does not require Ollama when the fixture path is forced", async () => {

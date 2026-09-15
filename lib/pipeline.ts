@@ -48,7 +48,7 @@ import {
   wantsImageRelief,
 } from "./relief-image";
 import { noneSubjectIdentify } from "./image-subject";
-import { getLlmConfig, getPlanModel, isLocalOpenAiBaseUrl, isSmartPipelineEnabled } from "./llm-config";
+import { getLlmConfig, getPlanModel, isLocalOpenAiBaseUrl, isSmartPipelineEnabled, withLlmQueue } from "./llm-config";
 import {
   buildPlanPrompt,
   buildUserPrompt,
@@ -1389,9 +1389,22 @@ export async function runGeneratePipeline(
   request: GenerateRequest,
   sink?: StatusSink,
 ): Promise<GenerateResult> {
-  const resolvedRequest = withAppliedChoices(request);
-  const result = await runGeneratePipelineCore(resolvedRequest, sink);
-  return attachDesignOptions(result, resolvedRequest);
+  return withLlmQueue(
+    async () => {
+      const resolvedRequest = withAppliedChoices(request);
+      const result = await runGeneratePipelineCore(resolvedRequest, sink);
+      return attachDesignOptions(result, resolvedRequest);
+    },
+    (ahead) => {
+      emit(sink, {
+        step: "queued",
+        message:
+          ahead === 1
+            ? "Waiting for the previous local AI job…"
+            : `Waiting for ${ahead} earlier local AI jobs…`,
+      });
+    },
+  );
 }
 
 async function runGeneratePipelineCore(

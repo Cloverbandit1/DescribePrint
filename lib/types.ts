@@ -87,6 +87,8 @@ export type Mesh = {
  * 1. wearable/cosplay sizing  2. raised etchings/emboss  3. articulated assemblies
  * 4. print doctor (defect description → diagnose for selected printer/material,
  *    default P2S → propose/auto-apply settings → still-bad vs perfect feedback)
+ * 5. image import (photo → clean printable model; repair damage by default,
+ *    keep cracks/missing chunks only if the user asks)
  * All stay in-app; users never need Blender or another DCC afterward.
  * V0 stays describe → CAD → STL/3MF.
  * UX: everyday path is describe → clear options → Print; hide advanced CAD.

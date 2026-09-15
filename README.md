@@ -122,7 +122,7 @@ Priority order from the product owner (not in V0):
 2. **Raised etchings / emboss** — from a description (and later images) that print as visible relief.
 3. **Articulated / functional assemblies** — real joints with print clearances, multi-part export, and material-aware thickness/strength so moving parts (e.g. robot arms) don’t break.
 4. **Print doctor** — user describes print defects (e.g. stringing with nylon PA); the system diagnoses likely causes for the **selected printer/material** (default **Bambu Lab P2S**) and proposes or auto-applies setting fixes; then a feedback loop (still bad vs perfect). In-app only — not a separate slicer or DCC.
-5. **Image import as starting point** — user uploads a photo; the system reconstructs a **clean printable model**. By default, use light intelligence to **repair** broken or damaged parts (fill cracks, restore missing chunks). Do **not** preserve wear unless the user asks to keep it.
+5. **Image import as starting point** — user uploads a **single photo**; the system infers/generates the **backside and unseen geometry** into a **full 3D printable solid** (not a front-only relief). Output is a clean, watertight-ish mesh ready to print. By default, use light intelligence to **repair** broken or damaged parts (fill cracks, restore missing chunks). Do **not** preserve wear unless the user asks to keep it.
 
 V0 stays **describe → CAD → STL/3MF**. Image import and Print doctor are after V0.
 

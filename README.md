@@ -151,6 +151,16 @@ All approved. None of these block the Bambu-layout + chat-first PR.
 
 11. **Direct control of the user’s Bambu Lab P2S and attached AMS** — diagnose and autofix from plain language in the same chat (example: AMS #2 feed/unfeed loop). Use Bambu **local/network APIs** where possible; **safe pause** before risky moves; give simple physical steps when software cannot fix hardware. Keep the interaction **chat-first**.
 
+### Additional owner requirements (later, do not implement now)
+
+Approved. Do **not** implement these in the current V0 / layout work. They come later, still **in-app**.
+
+12. **Pluggable machine control** — Control, diagnose, and autofix for **any** future machines through a pluggable adapter — not only Bambu Lab P2S + AMS. Same chat-first diagnose / autofix path as the P2S/AMS item above.
+13. **Full transfer on machine upgrades** — When the user upgrades or switches machines, transfer **all** of: projects, versions, profile, filament prefs, learned Print doctor fixes, AMS/machine history, and designated jobs.
+14. **Design exceeds current printer** — If a design cannot print on the current machine: suggest how to accomplish it, list other machines that can handle it, and let the user save/export to a user-designated machine.
+15. **Complex builds** — For large projects (e.g. a home drone): a simple step-by-step how-to, sourcing links on demand, and alternative build paths.
+16. **Continuous knowledge updates** — Keep knowledge current for **new characters** and **real-world tech** (materials, machines, techniques).
+
 ## Extension points (later)
 
 - **Richer describe-to-modify** — V0 already threads the last prompt + OpenSCAD into chat follow-ups; later work can deepen multi-part / selection-aware edits.

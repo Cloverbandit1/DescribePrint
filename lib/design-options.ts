@@ -14,6 +14,17 @@ import {
   regionPaintOptionChips,
 } from "./region-paint";
 import { matchKnowledge, wantsWearableScale } from "./knowledge";
+import {
+  FIT_GRADES,
+  FIT_KINDS,
+  inferFitGrade,
+  inferFitKind,
+  isFitGrade,
+  isFitKind,
+  parseExplicitClearanceMm,
+  promptAsksFitChoice,
+  resolveFitClearance,
+} from "./fits";
 import { wantsMotion } from "./joints";
 import { FILAMENT_IDS, isFilamentId, normalizeFilamentId, type FilamentId } from "./printers";
 import { parseReliefRegion, promptHasRelief, type ReliefRegion } from "./relief";
@@ -25,6 +36,8 @@ export const DESIGN_OPTION_GROUP_IDS = [
   "wearable_size",
   "material",
   "clearance",
+  "fit_kind",
+  "fit_grade",
   "emboss_face",
   "color_regions",
   "region_paint",
@@ -130,6 +143,10 @@ function isKnownChoiceValue(id: DesignOptionGroupId, value: string): boolean {
       return isFilamentId(value);
     case "clearance":
       return value === "print-in-place" || value === "multi-part";
+    case "fit_kind":
+      return isFitKind(value);
+    case "fit_grade":
+      return isFitGrade(value);
     case "emboss_face":
       return (RELIEF_REGIONS as string[]).includes(value);
     case "color_regions":
@@ -217,6 +234,38 @@ function clearanceGroup(): DesignOptionGroup {
   };
 }
 
+const FIT_KIND_LABELS: Record<(typeof FIT_KINDS)[number], { label: string; description: string }> = {
+  snap: { label: "Snap", description: "Cantilever / clip. Medium is joints.ts 0.30 mm/side." },
+  press: { label: "Press", description: "Printable tight band. Medium 0.20 mm/side." },
+  sliding: { label: "Sliding", description: "Loose / running. Medium reuses hinge PIP 0.40 mm." },
+  wearable: { label: "Wearable", description: "Body ease, not the S–XL clothing chart." },
+  hinge: { label: "Hinge", description: "Reuses joints.ts PIP / kit numbers." },
+};
+
+function fitKindGroup(): DesignOptionGroup {
+  return {
+    id: "fit_kind",
+    label: "Fit",
+    prompt: "Which fit?",
+    options: FIT_KINDS.map((kind) =>
+      option("fit_kind", kind, FIT_KIND_LABELS[kind].label, FIT_KIND_LABELS[kind].description),
+    ),
+  };
+}
+
+function fitGradeGroup(kind?: string): DesignOptionGroup {
+  const resolved = isFitKind(kind) ? kind : "press";
+  return {
+    id: "fit_grade",
+    label: "Grade",
+    prompt: "How tight?",
+    options: FIT_GRADES.map((grade) => {
+      const row = resolveFitClearance(resolved, grade);
+      return option("fit_grade", grade, grade, `${row.radial_mm.toFixed(2)} mm/side ${resolved}`);
+    }),
+  };
+}
+
 function embossFaceGroup(): DesignOptionGroup {
   const labels: Record<ReliefRegion, string> = {
     front: "Front",
@@ -271,6 +320,10 @@ function groupById(id: DesignOptionGroupId): DesignOptionGroup {
       return materialGroup();
     case "clearance":
       return clearanceGroup();
+    case "fit_kind":
+      return fitKindGroup();
+    case "fit_grade":
+      return fitGradeGroup();
     case "emboss_face":
       return embossFaceGroup();
     case "color_regions":
@@ -341,6 +394,11 @@ function openGroups(input: DesignOptionsInput, applied: AppliedDesignChoice[]): 
   const clearanceChosen = Boolean(
     choiceValue(applied, "clearance") || EXPLICIT_PIP.test(text) || EXPLICIT_MULTI.test(text),
   );
+  const namedFitKind = inferFitKind(text) ?? (isFitKind(choiceValue(applied, "fit_kind")) ? choiceValue(applied, "fit_kind") : undefined);
+  const fitKindChosen = Boolean(namedFitKind || choiceValue(applied, "fit_kind"));
+  const fitGradeChosen = Boolean(
+    inferFitGrade(text) || choiceValue(applied, "fit_grade") || parseExplicitClearanceMm(text),
+  );
   const embossChosen = Boolean(choiceValue(applied, "emboss_face") || parseReliefRegion(text));
   const colorChosen = Boolean(choiceValue(applied, "color_regions") || !isDefaultOnlyRegions(colorRegionsFromPrompt(text)));
   const paintChosen = Boolean(choiceValue(applied, "region_paint"));
@@ -364,6 +422,14 @@ function openGroups(input: DesignOptionsInput, applied: AppliedDesignChoice[]): 
 
   if (wantsMotion(text) && !clearanceChosen) {
     groups.push(clearanceGroup());
+  }
+
+  if (promptAsksFitChoice(text) && !fitKindChosen && !parseExplicitClearanceMm(text)) {
+    groups.push(fitKindGroup());
+  }
+
+  if (fitKindChosen && !fitGradeChosen && !wantsMotion(text)) {
+    groups.push(fitGradeGroup(namedFitKind));
   }
 
   if (promptHasRelief(text) && !embossChosen) {
@@ -406,6 +472,10 @@ export function choicePhrase(choice: AppliedDesignChoice): string {
       return `in ${String(choice.value).toUpperCase()}`;
     case "clearance":
       return choice.value === "multi-part" ? "multi-part kit" : "print-in-place";
+    case "fit_kind":
+      return choice.value === "sliding" ? "sliding fit" : `${choice.value} fit`;
+    case "fit_grade":
+      return `fit grade ${choice.value}`;
     case "emboss_face":
       return `on the ${choice.value}`;
     case "color_regions":
@@ -430,6 +500,10 @@ export function designChoiceFollowUp(choice: AppliedDesignChoice): string {
       return `Use ${String(choice.value).toUpperCase()} settings`;
     case "clearance":
       return choice.value === "multi-part" ? "Print as a multi-part kit" : "Print-in-place with documented gaps";
+    case "fit_kind":
+      return `Use ${choicePhrase(choice)}`;
+    case "fit_grade":
+      return `Use ${choicePhrase(choice)}`;
     case "emboss_face":
       return `Put the relief on the ${choice.value}`;
     case "color_regions":

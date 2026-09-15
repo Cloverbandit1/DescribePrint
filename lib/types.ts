@@ -294,6 +294,9 @@ export type Mesh = {
  *   Import preserves 3MF colors when present. Not live AMS / machine control.
  * - Heuristic strength preview heatmap (thickness / concave / overhang /
  *   tiny-section). Not FEA.
+ * - Tolerance / fit wizard: snap / press / sliding / wearable / hinge with
+ *   S/M/L grades or explicit mm, applied to holes, pins, snaps, and mating
+ *   bores. Reuses joints.ts numbers. Walls stay ≥ 1.6 mm. Not ISO / GD&T.
  * - Generative lattice / lightweighting stub (honeycomb / cubic / gyroid-ish /
  *   diagonal). Not MechStyle FEA.
  * - Assembly / explode stub: detect joints / named modules / 3MF regions /

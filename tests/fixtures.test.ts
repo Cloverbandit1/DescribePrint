@@ -65,6 +65,7 @@ describe("fixtures + units", () => {
     expect(matchFixture(PHONE_HONEYCOMB_PROMPT)?.id).toBe("phone-stand-honeycomb");
     expect(matchFixture(CUBE_HONEYCOMB_PROMPT)?.id).toBe("cube-lattice-honeycomb");
     expect(matchFixture(CUBE_GYROID_PROMPT)?.id).toBe("cube-lattice-gyroid");
+    expect(matchFixture("20mm cube with press-fit 8mm pin hole")?.code).toMatch(/hole_d = 8\.4/);
   });
 
   it("matches the three example prompts with sanitizable OpenSCAD", () => {

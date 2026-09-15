@@ -117,7 +117,8 @@ export function loadKnowledgePack(raw: unknown = rawPack): KnowledgePack {
 }
 
 export function wantsWearableScale(prompt: string): boolean {
-  return WEARABLE_SCALE.test(prompt);
+  const text = (prompt ?? "").replace(/\bwearable\s+fit\b/gi, " ");
+  return WEARABLE_SCALE.test(text);
 }
 
 export function matchKnowledge(prompt: string, pack: KnowledgePack = loadKnowledgePack()): KnowledgeMatch {

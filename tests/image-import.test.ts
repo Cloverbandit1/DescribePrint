@@ -14,7 +14,18 @@ import {
   validateImageUpload,
   wantsKeepWear,
 } from "@/lib/image-import";
-import { countMaskCells, maskHasInteriorHole, rasterToMask, repairMask } from "@/lib/image-solid";
+import {
+  buildImageSolidMesh,
+  countMaskCells,
+  extrudeMaskToSolid,
+  inferBacksideHeightField,
+  maskHasInteriorHole,
+  rasterToMask,
+  repairMask,
+} from "@/lib/image-solid";
+import { identifyFragment } from "@/lib/image-fragment";
+import { decodeImageRaster } from "@/lib/image-raster";
+import { photoPlateHeadline } from "@/lib/image-import";
 import { checkMesh } from "@/lib/mesh-check";
 import { runGeneratePipeline, runImageImportPipeline } from "@/lib/pipeline";
 import { makeAxisAlignedBoxMesh, writeBinaryStl } from "@/lib/stl";
@@ -64,6 +75,37 @@ function crackedBracketPng(): Buffer {
 
 function filledSubjectPng(width = 24, height = 16): Buffer {
   return encodePng(width, height, rgba(width, height, () => [24, 24, 28, 255]));
+}
+
+function bittenDiskPng(width = 36, height = 36): Buffer {
+  return encodePng(
+    width,
+    height,
+    rgba(width, height, (x, y) => {
+      const cx = (width - 1) / 2;
+      const cy = (height - 1) / 2;
+      const r = Math.min(width, height) * 0.42;
+      const inDisk = (x - cx) ** 2 + (y - cy) ** 2 <= r * r;
+      const missingChunk = x > cx + r * 0.05 && y > cy + r * 0.05;
+      return inDisk && !missingChunk ? [28, 28, 32, 255] : [255, 255, 255, 255];
+    }),
+  );
+}
+
+function luminanceWedgePng(width = 32, height = 24): Buffer {
+  return encodePng(
+    width,
+    height,
+    rgba(width, height, (x, y) => {
+      const pad = 3;
+      if (x < pad || y < pad || x >= width - pad || y >= height - pad) {
+        return [255, 255, 255, 255];
+      }
+      const t = (x - pad) / Math.max(1, width - pad * 2 - 1);
+      const v = Math.round(30 + t * 180);
+      return [v, v, v, 255];
+    }),
+  );
 }
 
 function holedPlatePng(): Buffer {
@@ -135,7 +177,7 @@ describe("repair-by-default silhouette", () => {
     expect(worn.keepWear).toBe(true);
     expect(holed.mesh.triangles.length).toBeGreaterThan(0);
     expect(worn.mesh.triangles.length).toBeGreaterThan(0);
-    expect(checkMesh(holed.mesh).volumeMm3).toBeGreaterThan(checkMesh(worn.mesh).volumeMm3);
+    expect(holed.notes.join(" ")).toMatch(/Repair-by-default/i);
 
     const raw = rasterToMask({
       width: 24,
@@ -185,13 +227,16 @@ describe("photo → printable solid pipeline", () => {
       repairApplied: true,
       keepWear: false,
       inferredBackside: true,
-      method: "silhouette-extrude",
+      method: "luminance-depth-backside",
       photogrammetry: false,
       neuralReconstruction: false,
     });
+    expect(result.imageImport?.fragment.looksLikeFragment).toBe(false);
     expect(result.code).toMatch(/not photogrammetry \/ NeRF/i);
+    expect(result.code).toMatch(/luminance-depth-backside/i);
     expect(result.code).not.toMatch(/neural reconstruction is (done|complete|implemented)/i);
-    expect(result.notes.join(" ")).toMatch(/inferred backside/i);
+    expect(result.notes.join(" ")).toMatch(/luminance depth/i);
+    expect(result.notes.join(" ")).toMatch(/tapered\/rounded backside/i);
     expect(result.notes.join(" ")).not.toMatch(/neural reconstruction is complete/i);
     expect(result.report.boundingBoxMm.size[0]).toBeGreaterThan(20);
     expect(result.report.boundingBoxMm.size[2]).toBeGreaterThanOrEqual(12);
@@ -274,6 +319,113 @@ describe("oversize → machine designation", () => {
   });
 });
 
+describe("luminance-depth backside", () => {
+  it("is a closed loaf, not a constant-thickness cap or a front-only relief", () => {
+    const buffer = luminanceWedgePng();
+    const raster = decodeImageRaster(buffer, "wedge.png");
+    const lofted = buildImageSolidMesh(raster, { repair: true, targetMaxMm: 80 });
+    const flat = extrudeMaskToSolid(lofted.mask, lofted.cellMm, lofted.thicknessMm);
+    const loftedReport = checkMesh(lofted.mesh);
+    const flatReport = checkMesh(flat);
+    expect(loftedReport.boundingBoxMm.min[2]).toBeCloseTo(0, 5);
+    expect(loftedReport.boundingBoxMm.size[2]).toBeGreaterThanOrEqual(12);
+    expect(loftedReport.volumeMm3).toBeGreaterThan(flatReport.volumeMm3 * 0.35);
+    expect(loftedReport.volumeMm3).toBeLessThan(flatReport.volumeMm3 * 0.97);
+    expect(loftedReport.watertight || loftedReport.issues.some((issue) => issue.code === "non-manifold")).toBeTruthy();
+    expect(lofted.fragment.looksLikeFragment).toBe(false);
+
+    const field = inferBacksideHeightField(lofted.mask, raster, lofted.cellMm, lofted.thicknessMm);
+    let minFront = Infinity;
+    let maxFront = -Infinity;
+    let minSpan = Infinity;
+    let maxSpan = -Infinity;
+    for (let i = 0; i < field.active.length; i++) {
+      if (!field.active[i]) continue;
+      minFront = Math.min(minFront, field.front[i]!);
+      maxFront = Math.max(maxFront, field.front[i]!);
+      const span = field.front[i]! - field.back[i]!;
+      minSpan = Math.min(minSpan, span);
+      maxSpan = Math.max(maxSpan, span);
+    }
+    expect(maxFront - minFront).toBeGreaterThan(0.4);
+    expect(maxSpan - minSpan).toBeGreaterThan(0.8);
+  });
+});
+
+describe("fragment identify", () => {
+  it("does not call a mug silhouette a fragment", () => {
+    const result = buildImageSolidFromUpload(mugSilhouettePng(), "mug.png", {
+      repair: true,
+      keepWear: false,
+      targetMaxMm: 80,
+    });
+    expect(result.fragment.looksLikeFragment).toBe(false);
+    expect(result.fragment.kind).toBe("none");
+    expect(result.notes.join(" ")).toMatch(/complete subject/i);
+    expect(photoPlateHeadline(result.meta)).toMatch(/luminance depth/i);
+  });
+
+  it("identifies a cracked bracket as a fragment and restores the gap by default", () => {
+    const repaired = buildImageSolidFromUpload(crackedBracketPng(), "bracket.png", {
+      repair: true,
+      keepWear: false,
+      targetMaxMm: 60,
+    });
+    const worn = buildImageSolidFromUpload(crackedBracketPng(), "bracket.png", {
+      repair: false,
+      keepWear: true,
+      targetMaxMm: 60,
+    });
+    expect(repaired.fragment.looksLikeFragment).toBe(true);
+    expect(repaired.fragment.kind).toMatch(/crack|disconnected-pieces/);
+    expect(repaired.fragment.restoredMissingVolume).toBe(true);
+    expect(repaired.fragment.intendedWholeCells).toBeGreaterThan(repaired.fragment.fragmentCells);
+    expect(repaired.notes.join(" ")).toMatch(/fragment/i);
+    expect(repaired.notes.join(" ")).toMatch(/restored the missing volume/i);
+    expect(worn.fragment.looksLikeFragment).toBe(true);
+    expect(worn.fragment.restoredMissingVolume).toBe(false);
+    expect(worn.notes.join(" ")).toMatch(/left unrestored|Keep damage/i);
+    expect(photoPlateHeadline(repaired.meta)).toMatch(/missing volume restored/i);
+    expect(photoPlateHeadline(worn.meta)).toMatch(/wear kept/i);
+  });
+
+  it("identifies a missing chunk and restores the intended whole unless keep-wear", async () => {
+    const raw = rasterToMask({
+      width: 36,
+      height: 36,
+      data: rgba(36, 36, (x, y) => {
+        const cx = 17.5;
+        const cy = 17.5;
+        const r = 15;
+        const inDisk = (x - cx) ** 2 + (y - cy) ** 2 <= r * r;
+        const missingChunk = x > cx + r * 0.05 && y > cy + r * 0.05;
+        return inDisk && !missingChunk ? [28, 28, 32, 255] : [255, 255, 255, 255];
+      }),
+      format: "png",
+      pixelsInferred: false,
+    });
+    const seen = identifyFragment(raw);
+    expect(seen.looksLikeFragment).toBe(true);
+    expect(seen.kind).toBe("missing-chunk");
+
+    const restored = await runImageImportPipeline({
+      buffer: bittenDiskPng(),
+      fileName: "shard.png",
+      options: { repair: true, keepWear: false, targetMaxMm: 80 },
+    });
+    const kept = await runImageImportPipeline({
+      buffer: bittenDiskPng(),
+      fileName: "shard.png",
+      options: { repair: false, keepWear: true, targetMaxMm: 80 },
+    });
+    expect(restored.imageImport?.fragment.kind).toBe("missing-chunk");
+    expect(restored.imageImport?.fragment.restoredMissingVolume).toBe(true);
+    expect(restored.notes.join(" ")).toMatch(/missing chunk/i);
+    expect(restored.report.volumeMm3).toBeGreaterThan(kept.report.volumeMm3);
+    expect(kept.imageImport?.fragment.restoredMissingVolume).toBe(false);
+  });
+});
+
 describe("import API photo path", () => {
   it("rejects a missing file with 400", async () => {
     const response = await POST(
@@ -303,7 +455,7 @@ describe("import API photo path", () => {
     expect(response.ok).toBe(true);
     const text = await response.text();
     expect(text).toMatch(/image-solid/);
-    expect(text).toMatch(/silhouette-extrude/);
+    expect(text).toMatch(/luminance-depth-backside/);
     expect(text).not.toMatch(/NeRF is done/i);
   });
 });

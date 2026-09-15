@@ -1,14 +1,41 @@
+import {
+  identifyFragment,
+  restoreFragmentMask,
+  withRestoredFragment,
+} from "./image-fragment";
+import {
+  distanceToBackground,
+  downscaleRaster,
+  MAX_MASK_EDGE,
+  rasterToMask,
+  subjectLuminanceField,
+  type BinaryMask,
+} from "./image-mask";
 import type { ImageRaster } from "./image-raster";
-import type { Mesh, Triangle } from "./types";
+import { sitMeshOnBed } from "./mesh-transform";
+import type { ImageFragmentIdentify, Mesh, Triangle } from "./types";
 
 export const DEFAULT_IMAGE_TARGET_MAX_MM = 80;
 export const MIN_SOLID_THICKNESS_MM = 12;
-export const MAX_MASK_EDGE = 96;
+export { MAX_MASK_EDGE };
 
-export type BinaryMask = {
+export type { BinaryMask };
+export {
+  countMaskCells,
+  downscaleRaster,
+  fillInteriorHoles,
+  maskHasInteriorHole,
+  rasterToMask,
+  repairMask,
+} from "./image-mask";
+
+export type HeightField = {
   width: number;
   height: number;
-  cells: Uint8Array;
+  cellMm: number;
+  front: Float64Array;
+  back: Float64Array;
+  active: Uint8Array;
 };
 
 export function inferredSolidThicknessMm(targetMaxMm: number): number {
@@ -18,133 +45,106 @@ export function inferredSolidThicknessMm(targetMaxMm: number): number {
   return clamp(fromRatio, MIN_SOLID_THICKNESS_MM, Math.max(MIN_SOLID_THICKNESS_MM, cap));
 }
 
-export function downscaleRaster(raster: ImageRaster, maxEdge = MAX_MASK_EDGE): ImageRaster {
-  const longest = Math.max(raster.width, raster.height);
-  if (longest <= maxEdge) return raster;
-  const scale = maxEdge / longest;
-  const width = Math.max(1, Math.round(raster.width * scale));
-  const height = Math.max(1, Math.round(raster.height * scale));
-  const data = new Uint8Array(width * height * 4);
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const sx0 = Math.floor((x * raster.width) / width);
-      const sx1 = Math.max(sx0 + 1, Math.floor(((x + 1) * raster.width) / width));
-      const sy0 = Math.floor((y * raster.height) / height);
-      const sy1 = Math.max(sy0 + 1, Math.floor(((y + 1) * raster.height) / height));
-      let r = 0;
-      let g = 0;
-      let b = 0;
-      let a = 0;
-      let n = 0;
-      for (let sy = sy0; sy < sy1; sy++) {
-        for (let sx = sx0; sx < sx1; sx++) {
-          const i = (sy * raster.width + sx) * 4;
-          r += raster.data[i]!;
-          g += raster.data[i + 1]!;
-          b += raster.data[i + 2]!;
-          a += raster.data[i + 3]!;
-          n++;
-        }
-      }
-      const o = (y * width + x) * 4;
-      data[o] = Math.round(r / n);
-      data[o + 1] = Math.round(g / n);
-      data[o + 2] = Math.round(b / n);
-      data[o + 3] = Math.round(a / n);
-    }
-  }
-  return { ...raster, width, height, data };
-}
-
-export function rasterToMask(raster: ImageRaster): BinaryMask {
-  const { width, height, data } = raster;
-  const cells = new Uint8Array(width * height);
-  let opaque = 0;
-  let lumSum = 0;
-  let lumMin = 255;
-  let lumMax = 0;
-  let hasAlpha = false;
-  for (let i = 0; i < width * height; i++) {
-    const a = data[i * 4 + 3]!;
-    if (a < 250) hasAlpha = true;
-    if (a >= 16) {
-      opaque++;
-      const y = luminance(data[i * 4]!, data[i * 4 + 1]!, data[i * 4 + 2]!);
-      lumSum += y;
-      lumMin = Math.min(lumMin, y);
-      lumMax = Math.max(lumMax, y);
-    }
-  }
-  const avgLum = opaque ? lumSum / opaque : 255;
-  const contrast = lumMax - lumMin;
-  const invert = !hasAlpha && avgLum < 80 && contrast > 40;
-
-  for (let i = 0; i < width * height; i++) {
-    const r = data[i * 4]!;
-    const g = data[i * 4 + 1]!;
-    const b = data[i * 4 + 2]!;
-    const a = data[i * 4 + 3]!;
-    if (a < 16) {
-      cells[i] = 0;
-      continue;
-    }
-    if (hasAlpha && a < 250) {
-      cells[i] = 1;
-      continue;
-    }
-    const y = luminance(r, g, b);
-    cells[i] = (invert ? y > 140 : y < 220) ? 1 : 0;
-  }
-
-  if (!cells.includes(1)) {
-    for (let i = 0; i < width * height; i++) {
-      cells[i] = data[i * 4 + 3]! >= 16 ? 1 : 0;
-    }
-  }
-  if (!cells.includes(1)) {
-    throw new Error("Could not find a subject in this photo. Use a clearer object-on-background shot.");
-  }
-  return { width, height, cells };
-}
-
-export function repairMask(mask: BinaryMask): BinaryMask {
-  return fillInteriorHoles(morphologicalClose(mask, 2));
-}
-
-export function countMaskCells(mask: BinaryMask): number {
-  let n = 0;
-  for (const cell of mask.cells) if (cell) n++;
-  return n;
-}
-
-export function maskHasInteriorHole(mask: BinaryMask): boolean {
-  return countMaskCells(fillInteriorHoles(mask)) > countMaskCells(mask);
-}
-
+/** Constant-thickness slab from the #27 stub — kept for comparison tests. */
 export function extrudeMaskToSolid(mask: BinaryMask, cellMm: number, thicknessMm: number): Mesh {
   if (cellMm <= 0 || thicknessMm <= 0) {
     throw new Error("Image solid size must be positive.");
   }
-  const triangles: Triangle[] = [];
-  const at = (x: number, y: number) =>
-    x >= 0 && y >= 0 && x < mask.width && y < mask.height ? mask.cells[y * mask.width + x] === 1 : false;
+  const field = constantHeightField(mask, cellMm, thicknessMm);
+  return heightFieldToSolid(field);
+}
 
-  for (let y = 0; y < mask.height; y++) {
-    for (let x = 0; x < mask.width; x++) {
+/**
+ * Infer a closed backside: loaf-shaped taper (thick center, thin rim) plus
+ * luminance depth on the visible face. Sit-on-bed after build. Not NeRF.
+ */
+export function inferBacksideHeightField(
+  mask: BinaryMask,
+  raster: ImageRaster | null,
+  cellMm: number,
+  thicknessMm: number,
+): HeightField {
+  if (cellMm <= 0 || thicknessMm <= 0) {
+    throw new Error("Image solid size must be positive.");
+  }
+  const dist = distanceToBackground(mask);
+  let maxDist = 0;
+  for (let i = 0; i < dist.length; i++) {
+    if (mask.cells[i] && dist[i]! > maxDist) maxDist = dist[i]!;
+  }
+  const lum =
+    raster && raster.width === mask.width && raster.height === mask.height
+      ? subjectLuminanceField(raster, mask)
+      : null;
+  const front = new Float64Array(mask.cells.length);
+  const back = new Float64Array(mask.cells.length);
+  const minWall = Math.max(thicknessMm * 0.32, MIN_SOLID_THICKNESS_MM * 0.45);
+
+  for (let i = 0; i < mask.cells.length; i++) {
+    if (!mask.cells[i]) continue;
+    const taper = smoothstep(maxDist > 0 ? dist[i]! / maxDist : 1);
+    const lum01 = lum ? lum[i]! : 0.5;
+    // Brighter subject pixels sit closer to the camera (higher front).
+    const frontRound = thicknessMm * (0.58 + 0.42 * taper);
+    const frontLum = thicknessMm * 0.16 * (lum01 - 0.5);
+    let zFront = frontRound + frontLum;
+    // Rounded backside: center sits on the bed; rim rises to close the loaf.
+    let zBack = thicknessMm * 0.4 * Math.pow(1 - taper, 1.55);
+    if (zFront - zBack < minWall) {
+      const mid = (zFront + zBack) / 2;
+      zFront = mid + minWall / 2;
+      zBack = mid - minWall / 2;
+    }
+    if (zBack < 0) {
+      zFront -= zBack;
+      zBack = 0;
+    }
+    front[i] = zFront;
+    back[i] = zBack;
+  }
+
+  return {
+    width: mask.width,
+    height: mask.height,
+    cellMm,
+    front,
+    back,
+    active: new Uint8Array(mask.cells),
+  };
+}
+
+export function heightFieldToSolid(field: HeightField): Mesh {
+  const triangles: Triangle[] = [];
+  const { width, height, cellMm, front, back, active } = field;
+  const at = (x: number, y: number) =>
+    x >= 0 && y >= 0 && x < width && y < height ? active[y * width + x] === 1 : false;
+  const zf = (x: number, y: number) => front[y * width + x]!;
+  const zb = (x: number, y: number) => back[y * width + x]!;
+  const eps = Math.max(cellMm * 1e-4, 1e-6);
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
       if (!at(x, y)) continue;
       const x0 = x * cellMm;
       const y0 = y * cellMm;
       const x1 = x0 + cellMm;
       const y1 = y0 + cellMm;
-      const z0 = 0;
-      const z1 = thicknessMm;
-      // Bottom (z=0, -Z) and top (z=thickness, +Z) — inferred backside is the cap.
+      const z0 = zb(x, y);
+      const z1 = zf(x, y);
+      if (z1 - z0 <= eps) continue;
       pushQuad(triangles, [x0, y0, z0], [x0, y1, z0], [x1, y1, z0], [x1, y0, z0], [0, 0, -1]);
       pushQuad(triangles, [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1], [0, 0, 1]);
       if (!at(x, y - 1)) pushQuad(triangles, [x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1], [0, -1, 0]);
       if (!at(x, y + 1)) pushQuad(triangles, [x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [0, 1, 0]);
       if (!at(x - 1, y)) pushQuad(triangles, [x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0], [-1, 0, 0]);
       if (!at(x + 1, y)) pushQuad(triangles, [x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1], [1, 0, 0]);
+
+      if (at(x + 1, y)) {
+        emitHeightStepX(triangles, x1, y0, y1, z0, z1, zb(x + 1, y), zf(x + 1, y), eps);
+      }
+      if (at(x, y + 1)) {
+        emitHeightStepY(triangles, y1, x0, x1, z0, z1, zb(x, y + 1), zf(x, y + 1), eps);
+      }
     }
   }
 
@@ -156,7 +156,7 @@ export function extrudeMaskToSolid(mask: BinaryMask, cellMm: number, thicknessMm
 
 export function buildImageSolidMesh(
   raster: ImageRaster,
-  opts: { targetMaxMm?: number; thicknessMm?: number; repair?: boolean },
+  opts: { targetMaxMm?: number; thicknessMm?: number; repair?: boolean; prompt?: string | null },
 ): {
   mesh: Mesh;
   mask: BinaryMask;
@@ -164,137 +164,98 @@ export function buildImageSolidMesh(
   cellMm: number;
   thicknessMm: number;
   targetMaxMm: number;
+  fragment: ImageFragmentIdentify;
 } {
   const targetMaxMm =
     opts.targetMaxMm && opts.targetMaxMm > 0 ? opts.targetMaxMm : DEFAULT_IMAGE_TARGET_MAX_MM;
   const scaled = downscaleRaster(raster);
-  let mask = rasterToMask(scaled);
+  const rawMask = rasterToMask(scaled);
+  const fragmentSeen = identifyFragment(rawMask, opts.prompt);
   const repaired = opts.repair !== false;
-  if (repaired) mask = repairMask(mask);
+  const mask = repaired ? restoreFragmentMask(rawMask, fragmentSeen) : rawMask;
+  const fragment = withRestoredFragment(fragmentSeen, mask, repaired);
   const longest = Math.max(mask.width, mask.height);
   const cellMm = targetMaxMm / longest;
   const thicknessMm = opts.thicknessMm ?? inferredSolidThicknessMm(targetMaxMm);
+  const field = inferBacksideHeightField(mask, scaled, cellMm, thicknessMm);
   return {
-    mesh: extrudeMaskToSolid(mask, cellMm, thicknessMm),
+    mesh: sitMeshOnBed(heightFieldToSolid(field)),
     mask,
     repaired,
     cellMm,
     thicknessMm,
     targetMaxMm,
+    fragment,
   };
 }
 
-function morphologicalClose(mask: BinaryMask, radius: number): BinaryMask {
-  if (radius < 1) return mask;
-  let next = padMask(mask, radius, 0);
-  for (let i = 0; i < radius; i++) next = dilate(next);
-  for (let i = 0; i < radius; i++) next = erode(next);
-  return cropMask(next, radius, mask.width, mask.height);
-}
-
-function padMask(mask: BinaryMask, pad: number, fill: number): BinaryMask {
-  const width = mask.width + pad * 2;
-  const height = mask.height + pad * 2;
-  const cells = new Uint8Array(width * height);
-  if (fill) cells.fill(1);
-  for (let y = 0; y < mask.height; y++) {
-    cells.set(mask.cells.subarray(y * mask.width, (y + 1) * mask.width), (y + pad) * width + pad);
+function constantHeightField(mask: BinaryMask, cellMm: number, thicknessMm: number): HeightField {
+  const front = new Float64Array(mask.cells.length);
+  const back = new Float64Array(mask.cells.length);
+  for (let i = 0; i < mask.cells.length; i++) {
+    if (!mask.cells[i]) continue;
+    front[i] = thicknessMm;
+    back[i] = 0;
   }
-  return { width, height, cells };
-}
-
-function cropMask(mask: BinaryMask, pad: number, width: number, height: number): BinaryMask {
-  const cells = new Uint8Array(width * height);
-  for (let y = 0; y < height; y++) {
-    const src = (y + pad) * mask.width + pad;
-    cells.set(mask.cells.subarray(src, src + width), y * width);
-  }
-  return { width, height, cells };
-}
-
-function dilate(mask: BinaryMask): BinaryMask {
-  const cells = new Uint8Array(mask.cells.length);
-  for (let y = 0; y < mask.height; y++) {
-    for (let x = 0; x < mask.width; x++) {
-      cells[y * mask.width + x] = neighborhoodMax(mask, x, y);
-    }
-  }
-  return { ...mask, cells };
-}
-
-function erode(mask: BinaryMask): BinaryMask {
-  const cells = new Uint8Array(mask.cells.length);
-  for (let y = 0; y < mask.height; y++) {
-    for (let x = 0; x < mask.width; x++) {
-      cells[y * mask.width + x] = neighborhoodMin(mask, x, y);
-    }
-  }
-  return { ...mask, cells };
-}
-
-function neighborhoodMax(mask: BinaryMask, x: number, y: number): number {
-  for (let dy = -1; dy <= 1; dy++) {
-    for (let dx = -1; dx <= 1; dx++) {
-      const nx = x + dx;
-      const ny = y + dy;
-      if (nx < 0 || ny < 0 || nx >= mask.width || ny >= mask.height) continue;
-      if (mask.cells[ny * mask.width + nx]) return 1;
-    }
-  }
-  return 0;
-}
-
-function neighborhoodMin(mask: BinaryMask, x: number, y: number): number {
-  for (let dy = -1; dy <= 1; dy++) {
-    for (let dx = -1; dx <= 1; dx++) {
-      const nx = x + dx;
-      const ny = y + dy;
-      if (nx < 0 || ny < 0 || nx >= mask.width || ny >= mask.height) return 0;
-      if (!mask.cells[ny * mask.width + nx]) return 0;
-    }
-  }
-  return 1;
-}
-
-function fillInteriorHoles(mask: BinaryMask): BinaryMask {
-  const exterior = new Uint8Array(mask.cells.length);
-  const stack: number[] = [];
-  const push = (x: number, y: number) => {
-    if (x < 0 || y < 0 || x >= mask.width || y >= mask.height) return;
-    const i = y * mask.width + x;
-    if (mask.cells[i] || exterior[i]) return;
-    exterior[i] = 1;
-    stack.push(i);
+  return {
+    width: mask.width,
+    height: mask.height,
+    cellMm,
+    front,
+    back,
+    active: new Uint8Array(mask.cells),
   };
-
-  for (let x = 0; x < mask.width; x++) {
-    push(x, 0);
-    push(x, mask.height - 1);
-  }
-  for (let y = 0; y < mask.height; y++) {
-    push(0, y);
-    push(mask.width - 1, y);
-  }
-
-  while (stack.length) {
-    const i = stack.pop()!;
-    const x = i % mask.width;
-    const y = Math.floor(i / mask.width);
-    push(x - 1, y);
-    push(x + 1, y);
-    push(x, y - 1);
-    push(x, y + 1);
-  }
-
-  const cells = new Uint8Array(mask.cells.length);
-  for (let i = 0; i < cells.length; i++) {
-    cells[i] = mask.cells[i] || (exterior[i] ? 0 : 1);
-  }
-  return { ...mask, cells };
 }
 
-function luminance(r: number, g: number, b: number): number {
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+function emitHeightStepX(
+  triangles: Triangle[],
+  x: number,
+  y0: number,
+  y1: number,
+  zBackA: number,
+  zFrontA: number,
+  zBackB: number,
+  zFrontB: number,
+  eps: number,
+) {
+  if (zFrontA > zFrontB + eps) {
+    pushQuad(triangles, [x, y0, zFrontB], [x, y1, zFrontB], [x, y1, zFrontA], [x, y0, zFrontA], [1, 0, 0]);
+  } else if (zFrontB > zFrontA + eps) {
+    pushQuad(triangles, [x, y0, zFrontA], [x, y0, zFrontB], [x, y1, zFrontB], [x, y1, zFrontA], [-1, 0, 0]);
+  }
+  if (zBackA < zBackB - eps) {
+    pushQuad(triangles, [x, y0, zBackA], [x, y1, zBackA], [x, y1, zBackB], [x, y0, zBackB], [1, 0, 0]);
+  } else if (zBackB < zBackA - eps) {
+    pushQuad(triangles, [x, y0, zBackB], [x, y0, zBackA], [x, y1, zBackA], [x, y1, zBackB], [-1, 0, 0]);
+  }
+}
+
+function emitHeightStepY(
+  triangles: Triangle[],
+  y: number,
+  x0: number,
+  x1: number,
+  zBackA: number,
+  zFrontA: number,
+  zBackB: number,
+  zFrontB: number,
+  eps: number,
+) {
+  if (zFrontA > zFrontB + eps) {
+    pushQuad(triangles, [x0, y, zFrontB], [x0, y, zFrontA], [x1, y, zFrontA], [x1, y, zFrontB], [0, 1, 0]);
+  } else if (zFrontB > zFrontA + eps) {
+    pushQuad(triangles, [x0, y, zFrontA], [x1, y, zFrontA], [x1, y, zFrontB], [x0, y, zFrontB], [0, -1, 0]);
+  }
+  if (zBackA < zBackB - eps) {
+    pushQuad(triangles, [x0, y, zBackA], [x1, y, zBackA], [x1, y, zBackB], [x0, y, zBackB], [0, 1, 0]);
+  } else if (zBackB < zBackA - eps) {
+    pushQuad(triangles, [x0, y, zBackB], [x0, y, zBackA], [x1, y, zBackA], [x1, y, zBackB], [0, -1, 0]);
+  }
+}
+
+function smoothstep(t: number): number {
+  const x = clamp(t, 0, 1);
+  return x * x * (3 - 2 * x);
 }
 
 function pushQuad(

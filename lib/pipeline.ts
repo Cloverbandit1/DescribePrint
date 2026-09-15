@@ -431,10 +431,18 @@ export async function runImageImportPipeline(
   emit(sink, {
     step: "planning",
     message: options.repair
-      ? "Inferring a printable solid and repairing cracks…"
-      : "Inferring a printable solid (keeping wear)…",
+      ? "Inferring luminance-depth backside and repairing cracks…"
+      : "Inferring luminance-depth backside (keeping wear)…",
   });
   const built = buildImageSolidFromUpload(input.buffer, input.fileName, options);
+  if (built.fragment.looksLikeFragment) {
+    emit(sink, {
+      step: "planning",
+      message: built.fragment.restoredMissingVolume
+        ? "Identified a fragment vs the intended whole — restoring missing volume…"
+        : "Identified a fragment vs the intended whole — keeping the photographed wear…",
+    });
+  }
   emit(sink, { step: "mesh-check", message: "Checking the solid against the P2S bed…" });
   emit(sink, { step: "export", message: "Writing STL and 3MF…" });
   const code = imageSolidStubScad({
@@ -445,6 +453,7 @@ export async function runImageImportPipeline(
     repairApplied: built.repairApplied,
     keepWear: built.keepWear,
     designation: built.designation,
+    fragment: built.fragment,
   });
   const printPreset = presetFromRequest(input.filament);
   const artifacts = await artifactsFromMesh(built.mesh, code, built.fileName, undefined, printPreset);
@@ -473,7 +482,11 @@ export async function runImageImportPipeline(
     step: "done",
     message: built.designation.exceedsCurrentPrinter
       ? "Photo solid is on the plate — current printer is too small."
-      : "Photo solid is on the plate.",
+      : built.fragment.looksLikeFragment
+        ? built.fragment.restoredMissingVolume
+          ? "Photo solid is on the plate — fragment identified, missing volume restored."
+          : "Photo solid is on the plate — fragment identified, wear kept."
+        : "Photo solid is on the plate — backside inferred.",
   });
   return toGenerateResult(job);
 }

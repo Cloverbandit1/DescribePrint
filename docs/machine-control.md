@@ -165,6 +165,17 @@ For Bella / CAD Core. Print Control emits this; CAD Core consumes it later.
 
 Do **not** generate that mesh in Print Control.
 
+CAD Core consumes the handoff in [`lib/cad-reshape.ts`](../lib/cad-reshape.ts):
+
+```ts
+import { runCadReshapeUpper, parseCadReshapeHandoff } from "@/lib/cad-reshape";
+await runCadReshapeUpper({ handoff, prompt, previousCode, fixture: true });
+```
+
+Or `POST /api/generate` with `{ prompt, cadHandoff, previousCode?, fixture? }`. After an attempted emergency reshape, the next CAD chat turn sends `cadHandoff` from the doctor plan. The result is the remaining upper only (sits on the cut plane). `cadFeedForReslice` attaches `jobId` / STL / 3MF URLs onto the existing reslice stub (`sendGcode: false`). Resume stays manual.
+
+`CadReshapeHandoff` still has no `previousCode`, stump XY, or `layerHeightMm`. CAD infers footprint from the last part when present, and refuses to invent remaining height from `remainingLayers` alone.
+
 ## Profile facts (P2S)
 
 Taken from Bambu’s published P2S specs / FAQ (see sources below):

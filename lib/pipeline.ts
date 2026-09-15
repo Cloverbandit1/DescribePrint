@@ -18,6 +18,7 @@ import {
   shouldUseFixture,
 } from "./fixtures";
 import { importedMeshStubScad, parseImportedMesh } from "./import-mesh";
+import { runCadReshapeUpper } from "./cad-reshape";
 import { buildImageSolidFromUpload, imageSolidStubScad, type ImageImportOptions } from "./image-import";
 import { getLlmConfig, getPlanModel, isLocalOpenAiBaseUrl, isSmartPipelineEnabled } from "./llm-config";
 import {
@@ -831,6 +832,20 @@ export async function runGeneratePipeline(
   request: GenerateRequest,
   sink?: StatusSink,
 ): Promise<GenerateResult> {
+  if (request.cadHandoff) {
+    return runCadReshapeUpper(
+      {
+        handoff: request.cadHandoff,
+        prompt: request.prompt,
+        previousCode: request.previousCode,
+        previousPrompt: request.previousPrompt,
+        previousJobId: request.previousJobId,
+        fixture: request.fixture,
+      },
+      sink,
+    );
+  }
+
   const prompt = request.prompt?.trim() ?? "";
   if (!prompt && !request.wearableSize) {
     throw new Error("Describe what to print first.");

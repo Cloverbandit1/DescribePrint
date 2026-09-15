@@ -228,6 +228,8 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
           wearableSize: sizeForRequest,
           wearableCategory: categoryForRequest,
           fixture: process.env.NODE_ENV === "test" ? true : undefined,
+          cadHandoff:
+            !startFresh && doctorResult?.reshape?.attempted ? doctorResult.reshape.cadHandoff : undefined,
         }),
       });
 

@@ -241,8 +241,8 @@ Install -Layout Smith registers logon auto-start + AC sleep-never.
 Laptop: auto-start only with -AutoStart; power tweaks are Smith-only.
 
 Start prints a LAN URL + QR for iPhone on the same Wi-Fi (0.0.0.0:3000).
-Optional Tailscale: install on Smith + iPhone (same account). Laptop
-Tailscale alone is not enough for away-from-home to hit the 24/7 host.
+Optional Tailscale: install on Smith + iPhone (same account).
+Laptop Tailscale alone is not enough for away-from-home to hit the 24/7 host.
 QR prefers the 100.x address when Tailscale is up.
 Ollama stays on 127.0.0.1:11434. Do not port-forward to the public internet.
 

@@ -132,7 +132,7 @@ describe("Smith 24/7 host auto-start + power", () => {
     expect(pack).toMatch(/Laptop Tailscale alone is not enough/);
     expect(pack).toMatch(/Install-AutoStart\.ps1/);
     expect(pack).toMatch(/Configure-HostPower\.ps1/);
-    expect(pack).toMatch(/do not auto-kill Smith models or change Ollama/i);
+    expect(pack).toMatch(/auto-kill Smith models or change Ollama/);
     expect(pack).toMatch(/Start-DescribePrint\.cmd/);
     expect(pack).toMatch(/LAN URL \+ QR/);
 

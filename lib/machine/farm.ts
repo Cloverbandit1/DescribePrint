@@ -1,10 +1,21 @@
 import { defaultPrinter, type PrinterId } from "../printers";
+import {
+  clearDoneFarmJobs,
+  createFarmJob,
+  listFarmJobsByMachine,
+  nextFarmJobId,
+  resolveFarmEnqueueMachineId,
+  tickFarmJobs,
+  type FarmEnqueueInput,
+} from "./farm-queue";
+
+export type { FarmEnqueueAssign, FarmEnqueueInput } from "./farm-queue";
 
 /**
- * In-app farm registry stub. List / select machines only — no job routing,
- * no send-across-farm, no LAN writes. Persist on the client; the server
- * keeps an in-memory copy of the selected machine so the adapter factory
- * talks to one printer at a time.
+ * In-app farm registry stub. List / select machines and a local queue
+ * worker (enqueue / tick). No send-across-farm, no LAN writes. Persist
+ * on the client; the server keeps an in-memory copy of the selected
+ * machine so the adapter factory talks to one printer at a time.
  */
 
 export const FARM_STORAGE_KEY = "describeprint.machine.farm";
@@ -25,8 +36,9 @@ export type FarmMachine = {
 
 export type FarmJobStatus = "queued" | "active" | "done";
 
-/** Typed queue row only. No worker, no send-to-printer. */
+/** Local queue row. Worker is simulation only — no send-to-printer. */
 export type FarmJob = {
+  id: string;
   machineId: string;
   status: FarmJobStatus;
 };
@@ -135,12 +147,14 @@ export function parseFarmMachine(value: unknown): FarmMachine | null {
   });
 }
 
-function parseFarmJob(value: unknown): FarmJob | null {
+function parseFarmJob(value: unknown, fallbackId: string): FarmJob | null {
   if (!value || typeof value !== "object") return null;
-  const row = value as { machineId?: unknown; status?: unknown };
+  const row = value as { id?: unknown; machineId?: unknown; status?: unknown };
   const machineId = typeof row.machineId === "string" ? row.machineId.trim() : "";
   if (!machineId || !isFarmJobStatus(row.status)) return null;
-  return { machineId, status: row.status };
+  const id = typeof row.id === "string" && row.id.trim() ? row.id.trim() : fallbackId;
+  if (!id) return null;
+  return { id, machineId, status: row.status };
 }
 
 export function defaultFarmSnapshot(): FarmSnapshot {
@@ -163,9 +177,15 @@ export function parseFarmSnapshot(raw: string | null | undefined): FarmSnapshot 
       typeof row.selectedId === "string" && machines.some((machine) => machine.id === row.selectedId)
         ? row.selectedId
         : machines[0].id;
-    const jobs = Array.isArray(row.jobs)
-      ? row.jobs.map(parseFarmJob).filter((job): job is FarmJob => job !== null)
-      : [];
+    const jobs: FarmJob[] = [];
+    if (Array.isArray(row.jobs)) {
+      for (const rawJob of row.jobs) {
+        const parsed = parseFarmJob(rawJob, nextFarmJobId(jobs));
+        if (!parsed) continue;
+        const id = jobs.some((job) => job.id === parsed.id) ? nextFarmJobId(jobs) : parsed.id;
+        jobs.push({ ...parsed, id });
+      }
+    }
     return { machines, selectedId, jobs };
   } catch {
     return fallback;
@@ -176,7 +196,7 @@ export function serializeFarmSnapshot(snapshot: FarmSnapshot): string {
   return JSON.stringify({
     machines: snapshot.machines.map((machine) => normalizeFarmMachine(machine)),
     selectedId: snapshot.selectedId,
-    jobs: snapshot.jobs.map((job) => ({ machineId: job.machineId, status: job.status })),
+    jobs: snapshot.jobs.map((job) => ({ id: job.id, machineId: job.machineId, status: job.status })),
   });
 }
 
@@ -200,6 +220,44 @@ export class FarmRegistry {
     this.machines = parsed.machines.map(cloneMachine);
     this.selectedId = parsed.selectedId;
     this.jobs = parsed.jobs.map((job) => ({ ...job }));
+  }
+
+  enqueue(input: FarmEnqueueInput = {}): FarmJob {
+    const machineId = resolveFarmEnqueueMachineId(input, this.machines, this.jobs, this.selected().id);
+    const job = createFarmJob(this.jobs, machineId, input.id);
+    this.jobs.push(job);
+    return { ...job };
+  }
+
+  /** @deprecated Use enqueue(). Kept so existing stub callers stay typed. */
+  enqueueStub(job?: Partial<FarmJob> | FarmEnqueueInput): FarmJob {
+    if (!job) return this.enqueue();
+    return this.enqueue({
+      id: "id" in job ? job.id : undefined,
+      machineId: "machineId" in job ? job.machineId : undefined,
+      assign: "assign" in job ? job.assign : undefined,
+    });
+  }
+
+  tick(): FarmJob[] {
+    this.jobs = tickFarmJobs(
+      this.jobs,
+      this.machines.map((machine) => machine.id),
+    );
+    return this.queue();
+  }
+
+  advance(): FarmJob[] {
+    return this.tick();
+  }
+
+  listByMachine(machineId: string): FarmJob[] {
+    return listFarmJobsByMachine(this.jobs, machineId);
+  }
+
+  clearDone(): FarmJob[] {
+    this.jobs = clearDoneFarmJobs(this.jobs);
+    return this.queue();
   }
 
   list(): FarmMachine[] {
@@ -267,13 +325,6 @@ export class FarmRegistry {
 
   queue(): FarmJob[] {
     return this.jobs.map((job) => ({ ...job }));
-  }
-
-  /** Type-only enqueue. Does not send, connect, or start a worker. */
-  enqueueStub(job: FarmJob): FarmJob {
-    const row: FarmJob = { machineId: job.machineId, status: job.status };
-    this.jobs.push(row);
-    return { ...row };
   }
 
   snapshot(): FarmSnapshot {

@@ -94,7 +94,7 @@ Profile data lives in [`lib/printers.ts`](lib/printers.ts). V0 does not ship Bam
 
 ## Machine control
 
-In-app P2S + AMS control. Architecture: [`docs/machine-control.md`](docs/machine-control.md). Not send-to-printer, not a live farm, not Bambu Cloud. The Machine panel has a stub farm registry (default one P2S; add/select extra stubs) — no job routing yet.
+In-app P2S + AMS control. Architecture: [`docs/machine-control.md`](docs/machine-control.md). Not send-to-printer, not a live farm, not Bambu Cloud. The Machine panel has a stub farm registry (default one P2S; add/select extra stubs) plus a local queue worker stub (enqueue / tick `queued → active → done`). Simulation only — not send-across-farm.
 
 - **LAN MQTT (off by default):** in the Machine panel, turn **LAN MQTT** on and enter printer IP, serial, and the 8-digit LAN access code. Saved in the browser only. On the P2S enable **LAN Only** and **Developer Mode**. The adapter uses TLS MQTT on port 8883 (`bblp` + access code). Headless/dev can still set `BAMBU_LAN_MQTT=1` plus `BAMBU_HOST` / `BAMBU_SERIAL` / `BAMBU_ACCESS_CODE` in `.env.local` (overrides the panel). Never commit those values. Never log the access code.
 - **Machine panel** (Print column): pick a material (**PLA / PETG / PA / ABS / TPU**, default PLA) to apply compact auto-best defaults (nozzle/bed, speed tier, cooling hint). LAN off stays disconnected / mock. Toggle + complete creds streams live connection, temps, layer/progress, and AMS slots (polls `/api/machine`). Connected printers keep the tiny pause / resume / speed / temp controls. CAD export still works with no printer. Material presets are advisory + export metadata — they are **not** pushed over LAN/MQTT.

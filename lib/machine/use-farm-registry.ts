@@ -7,6 +7,8 @@ import {
   defaultFarmSnapshot,
   parseFarmSnapshot,
   serializeFarmSnapshot,
+  type FarmEnqueueAssign,
+  type FarmJob,
   type FarmMachine,
 } from "./farm";
 
@@ -58,10 +60,10 @@ export function useFarmRegistry() {
     setHydrated(true);
   }, [persist]);
 
-  const mutate = (fn: (current: FarmRegistry) => void) => {
+  const mutate = (fn: (current: FarmRegistry) => void, sync = true) => {
     const next = new FarmRegistry(registry.snapshot());
     fn(next);
-    persist(next);
+    persist(next, sync);
   };
 
   return {
@@ -91,5 +93,26 @@ export function useFarmRegistry() {
       });
     },
     snapshot: () => registry.snapshot() ?? defaultFarmSnapshot(),
+    enqueueStub: (assign: FarmEnqueueAssign = "selected") => {
+      let created: FarmJob | undefined;
+      mutate((current) => {
+        created = current.enqueue({ assign });
+      }, false);
+      if (!created) throw new Error("Farm enqueue failed");
+      return created;
+    },
+    tick: () => {
+      let jobs: FarmJob[] = [];
+      mutate((current) => {
+        jobs = current.tick();
+      }, false);
+      return jobs;
+    },
+    clearDone: () => {
+      mutate((current) => {
+        current.clearDone();
+      }, false);
+    },
+    jobsFor: (machineId: string) => registry.listByMachine(machineId),
   };
 }

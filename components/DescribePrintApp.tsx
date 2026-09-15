@@ -1006,7 +1006,53 @@ function MachinePanel({
       <div className="mt-1">
         Default printer · {plateW} × {plateD} × {plateH} mm · {printer.nozzleMm} mm nozzle
       </div>
-      <div className="mt-1">{FARM_QUEUE_NOTE}</div>
+      <div className="mt-1.5 border-t border-line pt-1.5">
+        <div>{FARM_QUEUE_NOTE}</div>
+        {farm.machines.map((row) => {
+          const lines = farm.jobsFor(row.id);
+          return (
+            <div key={row.id} className="mt-0.5">
+              {lines.length === 0 ? (
+                <span>{row.name} · idle</span>
+              ) : (
+                lines.map((job) => (
+                  <div key={job.id}>
+                    {row.name} · {job.id} · {job.status}
+                  </div>
+                ))
+              )}
+            </div>
+          );
+        })}
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => farm.enqueueStub()}
+            className="studio-btn studio-btn-ghost h-6 px-2 text-[11px]"
+          >
+            Enqueue (stub)
+          </button>
+          {farm.count > 1 ? (
+            <button
+              type="button"
+              onClick={() => farm.enqueueStub("first-free")}
+              className="studio-btn studio-btn-ghost h-6 px-2 text-[11px]"
+            >
+              First free
+            </button>
+          ) : null}
+          <button type="button" onClick={() => farm.tick()} className="studio-btn studio-btn-ghost h-6 px-2 text-[11px]">
+            Tick
+          </button>
+          <button
+            type="button"
+            onClick={() => farm.clearDone()}
+            className="studio-btn studio-btn-ghost h-6 px-2 text-[11px]"
+          >
+            Clear done
+          </button>
+        </div>
+      </div>
       <label className="mt-2 flex items-center gap-1.5 text-ink">
         <input
           type="checkbox"

@@ -28,10 +28,8 @@ if (-not (Test-Command "npm")) {
     exit 1
 }
 
-if (-not (Test-Path (Join-Path $Root ".env.local"))) {
-    Copy-Item (Join-Path $Root ".env.example") (Join-Path $Root ".env.local")
-    Write-Host "Created .env.local (local Ollama, MODEL=qwen2.5-coder:32b)."
-}
+& node (Join-Path $Root "scripts\ensure-env-local.mjs") --root $Root
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $vendor = Join-Path $Root "vendor\openscad"
 if (-not (Test-Path $vendor)) {

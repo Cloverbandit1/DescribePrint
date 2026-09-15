@@ -16,7 +16,7 @@ The Print column shows a compact **Machine** panel. With the flag off (default) 
 
 - Bambu Cloud, camera streams, send-to-printer FTPS, or remaining-layer CAD reshape
 - Changes to Ollama host/port or Agent Smith models
-- M1 Desktop Pack files (`Start-DescribePrint.cmd`, `scripts/windows/`, `/api/health`, OpenSCAD path discovery)
+- M1 Desktop Pack files (`Start-DescribePrint.cmd`, `scripts/windows/`, `packaging/windows/`, `/api/health`, OpenSCAD path discovery)
 
 ## Architecture
 

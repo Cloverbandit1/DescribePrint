@@ -21,9 +21,11 @@ if errorlevel 1 (
   exit /b 1
 )
 
-if not exist ".env.local" (
-  copy /Y ".env.example" ".env.local" >nul
-  echo Created .env.local from .env.example
+call node "%~dp0scripts\ensure-env-local.mjs" --root "%~dp0."
+if errorlevel 1 (
+  echo Failed to write .env.local
+  pause
+  exit /b 1
 )
 
 if not exist "vendor\openscad" mkdir "vendor\openscad"

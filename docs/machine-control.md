@@ -10,6 +10,7 @@ Default machine remains **Bambu Lab P2S** with one **AMS (4 slots)**.
 2. A **pluggable machine adapter** interface, a **mock** adapter, and typed stubs for live status, AMS slots, mid-print commands, 3MF→AMS mapping, and a remaining-layer reshape **stub** (pause → CAD-handoff plan → reslice stub; never auto-resume).
 3. A **Print doctor** keyword/rule stub: plain-language defect or machine complaint → structured diagnosis + proposed setting or physical steps. No LLM and no LAN I/O.
 4. A **camera / failure-detect stub** (flag off by default), **AMS feed-loop autofix** (flag off by default), and **emergency remaining-layer reshape** (flag off by default).
+5. A **smart plate-packing stub** — largest-first shelf layout of current-job AABBs (or N copies) on the P2S 256×256 mm bed. Layout only; no LAN and no farm enqueue.
 
 The Print column shows a compact **Machine** panel. Everyday path: toggle **LAN MQTT**, enter IP / serial / LAN access code (saved in the browser). Off stays disconnected / mock. On with incomplete fields stays mock and shows a short hint — no crash. Env `BAMBU_LAN_MQTT=1` plus creds is a headless/dev override. Live P2S/AMS status and tiny pause/resume/speed/temp controls appear when connected. Chat can route a complaint to Print doctor **without** calling the CAD generate path. STL/3MF export still works with no printer.
 
@@ -74,6 +75,15 @@ Credentials (`host`, `serial`, `accessCode`) are typed and validated as strings 
 - Machine panel Queue section: job id/status lines, **Enqueue (stub)**, **Tick**, **Clear done** (and **First free** when more than one machine). Clicking enqueue does not send LAN commands.
 
 No `FARM_REGISTRY` flag: one default machine is today’s single-printer path.
+
+### Smart plate packing (stub)
+
+[`lib/machine/plate-pack.ts`](../lib/machine/plate-pack.ts) arranges one or more part footprints on the default **P2S** bed (`defaultPrinter().buildVolumeMm` = 256×256×256 mm).
+
+- Inputs are `PackPart { id, widthMm, depthMm, heightMm? }` from the current generate/import mesh AABB (`report.boundingBoxMm`). Multi-part is **N copies** of that footprint — the in-memory job map is one current result, not a multi-body plate list. Fixtures are not fabricated into extra geometry.
+- `packPlate()` is a largest-first **shelf** packer (0° / 90° only) with a 2 mm plate margin and 3 mm clearance. A single fitting part is centered. `x`/`y` are the min-corner from the front-left plate origin.
+- `PackPlan { placements, plateMm, fitted, message }` — if a part cannot fit (even after 90°), `fitted` is false and the message suggests rotate-90 / split. The stub does **not** invent mesh, rewrite OpenSCAD, or send LAN / enqueue.
+- Machine panel **Pack plate (stub)** plus a copies stepper. Placements list in the panel; optional blue outlines on the Viewer plate. The live STL preview is unchanged (no mesh transform).
 
 ### LAN MQTT (flagged)
 
@@ -218,7 +228,7 @@ Taken from Bambu’s published P2S specs / FAQ (see sources below):
 
 ## Tests
 
-`npm test` must pass **without** a physical printer. Coverage targets: profile tables (including PA), material session parse, doctor diagnoses + “use PETG settings” / “best for PA”, 3MF preset metadata / sidecar fields, AMS mapping, pause-before-risky, mock connection state machine, flag off = mock, UI toggle + incomplete creds = mock + hint, UI toggle + complete creds selects `bambu-lan` without setting the env flag, env override still works, live adapter + fake/unhealthy endpoint fails safe without leaking secrets, camera stub `detectFailure` (stub only), live poll + detect (flag off = no detect; flag on + mock `none` = `camera: ok`; injected spaghetti / scrape / empty-bed surfaces on the panel and doctor without auto-pause), AMS autofix flag off (no commands) vs flag on (pause then autofix or physical steps), remaining-layer reshape flag off (no pause, no live plan) vs flag on + injected remaining height (pause + plan, no resume, `remainingHeightMm` / `currentZ` present). Handoff optionals (`previousCode`, `stumpCutPlaneBoundsMm`, `layerHeightMm`) are present when a job / live layer height / selected preset exists and omitted when those sources are unknown. `remainingHeightMm` is still not derived from remaining layer count. Farm registry: default one P2S; add / select / remove; selected machine is what adapter `status()` uses; registry ops never perform LAN writes. Farm queue worker: enqueue → `queued`; tick → `active` then `done`; enqueue/tick never select `bambu-lan` or call connect/send.
+`npm test` must pass **without** a physical printer. Coverage targets: profile tables (including PA), material session parse, doctor diagnoses + “use PETG settings” / “best for PA”, 3MF preset metadata / sidecar fields, AMS mapping, pause-before-risky, mock connection state machine, flag off = mock, UI toggle + incomplete creds = mock + hint, UI toggle + complete creds selects `bambu-lan` without setting the env flag, env override still works, live adapter + fake/unhealthy endpoint fails safe without leaking secrets, camera stub `detectFailure` (stub only), live poll + detect (flag off = no detect; flag on + mock `none` = `camera: ok`; injected spaghetti / scrape / empty-bed surfaces on the panel and doctor without auto-pause), AMS autofix flag off (no commands) vs flag on (pause then autofix or physical steps), remaining-layer reshape flag off (no pause, no live plan) vs flag on + injected remaining height (pause + plan, no resume, `remainingHeightMm` / `currentZ` present). Handoff optionals (`previousCode`, `stumpCutPlaneBoundsMm`, `layerHeightMm`) are present when a job / live layer height / selected preset exists and omitted when those sources are unknown. `remainingHeightMm` is still not derived from remaining layer count. Farm registry: default one P2S; add / select / remove; selected machine is what adapter `status()` uses; registry ops never perform LAN writes. Farm queue worker: enqueue → `queued`; tick → `active` then `done`; enqueue/tick never select `bambu-lan` or call connect/send. Plate pack: single part fits; two parts pack without overlap; oversized → `fitted: false` + rotate/split advice; placements stay inside the P2S 256×256 mm plate.
 
 ## Sources
 

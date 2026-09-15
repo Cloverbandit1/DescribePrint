@@ -94,7 +94,7 @@ Profile data lives in [`lib/printers.ts`](lib/printers.ts). V0 does not ship Bam
 
 ## Machine control
 
-In-app P2S + AMS control. Architecture: [`docs/machine-control.md`](docs/machine-control.md). Not send-to-printer, not a live farm, not Bambu Cloud. The Machine panel has a stub farm registry (default one P2S; add/select extra stubs) plus a local queue worker stub (enqueue / tick `queued → active → done`). Simulation only — not send-across-farm.
+In-app P2S + AMS control. Architecture: [`docs/machine-control.md`](docs/machine-control.md). Not send-to-printer, not a live farm, not Bambu Cloud. The Machine panel has a stub farm registry (default one P2S; add/select extra stubs) plus a local queue worker stub (enqueue / tick `queued → active → done`). Simulation only — not send-across-farm. **Pack plate (stub)** shelves the current mesh AABB (or N copies) on the 256×256 mm P2S bed — layout only, no send.
 
 - **LAN MQTT (off by default):** in the Machine panel, turn **LAN MQTT** on and enter printer IP, serial, and the 8-digit LAN access code. Saved in the browser only. On the P2S enable **LAN Only** and **Developer Mode**. The adapter uses TLS MQTT on port 8883 (`bblp` + access code). Headless/dev can still set `BAMBU_LAN_MQTT=1` plus `BAMBU_HOST` / `BAMBU_SERIAL` / `BAMBU_ACCESS_CODE` in `.env.local` (overrides the panel). Never commit those values. Never log the access code.
 - **Machine panel** (Print column): pick a material (**PLA / PETG / PA / ABS / TPU**, default PLA) to apply compact auto-best defaults (nozzle/bed, speed tier, cooling hint). LAN off stays disconnected / mock. Toggle + complete creds streams live connection, temps, layer/progress, and AMS slots (polls `/api/machine`). Connected printers keep the tiny pause / resume / speed / temp controls. CAD export still works with no printer. Material presets are advisory + export metadata — they are **not** pushed over LAN/MQTT.
@@ -412,7 +412,7 @@ All approved. None of these block the Bambu-layout + chat-first PR.
 4. **Design to what’s loaded on AMS** — prefer colors/materials that are actually in the AMS.
 5. **Learn from Print doctor** — remember fixes per machine and filament so later diagnoses get better.
 6. **Project pack export** — 3MF plus build steps and shopping links in one pack.
-7. **Smart plate packing** — arrange one or many parts on the P2S plate.
+7. **Smart plate packing** — **Stub shipped:** largest-first shelf pack of the current job AABB (or N copies) on the P2S 256×256 mm plate (`lib/machine/plate-pack.ts`). Won't-fit returns rotate-90 / split advice — no invented geometry, no LAN. Later: multi-body plates and a real packer.
 8. **Strength preview heatmap** — show likely weak regions on the preview.
 9. **Assembly / explode mode** — inspect multi-part designs as assembled or exploded.
 10. **Optional voice describe** — talk instead of (or as well as) typing, same chat-first path.

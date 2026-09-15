@@ -55,14 +55,23 @@ describe("fixtures + units", () => {
     expect(next?.id).toBe("phone-stand");
   });
 
-  it("uses the fixture path when no API key is set", () => {
-    const prev = process.env.OPENAI_API_KEY;
+  it("keeps the fixture/mock path available without making it the default", () => {
+    const prevKey = process.env.OPENAI_API_KEY;
+    const prevFixture = process.env.USE_FIXTURE;
+    const prevForce = process.env.FORCE_LLM;
     delete process.env.OPENAI_API_KEY;
     delete process.env.FORCE_LLM;
     delete process.env.USE_FIXTURE;
-    expect(shouldUseFixture()).toBe(true);
+    // Local Ollama is the default generate path even with no cloud key.
+    expect(shouldUseFixture()).toBe(false);
     expect(shouldUseFixture(true)).toBe(true);
-    if (prev === undefined) delete process.env.OPENAI_API_KEY;
-    else process.env.OPENAI_API_KEY = prev;
+    process.env.USE_FIXTURE = "true";
+    expect(shouldUseFixture()).toBe(true);
+    if (prevKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = prevKey;
+    if (prevFixture === undefined) delete process.env.USE_FIXTURE;
+    else process.env.USE_FIXTURE = prevFixture;
+    if (prevForce === undefined) delete process.env.FORCE_LLM;
+    else process.env.FORCE_LLM = prevForce;
   });
 });

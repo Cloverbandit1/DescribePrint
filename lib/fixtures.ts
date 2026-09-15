@@ -236,7 +236,9 @@ export function shouldUseFixture(requestFixture?: boolean): boolean {
   if (flag === "1" || flag === "true" || flag === "yes") return true;
   const forceLlm = process.env.FORCE_LLM?.trim().toLowerCase();
   if (forceLlm === "1" || forceLlm === "true") return false;
-  return !process.env.OPENAI_API_KEY?.trim();
+  // Default is live local Ollama (key/base/model have built-in defaults).
+  // The fixture/mock path stays available via USE_FIXTURE or request.fixture.
+  return false;
 }
 
 export const EXAMPLE_PROMPTS = [

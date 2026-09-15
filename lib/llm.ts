@@ -1,7 +1,16 @@
+import {
+  getLlmConfig,
+  isLocalOpenAiBaseUrl,
+  LOCAL_AI_START_MESSAGE,
+  type LlmConfig,
+} from "./llm-config";
+
 export type ChatMessage = {
   role: "system" | "user" | "assistant";
   content: string;
 };
+
+export { LOCAL_AI_START_MESSAGE } from "./llm-config";
 
 const SYSTEM_PROMPT = `You are a CAD assistant that writes OpenSCAD for FDM 3D printing.
 
@@ -53,29 +62,64 @@ export function buildUserPrompt(input: {
 }
 
 export function hasLiveLlm(): boolean {
-  return Boolean(process.env.OPENAI_API_KEY?.trim());
+  return Boolean(getLlmConfig().apiKey);
+}
+
+function firstLine(text: string): string {
+  return text.split(/\r?\n/, 1)[0]?.trim() ?? "";
+}
+
+function errorText(err: unknown): string {
+  if (err instanceof Error) {
+    const cause =
+      "cause" in err && err.cause !== undefined
+        ? ` ${err.cause instanceof Error ? err.cause.message : String(err.cause)}`
+        : "";
+    return `${err.name} ${err.message}${cause}`;
+  }
+  return String(err);
+}
+
+function isUnreachableError(err: unknown): boolean {
+  const text = errorText(err);
+  return /fetch failed|failed to fetch|econnrefused|enotfound|econnreset|ehostunreach|enetunreach|socket|networkerror|network error|aborted|aborterror|und_err|connect (e|timeout)|other side closed/i.test(
+    text,
+  );
+}
+
+export function toUserFacingLlmError(err: unknown, config: LlmConfig = getLlmConfig()): Error {
+  if (err instanceof Error && err.message === LOCAL_AI_START_MESSAGE) {
+    return err;
+  }
+  if (isLocalOpenAiBaseUrl(config.baseUrl) && isUnreachableError(err)) {
+    return new Error(LOCAL_AI_START_MESSAGE);
+  }
+  if (err instanceof Error) {
+    const line = firstLine(err.message);
+    if (isLocalOpenAiBaseUrl(config.baseUrl) && /econnrefused|fetch failed|failed to fetch/i.test(line)) {
+      return new Error(LOCAL_AI_START_MESSAGE);
+    }
+    return new Error(line || LOCAL_AI_START_MESSAGE);
+  }
+  return new Error(isLocalOpenAiBaseUrl(config.baseUrl) ? LOCAL_AI_START_MESSAGE : "LLM request failed");
 }
 
 export async function completeChat(messages: ChatMessage[], timeoutMs = 60_000): Promise<string> {
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is not set");
-  }
-
-  const base = (process.env.OPENAI_BASE_URL?.trim() || "https://api.openai.com/v1").replace(/\/+$/, "");
-  const model = process.env.MODEL?.trim() || "gpt-4o-mini";
+  const config = getLlmConfig();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(`${base}/chat/completions`, {
+    // Ollama’s /v1 API: Bearer + JSON only. Do not send OpenAI-Organization /
+    // OpenAI-Project headers — they are unused and some local servers reject extras.
+    const response = await fetch(`${config.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${config.apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model,
+        model: config.model,
         temperature: 0.2,
         messages,
       }),
@@ -83,18 +127,44 @@ export async function completeChat(messages: ChatMessage[], timeoutMs = 60_000):
     });
 
     if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`LLM request failed (${response.status}): ${body.slice(0, 800)}`);
+      let body = "";
+      try {
+        body = await response.text();
+      } catch {
+        body = "";
+      }
+      if (
+        isLocalOpenAiBaseUrl(config.baseUrl) &&
+        (response.status === 502 ||
+          response.status === 503 ||
+          response.status === 504 ||
+          /connection refused|dial tcp|no such host|connect: /i.test(body))
+      ) {
+        throw new Error(LOCAL_AI_START_MESSAGE);
+      }
+      const snippet = firstLine(body).slice(0, 240);
+      throw new Error(
+        snippet
+          ? `LLM request failed (${response.status}): ${snippet}`
+          : `LLM request failed (${response.status})`,
+      );
     }
 
     const data = (await response.json()) as {
-      choices?: { message?: { content?: string } }[];
+      choices?: { message?: { content?: string | null } }[];
+      error?: { message?: string } | string;
     };
+    if (data.error) {
+      const msg = typeof data.error === "string" ? data.error : data.error.message;
+      throw new Error(firstLine(msg ?? "LLM returned an error"));
+    }
     const content = data.choices?.[0]?.message?.content;
     if (!content?.trim()) {
       throw new Error("LLM returned an empty completion");
     }
     return content;
+  } catch (err) {
+    throw toUserFacingLlmError(err, config);
   } finally {
     clearTimeout(timer);
   }

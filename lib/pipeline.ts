@@ -2,7 +2,8 @@ import { checkMesh, hasHardMeshFailure } from "./mesh-check";
 import { compileOpenScad, withTempDir } from "./compile";
 import { createJob, toGenerateResult } from "./jobs";
 import { defaultFixture, matchConversationFixture, matchFixture, shouldUseFixture } from "./fixtures";
-import { buildUserPrompt, completeChat, systemPrompt } from "./llm";
+import { getLlmConfig, isLocalOpenAiBaseUrl } from "./llm-config";
+import { buildUserPrompt, completeChat, systemPrompt, toUserFacingLlmError } from "./llm";
 import { sanitizeOpenScad } from "./sanitize";
 import { parseStl } from "./stl";
 import { meshTo3mf } from "./threemf";
@@ -17,20 +18,23 @@ function emit(sink: StatusSink | undefined, event: StatusEvent) {
 
 async function codeFromLlm(request: GenerateRequest, previous?: { code: string; error: string }): Promise<string> {
   const sizeNote = describeSizeHint(request.sizeHint, request.units ?? "mm");
-  const content = await completeChat([
-    { role: "system", content: systemPrompt() },
-    {
-      role: "user",
-      content: buildUserPrompt({
-        prompt: request.prompt,
-        sizeNote,
-        previousCode: previous?.code ?? request.previousCode ?? undefined,
-        previousError: previous?.error,
-        previousPrompt: request.previousPrompt ?? undefined,
-      }),
-    },
-  ]);
-  return content;
+  try {
+    return await completeChat([
+      { role: "system", content: systemPrompt() },
+      {
+        role: "user",
+        content: buildUserPrompt({
+          prompt: request.prompt,
+          sizeNote,
+          previousCode: previous?.code ?? request.previousCode ?? undefined,
+          previousError: previous?.error,
+          previousPrompt: request.previousPrompt ?? undefined,
+        }),
+      },
+    ]);
+  } catch (err) {
+    throw toUserFacingLlmError(err);
+  }
 }
 
 function codeFromFixture(request: GenerateRequest): { code: string; usedFixture: true } {
@@ -88,7 +92,11 @@ export async function runGeneratePipeline(
     emit(sink, { step: "codegen", message: "Using the fixture / heuristic OpenSCAD path (no live API)…" });
     code = codeFromFixture(request).code;
   } else {
-    emit(sink, { step: "codegen", message: "Asking the model for OpenSCAD…" });
+    const local = isLocalOpenAiBaseUrl(getLlmConfig().baseUrl);
+    emit(sink, {
+      step: "codegen",
+      message: local ? "Asking local AI for OpenSCAD…" : "Asking the model for OpenSCAD…",
+    });
     code = await codeFromLlm(request);
   }
 

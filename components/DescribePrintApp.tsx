@@ -70,7 +70,7 @@ async function consumeSse(
   }
 }
 
-export function DescribePrintApp() {
+export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
   const [prompt, setPrompt] = useState("");
   const [sizeHint, setSizeHint] = useState("");
   const [units, setUnits] = useState<Unit>("mm");
@@ -263,7 +263,6 @@ export function DescribePrintApp() {
             <div className="mt-0.5 hidden truncate text-[10px] text-muted sm:block">Describe → talk → Print</div>
           </div>
         </div>
-
         <nav className="ml-2 flex items-center self-stretch" aria-label="Workspace">
           <WorkspaceTabButton
             label="Prepare"
@@ -278,6 +277,17 @@ export function DescribePrintApp() {
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
+          {localAi ? (
+            <div
+              className="flex items-center gap-1.5 rounded-full border border-ok/35 bg-ok/10 px-2 py-0.5 text-[11px] text-ok"
+              role="status"
+              aria-label="Local AI is active"
+              title="DescribePrint is using local Ollama. Agent Smith models are left untouched."
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-hidden="true" />
+              Local AI
+            </div>
+          ) : null}
           {busy ? (
             <span className="hidden items-center gap-1.5 text-[11px] text-muted sm:flex">
               <span className="pulse-dot h-1.5 w-1.5 rounded-full bg-accent" />

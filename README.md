@@ -2,7 +2,7 @@
 
 Describe anything in plain language and get a **printable 3D model** (STL + 3MF), with a real preview.
 
-V0 is the **create** path for parametric / mechanical parts: a Bambu Studio–inspired workspace (prepare / plate / print), an OpenSCAD generation pipeline, mesh checks, and downloads. You can run the whole loop without a live LLM via the fixture/mock path.
+V0 is the **create** path for parametric / mechanical parts: a Bambu Studio–inspired workspace (prepare / plate / print), an OpenSCAD generation pipeline, mesh checks, and downloads. **Local AI (Ollama)** generates the CAD by default so the loop stays self-contained and works offline. A fixture/mock path remains for tests and demos.
 
 ## Product principles
 
@@ -15,8 +15,50 @@ DescribePrint is **fully end-to-end in the web app**. Users must **never** need 
 - **Very simple to use and print.** The everyday path is **describe → clear options → Print**. Smart defaults (mm, Bambu Lab P2S). Advanced controls stay hidden.
 - **Bambu-inspired layout, original chrome.** The desktop workspace follows Bambu Studio / Bambu Lab slicer structure: a large **3D plate preview** in the center, **Print / options** on the right, and Prepare → Preview tabs. Dark and light themes use a compact studio palette (green actions, muted panels). The app does **not** use Bambu trademarks, logos, or proprietary assets — only a familiar workspace feel.
 - **Chat stays first-class.** The left Prepare column is a live describe/chat thread, not a dead slicer object list. Users keep talking to add, remove, or change the part; follow-ups send the previous description and OpenSCAD so the plate can update. Mobile still keeps a composer on Preview so conversation is not trapped behind the plate.
+- **Power + program, local-first.** Build what we need. Local AI handles generation. No cloud key is required.
 
 V0 already follows the mesh path: the viewer plus STL/3MF download is the complete user path today. Full Bambu / Orca integration is **not** a V0 blocker.
+
+## Local AI (Ollama)
+
+DescribePrint defaults to a **local** OpenAI-compatible API:
+
+| Setting | Default |
+| --- | --- |
+| `OPENAI_BASE_URL` | `http://127.0.0.1:11434/v1` |
+| `OPENAI_API_KEY` | `ollama` (Ollama accepts any non-empty key) |
+| `MODEL` | `qwen2.5-coder:7b` (DescribePrint’s dedicated model; override with `MODEL`) |
+
+When this path is active, the header shows a **Local AI** badge.
+
+### Sharing Ollama with Agent Smith
+
+Ollama on this machine may already be used by **Agent Smith**. DescribePrint **shares that server safely** and must not interfere:
+
+- Use the **default** Ollama endpoint only (`127.0.0.1:11434`). Do not change Ollama’s port, host, or global server config for this app.
+- Isolation is a **dedicated model name**. Default `MODEL` is `qwen2.5-coder:7b` — never `smith-minicpm5`, `openbmb/minicpm5-*`, or any other Agent Smith model.
+- **Leave Smith models untouched.** Do not delete, replace, or retarget existing models.
+- Pull DescribePrint’s model *alongside* whatever is already installed:
+
+```bash
+ollama pull qwen2.5-coder:7b
+```
+
+If Ollama is not running, generation fails with a simple **Start local AI (Ollama)** message (not a stack trace).
+
+### Optional cloud override
+
+To use OpenAI or another hosted compatible API instead of local Ollama:
+
+```bash
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_API_KEY=sk-...
+MODEL=gpt-4o-mini
+```
+
+### Fixture / mock path
+
+The built-in fixture/heuristic path is still available (`USE_FIXTURE=true`, or `fixture: true` on the generate request). Example prompts still have matching OpenSCAD fixtures for tests and offline demos without a model.
 
 ## Printer profiles
 
@@ -48,14 +90,19 @@ brew install openscad                     # macOS
 # Windows: install from https://openscad.org/ and put it on PATH
 # Optional: OPENSCAD_BIN=/path/to/openscad
 
-# 2) App
-cp .env.example .env.local                # add OPENAI_API_KEY later if you want
+# 2) Local AI — pull DescribePrint’s model only (leave other Ollama models alone)
+#    Install Ollama from https://ollama.com if it is not already running.
+#    Do not change Ollama’s port or replace Agent Smith models.
+ollama pull qwen2.5-coder:7b
+
+# 3) App
+cp .env.example .env.local                # defaults already point at local Ollama
 npm install
 npm test
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000). Confirm the **Local AI** badge.
 
 Headless servers sometimes need a virtual display:
 
@@ -68,11 +115,11 @@ xvfb-run -a npm run dev
 
 | Variable | Required | Meaning |
 | --- | --- | --- |
-| `OPENAI_API_KEY` | no | OpenAI-compatible API key. If unset, V0 uses fixtures / heuristics. |
-| `OPENAI_BASE_URL` | no | Default `https://api.openai.com/v1` |
-| `MODEL` | no | Default `gpt-4o-mini` |
-| `USE_FIXTURE` | no | `true` forces the mock path even when a key is set |
-| `FORCE_LLM` | no | `true` always calls the LLM (needs a key) |
+| `OPENAI_BASE_URL` | no | Default `http://127.0.0.1:11434/v1` (local Ollama). Cloud example: `https://api.openai.com/v1`. |
+| `OPENAI_API_KEY` | no | Default `ollama`. Any non-empty value works with Ollama. Set a real key only for cloud. |
+| `MODEL` | no | Default `qwen2.5-coder:7b` (DescribePrint’s dedicated model). Do not point this at Agent Smith models. |
+| `USE_FIXTURE` | no | `true` forces the mock path even when local AI is configured |
+| `FORCE_LLM` | no | `true` always calls the LLM unless `USE_FIXTURE` is also set |
 | `OPENSCAD_BIN` | no | OpenSCAD executable (default `openscad`) |
 | `OPENSCAD_TIMEOUT_MS` | no | Compile timeout (default `45000`) |
 
@@ -84,12 +131,12 @@ Secrets stay in the environment only. Do not commit `.env.local`.
 - `phone stand for iPhone 15, 60 degree tilt`
 - `parametric drawer knob diameter 40mm`
 
-These three match built-in fixtures, so they work **without an API key**. With a key, the same UI asks an OpenAI-compatible model for OpenSCAD, sanitizes it, compiles, and retries once if the compiler or mesh check fails.
+These three match built-in fixtures (used when `USE_FIXTURE` is on, or in tests). With local AI running, the same UI asks the dedicated Ollama model for OpenSCAD, sanitizes it, compiles, and retries once if the compiler or mesh check fails.
 
 ## What V0 does
 
 1. Studio-style UI with a first-class **chat**: describe in Prepare, keep talking to iterate, then **Print** / **Update** (size/units and CAD details stay under More options / Details). The center plate previews the latest part; STL and 3MF download from the Print panel.
-2. LLM (or fixture) → OpenSCAD text.
+2. Local AI (or fixture / optional cloud LLM) → OpenSCAD text.
 3. Sanitize / validate (no network, no filesystem escapes); run OpenSCAD in a subprocess with a timeout.
 4. Parse the STL; check non-empty, volume, triangle count, edge-manifold / watertight-ish.
 5. Preview in Three.js (`react-three-fiber`).
@@ -99,8 +146,10 @@ Printability report: bounding box (mm), volume, triangle count, manifold flag, a
 
 ## Success paths
 
-- **No API key:** example prompts (or any matched heuristic) compile → STL → viewer → download.
-- **With API key:** a simple part description yields a downloadable STL. One automatic retry includes compiler/mesh error text.
+- **Local AI (default):** Ollama on `127.0.0.1:11434` with DescribePrint’s model (`qwen2.5-coder:7b`) → describe → OpenSCAD → STL → viewer → download. No cloud key.
+- **Ollama not running:** the UI shows **Start local AI (Ollama)**.
+- **Fixture / mock:** `USE_FIXTURE=true` (or `fixture: true`) compiles example/heuristic OpenSCAD without calling a model.
+- **Optional cloud:** set `OPENAI_BASE_URL` + a real `OPENAI_API_KEY` to use a hosted model.
 
 Run as a Node process (`next dev` / `next start`). V0 is not aimed at serverless-only hosts: it needs to spawn OpenSCAD.
 
@@ -110,7 +159,7 @@ Run as a Node process (`next dev` / `next start`). V0 is not aimed at serverless
 npm test
 ```
 
-Covers code sanitization and the mesh-check / STL / 3MF path. If OpenSCAD is installed, an integration test compiles the default fixture.
+Covers local LLM config defaults, code sanitization, and the mesh-check / STL / 3MF path. If OpenSCAD is installed, an integration test compiles the default fixture.
 
 ## Out of V0
 
@@ -127,8 +176,18 @@ Owner-approved. **Do not treat this list as V0 scope.** The current Bambu-inspir
 3. **Articulated / functional assemblies** — real joints with print clearances, multi-part export, and material-aware thickness/strength so moving parts (e.g. robot arms) don’t break.
 4. **Print doctor** — user describes print defects (e.g. stringing with nylon PA); the system diagnoses likely causes for the **selected printer/material** (default **Bambu Lab P2S**) and proposes or auto-applies setting fixes; then a feedback loop (still bad vs perfect). In-app only — not a separate slicer or DCC.
 5. **Image import as starting point** — user uploads a **single photo**; the system infers/generates the **backside and unseen geometry** into a **full 3D printable solid** (not a front-only relief). Output is a clean, watertight-ish mesh ready to print. By default, use light intelligence to **repair** broken or damaged parts (fill cracks, restore missing chunks). Do **not** preserve wear unless the user asks to keep it.
+6. **Auto calibration assistant** — guided calibration for the **Bambu Lab P2S** and later machines (bed, flow, offset, and related checks) from the web UI.
+7. **Part library + remix** — save successful prints and remix them (change a dimension, restyle, reuse a proven fixture) instead of starting from a blank description.
+8. **Tolerance / fit wizard** — pick snap, press, loose, or hinge fit; the system applies print-aware clearances for the selected printer/material.
+9. **Failure replay from a phone photo** — upload a photo of a failed print; the system reconstructs what went wrong and proposes a repaired model and/or settings (pairs with Print doctor).
+10. **Digital twin of the printer** — live status, queue, AMS, and ETA in the DescribePrint UI (no separate slicer required).
+11. **Generative lattice / lightweighting** — infill-as-geometry: lighter parts that still print and stay strong enough for the chosen use.
+12. **Compliance / safety checks for wearables and props** — flag sharp edges, occlusion, skin-contact, and similar risks before export.
+13. **Multi-machine farm mode** — send jobs across more than one printer, with queue and status in-app.
 
-V0 stays **describe → CAD → STL/3MF**. Image import, Print doctor, and the extras below are after V0.
+V0 stays **describe → CAD → STL/3MF**. Image import, Print doctor, items 6–13, and the extras below are after V0. Local AI (`qwen2.5-coder:7b` on the default Ollama server) remains the generate path; do not retarget Agent Smith models.
+
+All of the above ship **inside the web UI** (preview + printable export). None of them assume Blender or another DCC after the fact.
 
 **Printer profiles (later, not a V0 blocker):** in-app picker to change printer and print settings (layer height, nozzle, material). Default remains Bambu Lab P2S. Long-term the core path slices in-app so users do not need a separate slicer; V0 only exports STL/3MF against the P2S stub profile. Print doctor uses that same selected profile.
 

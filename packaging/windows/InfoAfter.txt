@@ -19,8 +19,15 @@ Then set MODEL=qwen2.5-coder:14b (or 7b) in .env.local.
 NEVER delete, replace, or retarget Agent Smith models
 (smith-minicpm5, openbmb/minicpm5-*, anything matching minicpm5).
 
+Smith desktop is the 24/7 AllosWorstation host (not the laptop).
+On Smith: Install-AllosWorstation.ps1 -Layout Smith registers logon
+auto-start and AC sleep-never. Laptop auto-start is optional (-AutoStart).
+Install Tailscale on Smith + iPhone (same account). Laptop Tailscale
+alone is not enough for away-from-home.
+
 Start: Start Menu "Start DescribePrint", or Start-DescribePrint.cmd
 in the install folder. The optional Desktop shortcut points at that same cmd.
+Start still prints the LAN / Tailscale QR. Ollama stays 127.0.0.1:11434.
 
 The Desktop \ AllosWorstation \ Start DescribePrint.bat is a shared
 OneDrive-safe detector. This machine's repo path is stored in

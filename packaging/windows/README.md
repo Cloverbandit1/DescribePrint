@@ -23,15 +23,16 @@ A **setup pack** (sources + scripts). `node_modules` and the OpenSCAD binary are
 
 ## Machine layouts (do not break)
 
-| Layout | Repo path | OpenSCAD | How Start finds it |
-| --- | --- | --- | --- |
-| **Smith** | Often OneDrive Desktop `AllosWorstation\DescribePrint` | Portable `vendor\openscad` is fine | `%~dp0DescribePrint` (sibling of the Desktop bat) |
-| **Laptop** | Prefer `C:\Users\clove\AllosWorstation\DescribePrint` **outside OneDrive** | Program Files OpenSCAD is OK | Absolute `cd /d %USERPROFILE%\AllosWorstation\DescribePrint` |
+| Layout | Role | Repo path | OpenSCAD | How Start finds it |
+| --- | --- | --- | --- | --- |
+| **Smith** | **24/7 AllosWorstation host** (desktop, not the laptop). Auto-start + AC sleep-never default ON. Install Tailscale here (same account as the iPhone). | Often OneDrive Desktop `AllosWorstation\DescribePrint` | Portable `vendor\openscad` is fine | `%~dp0DescribePrint` (sibling of the Desktop bat) |
+| **Laptop** | Portable checkout. **Not** the always-on remote host. Auto-start off unless `-AutoStart`. Do not apply host power. Laptop Tailscale alone is not enough for away-from-home. | Prefer `C:\Users\clove\AllosWorstation\DescribePrint` **outside OneDrive** | Program Files OpenSCAD is OK | Absolute `cd /d %USERPROFILE%\AllosWorstation\DescribePrint` |
 
 Defaults:
 
 - Smith / Current: stay in the folder you ran setup from (if it already is DescribePrint).
 - Laptop: `%USERPROFILE%\AllosWorstation\DescribePrint` (for `clove` that is `C:\Users\clove\AllosWorstation\DescribePrint`).
+- **Smith = 24/7 host.** `Install-AllosWorstation.ps1 -Layout Smith` registers logon auto-start and AC sleep-never. Laptop does not.
 
 Override with `-RepoPath` / `--repo-path`.
 
@@ -96,11 +97,23 @@ npm run pack:windows -- --skip-zip
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\Install-AllosWorstation.ps1 -Layout Laptop
 ```
 
-Smith (keep OneDrive checkout):
+Smith (24/7 host; keep OneDrive checkout; auto-start + host power default ON):
 
 ```bat
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\Install-AllosWorstation.ps1 -Layout Smith
 ```
+
+Smith one-liners (if you already installed the tree):
+
+```bat
+npm run autostart:windows
+npm run host-power:windows
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\Install-AutoStart.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\Uninstall-AutoStart.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\Configure-HostPower.ps1 -Layout Smith
+```
+
+Laptop auto-start is **opt-in only** (`-AutoStart`). `-RemoveAutoStart` uninstalls the task and Startup shortcut. `-NoAutoStart` / `-SkipHostPower` skip the Smith defaults. `Configure-HostPower.ps1` no-ops unless `-Layout Smith` or `-ForceHost` (does not brick laptop battery settings).
 
 Setup will:
 
@@ -110,6 +123,7 @@ Setup will:
 4. Run `npm install` when `node_modules` is missing.
 5. Write the shared `Desktop\AllosWorstation\Start DescribePrint.bat` detector and `%LOCALAPPDATA%\AllosWorstation\repo-path.txt` for this layout.
 6. Run `npm run health:preflight` (soft — Ollama can be started later).
+7. **Smith only (default):** register logon auto-start (`Install-AutoStart.ps1`, Task Scheduler AtLogOn → `Start-DescribePrint.cmd`) and set AC sleep/hibernate timeout to never (`Configure-HostPower.ps1`). User-session logon is enough; a true “run whether user is logged on” service is not used because Next.js + the LAN/Tailscale QR need a session.
 
 ### From this git clone
 
@@ -128,6 +142,8 @@ One click:
 - or `npm run start:windows`
 
 The Start script copies `.env.local` if needed, `npm install`s on first launch, prints the **LAN URL + QR** (optional Tailscale `100.x` preferred when present), and runs `npm run dev` on **`0.0.0.0:3000`**. This PC still opens [http://localhost:3000](http://localhost:3000). An iPhone on the same Wi‑Fi uses `http://<lan-ip>:3000` (Add to Home Screen / PWA). Allow Node on **Private** networks; do not port-forward. Ollama stays `127.0.0.1:11434`. See the main README iPhone / Tailscale sections.
+
+**Away-from-home:** install Tailscale on **Smith** (the 24/7 host) and the iPhone, same account. Laptop Tailscale alone is not enough — the phone must reach Smith, not a closed laptop.
 
 ## Health
 
@@ -208,6 +224,7 @@ Ollama on these machines may already serve **Agent Smith**. DescribePrint **shar
 - Isolation is a **dedicated model name**: `qwen2.5-coder:*` only.
 - The pack **refuses** to write a Smith name into `MODEL`. If `.env.local` already has one, setup rewrites **only that env key** to qwen. Ollama’s installed Smith weights stay put.
 - This pack does **not** embed Agent Smith code.
+- **Contention:** if heavy DescribePrint generation and Agent Smith would both hammer GPU/RAM, the user chooses. Prefer the DescribePrint host always available (auto-start Next on Smith). Do **not** auto-kill Smith models or change Ollama.
 
 ## Optional Inno Setup
 
@@ -246,5 +263,8 @@ The installer keeps `PrivilegesRequired=lowest`, writes the shared OneDrive-safe
 | `scripts/install-openscad-portable.mjs` | Download official zip → `vendor/openscad` |
 | `scripts/windows/Build-InnoInstaller.ps1` | Optional Setup.exe (`npm run pack:windows:installer`) |
 | `scripts/windows/*.ps1` | Windows wrappers (same behavior) |
+| `scripts/windows/Install-AutoStart.ps1` | Logon auto-start (Task default, or Startup shortcut). `npm run autostart:windows` |
+| `scripts/windows/Uninstall-AutoStart.ps1` | Remove task + Startup shortcut. `npm run autostart:windows:remove` / `-RemoveAutoStart` |
+| `scripts/windows/Configure-HostPower.ps1` | Smith-only AC sleep-never. Refuses without `-Layout Smith` / `-ForceHost`. `npm run host-power:windows` |
 | `Setup-DescribePrint.cmd` | First-run entry (portable zip + clone) |
-| `Start-DescribePrint.cmd` | One-click app start (unchanged contract) |
+| `Start-DescribePrint.cmd` | One-click app start (unchanged contract; still prints LAN/Tailscale QR) |

@@ -164,6 +164,13 @@ console.log("");
 console.log("Next: ollama pull qwen2.5-coder:32b   (or 14b / 7b)");
 console.log("Do not pull-replace or delete Agent Smith models. Keep Ollama on 11434.");
 console.log("Start: double-click Start-DescribePrint.cmd or the Desktop bat.");
+if (paths.layout === "smith") {
+  console.log("Smith is the 24/7 AllosWorstation host. Windows Install -Layout Smith");
+  console.log("  registers logon auto-start + AC sleep-never (skip with -NoAutoStart / -SkipHostPower).");
+  console.log("  Install Tailscale on Smith + iPhone (same account). Laptop Tailscale alone is not enough.");
+} else if (paths.layout === "laptop") {
+  console.log("Laptop is not the 24/7 host. Auto-start stays off unless you pass -AutoStart.");
+}
 
 if (startApp) {
   const starter = path.join(paths.targetRoot, "Start-DescribePrint.cmd");

@@ -54,7 +54,8 @@ Ollama on this machine may already be used by **Agent Smith**. DescribePrint **s
 
 - Use the **default** Ollama endpoint only (`127.0.0.1:11434`). Do not change Ollama’s port, host, or global server config for this app.
 - Isolation is a **dedicated model name**. Default `MODEL` is `qwen2.5-coder:32b` — never `smith-minicpm5`, `openbmb/minicpm5-*`, or any other Agent Smith model.
-- **Leave Smith models untouched.** Do not delete, replace, or retarget existing models.
+- **Leave Smith models untouched.** Do not delete, replace, or retarget existing models. Do **not** auto-kill Agent Smith models to free VRAM.
+- **GPU / RAM contention:** heavy DescribePrint generation and Agent Smith can both hammer the same Ollama GPU/RAM. The user chooses which workload to run. Prefer keeping the **DescribePrint host always available** (auto-start Next on Smith). Do not change Ollama’s port or process to “solve” contention.
 - The 32b default needs a capable machine (roughly **32GB RAM**). If generation is slow or Ollama is swapping, override `MODEL` to `qwen2.5-coder:14b` or `qwen2.5-coder:7b`.
 - Pull DescribePrint’s model *alongside* whatever is already installed:
 
@@ -127,6 +128,8 @@ The Windows setup pack can download the official OpenSCAD zip into `vendor/opens
 
 ### Windows (AllosWorkstation)
 
+**Smith desktop is the 24/7 AllosWorstation host** (not the laptop). Keep DescribePrint auto-starting on Smith so LAN / Tailscale clients always have a host. The laptop is a portable checkout — do **not** enable auto-start there unless you pass `-AutoStart` on purpose.
+
 Near one-click from the repo folder:
 
 1. Install [Node.js LTS](https://nodejs.org) if needed.
@@ -134,6 +137,40 @@ Near one-click from the repo folder:
 3. The script copies `.env.local` if missing, runs `npm install` on first launch, runs a **preflight health check** (Ollama reachable + configured `MODEL` + OpenSCAD via `resolveOpenscad`), prints the **LAN URL + QR** (Tailscale `100.x` URL is preferred for the QR when Tailscale is up), then opens [http://localhost:3000](http://localhost:3000).
 
 Missing Node/npm is a hard stop. Missing OpenSCAD or `MODEL` (or Ollama not running) is a **warning** — Start still launches the app so one-click is preserved; generate/compile will fail until those are fixed. Tips may say `ollama pull <MODEL>` only. Do not change the Ollama port. Leave Agent Smith models untouched.
+
+#### Smith = 24/7 host (auto-start + stay awake)
+
+On the **Smith desktop** (once):
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\Install-AllosWorstation.ps1 -Layout Smith
+```
+
+That layout **defaults auto-start ON** (Task Scheduler at current-user logon → `Start-DescribePrint.cmd`) and applies **AC / plugged-in sleep never** via `Configure-HostPower.ps1`. Startup-folder shortcut is the alternate (`-AutoStartMethod Startup`). Skip either piece with `-NoAutoStart` / `-SkipHostPower`.
+
+```bat
+npm run autostart:windows
+npm run host-power:windows
+npm run autostart:windows:remove
+```
+
+Or the one-liners:
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\Install-AutoStart.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\Uninstall-AutoStart.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\Configure-HostPower.ps1 -Layout Smith
+```
+
+Power helper **refuses on Laptop** (no-op + warning) unless you pass `-ForceHost`. It does not change battery (DC) timeouts.
+
+**Laptop** (not the always-on remote host):
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\Install-AllosWorstation.ps1 -Layout Laptop
+```
+
+Auto-start stays **off** unless you pass `-AutoStart`. Do not run host-power on the laptop.
 
 ### iPhone on the same Wi‑Fi (LAN, no App Store)
 
@@ -151,9 +188,11 @@ No App Store listing and no cloud account are required.
 
 LAN stays the everyday path. For remote-away access, use a **private mesh** — prefer **Tailscale** (WireGuard is also fine). Do **not** require a public cloud tunnel or a router port-forward for core use.
 
-1. Install [Tailscale](https://tailscale.com) on Smith or the laptop **and** on the iPhone. Sign both into the **same account** (or tailnet).
-2. Start DescribePrint on the PC as usual (`0.0.0.0:3000`). Start prints a `http://<tailscale-ip>:3000` URL when it can run `tailscale ip -4` or see a `100.64.0.0/10` address; the QR prefers that address. If Tailscale is not installed, Start fails soft and shows LAN only.
-3. On the phone, open that `100.x` URL (or Add to Home Screen — same PWA). Same app, still no App Store.
+**Smith must run Tailscale.** The Smith desktop is the 24/7 host, so away-from-home should hit **Smith**, not the laptop. Install [Tailscale](https://tailscale.com) on **Smith** and on the iPhone, signed into the **same account** (or tailnet). Laptop Tailscale alone is **not** enough — if only the laptop is on the tailnet, the phone cannot reach the always-on host when you are away.
+
+1. Install Tailscale on **Smith** (required for 24/7 away access) **and** on the iPhone. Same account / tailnet. Laptop Tailscale is optional and does not replace Smith.
+2. Start DescribePrint on Smith as usual (`0.0.0.0:3000`; auto-start at logon). Start prints a `http://<tailscale-ip>:3000` URL when it can run `tailscale ip -4` or see a `100.64.0.0/10` address; the QR prefers that address. If Tailscale is not installed, Start fails soft and shows LAN only.
+3. On the phone, open that **Smith** `100.x` URL (or Add to Home Screen — same PWA). Same app, still no App Store.
 4. **Firewall / exposure:** bind stays `0.0.0.0` so the process can accept Tailscale-interface traffic, but Tailscale exposure is **mesh-only** (your tailnet), not the public internet. No port-forward. Ollama remains `127.0.0.1:11434` on the host.
 
 First-time machine prep (once):
@@ -167,7 +206,7 @@ Install OpenSCAD from https://openscad.org/ **or** set `OPENSCAD_PATH` **or** ru
 
 The header chip reports Local AI + OpenSCAD. Click it if something is red or yellow. First-run health: `npm run health:preflight`.
 
-**Windows portable / installer pack:** zip + bootstrap (not Electron). Build with `npm run pack:windows`. Install/setup: `Setup-DescribePrint.cmd` or `scripts/windows/Install-AllosWorstation.ps1 -Layout Laptop|Smith`. Full steps, OpenSCAD fetch, qwen-only Ollama pulls, and Smith-model safety: [`packaging/windows/README.md`](packaging/windows/README.md).
+**Windows portable / installer pack:** zip + bootstrap (not Electron). Build with `npm run pack:windows`. Install/setup: `Setup-DescribePrint.cmd` or `scripts/windows/Install-AllosWorstation.ps1 -Layout Laptop|Smith`. **Smith = 24/7 host** (auto-start + AC sleep-never + Tailscale on Smith). Laptop auto-start is optional only. Full steps, OpenSCAD fetch, qwen-only Ollama pulls, and Smith-model safety: [`packaging/windows/README.md`](packaging/windows/README.md).
 
 ### Build Setup.exe (optional)
 

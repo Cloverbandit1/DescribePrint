@@ -181,6 +181,9 @@ export function requiredPortableFiles(root) {
     "package-lock.json",
     ".env.example",
     "scripts/windows/Start-DescribePrint.ps1",
+    "scripts/windows/Install-AutoStart.ps1",
+    "scripts/windows/Uninstall-AutoStart.ps1",
+    "scripts/windows/Configure-HostPower.ps1",
     "scripts/windows/health-preflight.ts",
     "lib/health-preflight.ts",
     "scripts/health-preflight.mjs",
@@ -233,8 +236,14 @@ Local AI: Ollama at 127.0.0.1:11434  MODEL=qwen2.5-coder:32b
   ollama pull qwen2.5-coder:32b
   (lighter: qwen2.5-coder:14b or qwen2.5-coder:7b — set MODEL in .env.local)
 
+Smith desktop is the 24/7 AllosWorstation host (not the laptop).
+Install -Layout Smith registers logon auto-start + AC sleep-never.
+Laptop: auto-start only with -AutoStart; power tweaks are Smith-only.
+
 Start prints a LAN URL + QR for iPhone on the same Wi-Fi (0.0.0.0:3000).
-Optional Tailscale: QR prefers the 100.x address when Tailscale is up.
+Optional Tailscale: install on Smith + iPhone (same account). Laptop
+Tailscale alone is not enough for away-from-home to hit the 24/7 host.
+QR prefers the 100.x address when Tailscale is up.
 Ollama stays on 127.0.0.1:11434. Do not port-forward to the public internet.
 
 NEVER delete, retarget, or replace Agent Smith models

@@ -81,6 +81,8 @@ describe("iPhone / LAN host pack", () => {
     expect(readme).toMatch(/Add to Home Screen/);
     expect(readme).toMatch(/No App Store/);
     expect(readme).toMatch(/Optional: iPhone away from home \(Tailscale\)/);
+    expect(readme).toMatch(/Smith must run Tailscale/);
+    expect(readme).toMatch(/Laptop Tailscale alone is \*\*not\*\* enough/);
     expect(readme).toMatch(/mesh-only/);
     expect(readme).toMatch(/127\.0\.0\.1:11434/);
     expect(readme).not.toMatch(/change the Ollama port to/);

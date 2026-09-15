@@ -94,6 +94,9 @@ describe("LLM prompt", () => {
     expect(prompt).toMatch(/never union/i);
     expect(planSystemPrompt()).toMatch(/"type":"hinge\|pin\|ball\|snap"/);
     expect(planSystemPrompt()).toMatch(/omit the joints array unless/i);
+    expect(planSystemPrompt()).toMatch(/"kind":"emboss\|etch"/);
+    expect(planSystemPrompt()).toMatch(/omit the reliefs array unless/i);
+    expect(prompt).toMatch(/Raised etchings \/ emboss/i);
     expect(prompt).toMatch(/captive by default/i);
     expect(prompt).toMatch(/cantilever hook/i);
     expect(planSystemPrompt()).toMatch(/real CSG/i);
@@ -232,6 +235,7 @@ describe("LLM prompt", () => {
     expect(prompt).toContain("cube(20);");
     expect(prompt).toMatch(/Keep one_piece true/i);
     expect(prompt).toMatch(/Keep joints only if they still want motion/i);
+    expect(prompt).toMatch(/Keep reliefs only if they still want emboss\/etch/i);
   });
 
   it("parses a CAD plan from raw or fenced JSON and rejects junk", () => {

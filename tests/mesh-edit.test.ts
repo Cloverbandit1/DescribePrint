@@ -28,6 +28,10 @@ describe("imported-mesh edit intent", () => {
     const tab = parseMeshEditIntent("add a mounting tab");
     expect(tab.kind).toBe("describe-wrapper");
     expect(tab.addTab).toBe(true);
+
+    const etch = parseMeshEditIntent("etch initials on the front");
+    expect(etch.kind).toBe("describe-wrapper");
+    expect(etch.notes.join(" ")).toMatch(/emboss\/etch|partial/i);
   });
 
   it("starts over when the user wants a new part", () => {

@@ -15,6 +15,17 @@ import {
   pinFixtureScad,
   snapFixtureScad,
 } from "./joints";
+import {
+  CUBE_ETCH_PROMPT,
+  HELMET_EMBOSS_PROMPT,
+  cubeEtchFixtureScad,
+  cubeEtchSizeFromPrompt,
+  helmetEmbossFixtureScad,
+  initialsFromPrompt,
+  isCubeEtchPrompt,
+  isEtchFollowUp,
+  isHelmetEmbossPrompt,
+} from "./relief";
 import { toMillimeters } from "./units";
 import type { Unit } from "./types";
 
@@ -121,6 +132,20 @@ export function matchFixture(
   const text = prompt.toLowerCase();
   const hinted = sizeHint && sizeHint > 0 ? toMillimeters(sizeHint, units) : null;
 
+  if (isHelmetEmbossPrompt(text)) {
+    return { id: "helmet-emboss-crest", title: "Helmet with embossed crest", code: helmetEmbossFixtureScad() };
+  }
+
+  if (isCubeEtchPrompt(text)) {
+    const size = hinted ?? cubeEtchSizeFromPrompt(text, 20);
+    const initials = initialsFromPrompt(prompt) ?? "DP";
+    return {
+      id: "cube-etched-initials",
+      title: "Cube with etched initials",
+      code: cubeEtchFixtureScad(size, initials),
+    };
+  }
+
   if (isTwoColorFixturePrompt(text)) {
     return { id: "two-color-plaque", title: "Two-color plaque", code: TWO_COLOR_PLAQUE };
   }
@@ -189,7 +214,7 @@ export function defaultFixture(): FixtureMatch {
 const NEW_DESIGN =
   /\b(new part|start over|something else|different part|instead make|forget that|scratch)\b/i;
 const EDIT_CUE =
-  /\b(make|change|update|add|remove|delete|bigger|smaller|wider|taller|shorter|without|more|less|hole|tilt|diameter)\b/i;
+  /\b(make|change|update|add|remove|delete|bigger|smaller|wider|taller|shorter|without|more|less|hole|tilt|diameter|emboss|etch|engrave|recess|raised|initials|crest)\b/i;
 
 export function isLikelyEdit(prompt: string): boolean {
   const text = prompt.trim();
@@ -247,7 +272,11 @@ export function matchConversationFixture(
           ? "ball-joint"
           : /module\s+snap_hook\s*\(/.test(previousCode ?? "")
             ? "snap-fit"
-            : /module\s+region_letters\s*\(/.test(previousCode ?? "")
+            : /module\s+helmet_shell\s*\(/.test(previousCode ?? "")
+            ? "helmet-emboss-crest"
+            : /etch_depth\s*=/.test(previousCode ?? "")
+              ? "cube-etched-initials"
+              : /module\s+region_letters\s*\(/.test(previousCode ?? "")
               ? "two-color-plaque"
               : Number.isFinite(fromCode.hole)
             ? "cube-with-hole"
@@ -276,6 +305,24 @@ export function matchConversationFixture(
         : prev
           ? numberAt(previousPrompt ?? "", /(\d+(?:\.\d+)?)\s*mm/, 20)
           : 20;
+    if (isCubeEtchPrompt(text) || isEtchFollowUp(prompt)) {
+      const initials = initialsFromPrompt(prompt) ?? "DP";
+      const keepHole =
+        baseId === "cube-with-hole" &&
+        !( /\bremove\b/.test(text) && /\bhole\b/.test(text) );
+      const nextHole = keepHole
+        ? Number.isFinite(hole)
+          ? hole
+          : Number.isFinite(fromCode.hole)
+            ? fromCode.hole
+            : 5
+        : undefined;
+      return {
+        id: "cube-etched-initials",
+        title: "Cube with etched initials",
+        code: cubeEtchFixtureScad(nextSize, initials, nextHole),
+      };
+    }
     if (/\bremove\b/.test(text) && /\bhole\b/.test(text)) {
       return {
         id: "plain-cube",
@@ -298,6 +345,24 @@ export function matchConversationFixture(
         code: `$fn = 16;\ncube(${nextSize}, center = false);\n`,
       };
     }
+  }
+
+  if (baseId === "helmet-emboss-crest") {
+    return { id: "helmet-emboss-crest", title: "Helmet with embossed crest", code: helmetEmbossFixtureScad() };
+  }
+
+  if (baseId === "cube-etched-initials" || (baseId === "plain-cube" && isCubeEtchPrompt(text))) {
+    const nextSize = Number.isFinite(size)
+      ? size
+      : Number.isFinite(fromCode.size)
+        ? fromCode.size
+        : 20;
+    const initials = initialsFromPrompt(prompt) ?? "DP";
+    return {
+      id: "cube-etched-initials",
+      title: "Cube with etched initials",
+      code: cubeEtchFixtureScad(nextSize, initials),
+    };
   }
 
   if (baseId === "two-color-plaque") {
@@ -378,4 +443,6 @@ export const EXAMPLE_PROMPTS = [
   PIN_FIXTURE_PROMPT,
   BALL_FIXTURE_PROMPT,
   SNAP_FIXTURE_PROMPT,
+  HELMET_EMBOSS_PROMPT,
+  CUBE_ETCH_PROMPT,
 ] as const;

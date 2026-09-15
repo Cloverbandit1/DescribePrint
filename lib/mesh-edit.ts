@@ -125,7 +125,7 @@ export function parseMeshEditIntent(
 
   if (generative) {
     notes.push(
-      "Generative remesh is partial: OpenSCAD wraps the imported STL (holes/tabs). Full triangle sculpt is not ready.",
+      "Generative remesh is partial: OpenSCAD wraps the imported STL (holes/tabs/emboss/etch). Full triangle sculpt / Style2Fab is not ready.",
     );
     return {
       kind: "describe-wrapper",

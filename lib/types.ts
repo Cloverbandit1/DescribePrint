@@ -168,9 +168,10 @@ export type Mesh = {
  *   a stub alternate machine). Not photogrammetry / NeRF.
  * - Wearable S/M/L/XL measurement charts that scale the current mesh
  * - Describe-to-edit on imported meshes: real triangle scale/rotate/sit-on-bed;
- *   generative adds (holes, tabs) wrap import("imported.stl") in OpenSCAD.
- *   Holes difference the import (through by default). Full triangle sculpt /
- *   Style2Fab is not implemented.
+ *   generative adds (holes, tabs, emboss/etch) wrap import("imported.stl") in
+ *   OpenSCAD. Holes difference the import (through by default). Relief is an
+ *   honest CSG stub (primitive / block initials), not Style2Fab. Full triangle
+ *   sculpt is not implemented.
  * - Multi-filament 3MF: describe colors/materials → separate 3MF objects with
  *   displaycolor + extruder/AMS slot metadata. OpenSCAD compiles one mesh;
  *   color bodies are split via named region_* modules / color() groups.

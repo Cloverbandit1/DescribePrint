@@ -89,6 +89,7 @@ describe("imported-mesh wrap generation", () => {
     const spec = parseImportHoleSpec("add an 8 mm hole", cube20);
     expect(canBuildDeterministicImportWrap("add an 8 mm hole", spec, false)).toBe(true);
     expect(canBuildDeterministicImportWrap("fillet the edges and add a hole", spec, false)).toBe(false);
+    expect(canBuildDeterministicImportWrap("etch initials on the front", null, false)).toBe(true);
   });
 });
 

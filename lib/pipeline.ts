@@ -44,6 +44,7 @@ import {
   parseImportHoleSpec,
   type ImportHoleSpec,
 } from "./import-hole";
+import { formatReliefNote, inferCadReliefs } from "./relief";
 import { parseMeshEditIntent, type MeshEditIntent } from "./mesh-edit";
 import {
   rotateMeshesZ,
@@ -298,11 +299,20 @@ function codeFromFixture(request: GenerateRequest): { code: string; usedFixture:
   return { code: match.code, usedFixture: true };
 }
 
-function importedWrapHint(hole: ImportHoleSpec | null, mesh: Mesh, addTab: boolean) {
+function importedWrapHint(
+  hole: ImportHoleSpec | null,
+  mesh: Mesh,
+  addTab: boolean,
+  prompt?: string,
+) {
   const box = checkMesh(mesh).boundingBoxMm;
+  const reliefs = prompt ? inferCadReliefs(prompt, box.size) : [];
   return {
     holeSpecNote: hole ? formatHoleSpecForPrompt(hole, box) : undefined,
-    suggestedWrap: hole || addTab ? buildImportedMeshWrapper({ mesh, hole, addTab }) : undefined,
+    suggestedWrap:
+      hole || addTab || reliefs.length
+        ? buildImportedMeshWrapper({ mesh, hole, addTab, reliefs, prompt })
+        : undefined,
   };
 }
 
@@ -614,10 +624,12 @@ async function runImportedMeshEdit(
     max: box.maxMm,
     size: box.sizeMm,
   }, intent.holeMm);
-  const deterministic = canBuildDeterministicImportWrap(prompt, hole, intent.addTab);
-  const wrapHint = importedWrapHint(hole, mesh, intent.addTab);
-  const engineered = wrapHint.suggestedWrap ?? buildImportedMeshWrapper({ mesh, hole, addTab: intent.addTab });
+  const reliefs = inferCadReliefs(prompt, box.sizeMm);
+  const deterministic = canBuildDeterministicImportWrap(prompt, hole, intent.addTab, reliefs);
+  const wrapHint = importedWrapHint(hole, mesh, intent.addTab, prompt);
+  const engineered = wrapHint.suggestedWrap ?? buildImportedMeshWrapper({ mesh, hole, addTab: intent.addTab, reliefs, prompt });
   if (hole) notes.push(...hole.notes);
+  if (reliefs.length) notes.push(formatReliefNote(reliefs));
   if ((previous.colorRegions?.length ?? 0) > 1) {
     notes.push(
       "Hole wrap compiles one OpenSCAD solid, so previous 3MF color objects were flattened. Describe colors again to re-split filaments.",
@@ -639,7 +651,10 @@ async function runImportedMeshEdit(
     if (!sanitized.ok) {
       throw new Error(sanitized.errors.join("; "));
     }
-    const wrapErrors = importedWrapErrors(sanitized.code, { requireHoleDifference: Boolean(hole) });
+    const wrapErrors = importedWrapErrors(sanitized.code, {
+      requireHoleDifference: Boolean(hole),
+      allowUnionedRelief: reliefs.some((relief) => relief.kind === "emboss") || intent.addTab,
+    });
     if (wrapErrors.length) {
       throw new Error(wrapErrors.join("; "));
     }
@@ -844,6 +859,8 @@ async function runOpenscadGenerate(
   }
 
   const notes = wearableSize ? [wearableChartNote(), describeWearableSize(wearableSize, wearableCategory)] : [];
+  const reliefNote = formatReliefNote(plan?.reliefs ?? inferCadReliefs(prompt));
+  if (reliefNote) notes.push(reliefNote);
   const exportedRegions = artifacts.colorRegions ?? colorRegions;
   if (!isDefaultOnlyRegions(exportedRegions)) {
     notes.push(colorRegionsNote(exportedRegions));

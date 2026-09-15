@@ -82,11 +82,13 @@ describe("phone client wiring (responsive web only)", () => {
 
   it("adds photo/camera pickers without rewriting the library/remix path", () => {
     const app = readFileSync(new URL("../components/DescribePrintApp.tsx", import.meta.url), "utf8");
+    const helpers = readFileSync(new URL("../lib/mobile-client.ts", import.meta.url), "utf8");
     expect(app).toContain('kind="photo"');
     expect(app).toContain('kind="camera"');
     expect(app).toContain("studio-workspace");
     expect(app).toContain("touchFriendly={!wideLayout}");
     expect(app).not.toMatch(/part-library/);
-    expect(app).not.toMatch(/failure-photo|pwa|manifest\.webmanifest/i);
+    expect(app).not.toMatch(/manifest\.webmanifest|serviceWorker/i);
+    expect(helpers).not.toMatch(/failure-photo|part-library|serviceWorker|manifest\.webmanifest/i);
   });
 });

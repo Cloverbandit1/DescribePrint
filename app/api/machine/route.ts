@@ -2,6 +2,7 @@ import {
   commandFromBody,
   parseCameraStubFromBody,
   parseCameraStubFromRequest,
+  parseFarmConfigure,
   parseMachineConfigure,
   parsePrintDoctorBody,
   parseReshapeRemainingFromBody,
@@ -24,6 +25,7 @@ import {
   readLiveCredentials,
 } from "@/lib/machine/config";
 import { defaultAdapterId } from "@/lib/machine/adapter";
+import { applyFarmSelection, getFarmRegistry } from "@/lib/machine/farm";
 import {
   isReshapeRemainingActive,
   isReshapeRemainingEnabled,
@@ -73,6 +75,10 @@ function payload(
     cameraStub: isCameraStubEnabled(),
     amsAutofix: isAmsAutofixEnabled(),
     reshapeRemaining: isReshapeRemainingEnabled(),
+    farm: {
+      selectedId: getFarmRegistry().selected().id,
+      count: getFarmRegistry().count(),
+    },
     status,
     lastCommand,
     cameraDetect,
@@ -104,6 +110,11 @@ export async function POST(request: Request) {
     body = await request.json();
   } catch {
     return Response.json({ error: "Invalid JSON." }, { status: 400 });
+  }
+
+  const farm = parseFarmConfigure(body);
+  if (farm) {
+    applyFarmSelection(farm.machine);
   }
 
   const configure = parseMachineConfigure(body);
@@ -185,7 +196,7 @@ export async function POST(request: Request) {
     );
   }
 
-  if (configure) {
+  if (configure || farm) {
     return snapshot();
   }
 

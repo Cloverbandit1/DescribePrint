@@ -3,6 +3,7 @@ import "./bambu-lan";
 import { createMachineAdapter, defaultAdapterId, type MachineAdapter } from "./adapter";
 import { resetCameraDetectState } from "./camera";
 import { BAMBU_LAN_ADAPTER_ID, readLiveCredentials } from "./config";
+import { getFarmRegistry, resetFarmRegistry } from "./farm";
 import { resetReshapeState } from "./reshape";
 import { resetMachineUiSession } from "./session";
 
@@ -11,7 +12,8 @@ let sharedKey = "";
 
 function adapterKey(): string {
   const creds = readLiveCredentials();
-  return `${defaultAdapterId()}|${creds?.host ?? ""}|${creds?.serial ?? ""}|${creds?.accessCode ?? ""}`;
+  const selected = getFarmRegistry().selected();
+  return `${defaultAdapterId()}|${selected.id}|${selected.printerId}|${creds?.host ?? ""}|${creds?.serial ?? ""}|${creds?.accessCode ?? ""}`;
 }
 
 export function isLiveMachineSelected(): boolean {
@@ -39,4 +41,5 @@ export function resetSharedMachine(): void {
   resetMachineUiSession();
   resetCameraDetectState();
   resetReshapeState();
+  resetFarmRegistry();
 }

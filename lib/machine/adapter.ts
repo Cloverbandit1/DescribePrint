@@ -1,5 +1,6 @@
 import { defaultPrinter, type PrinterId } from "../printers";
 import { resolveActiveAdapterId } from "./config";
+import { selectedFarmAdapterOptions } from "./farm";
 import type {
   CommandResult,
   CommandRisk,
@@ -23,7 +24,12 @@ export interface MachineAdapter {
   send(command: MidPrintCommand): Promise<CommandResult>;
 }
 
-export type MachineAdapterFactory = () => MachineAdapter;
+export type MachineAdapterOptions = {
+  printerId?: PrinterId;
+  machineId?: string;
+};
+
+export type MachineAdapterFactory = (options?: MachineAdapterOptions) => MachineAdapter;
 
 const registry = new Map<string, MachineAdapterFactory>();
 
@@ -31,12 +37,12 @@ export function registerMachineAdapter(id: string, factory: MachineAdapterFactor
   registry.set(id, factory);
 }
 
-export function createMachineAdapter(id = defaultAdapterId()): MachineAdapter {
+export function createMachineAdapter(id = defaultAdapterId(), options?: MachineAdapterOptions): MachineAdapter {
   const factory = registry.get(id);
   if (!factory) {
     throw new Error(`Unknown machine adapter: ${id}`);
   }
-  return factory();
+  return factory({ ...selectedFarmAdapterOptions(), ...options });
 }
 
 export function listMachineAdapters(): string[] {

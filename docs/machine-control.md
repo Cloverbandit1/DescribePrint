@@ -63,6 +63,17 @@ Register new machines with `registerMachineAdapter`. The default id is `mock`. `
 
 Credentials (`host`, `serial`, `accessCode`) are typed and validated as strings only. Everyday use stores them in browser `localStorage` (`describeprint.machine.lan`). Env vars remain a valid override. **Never commit them. Never log the access code.** The API never returns the access code.
 
+### Farm registry (stub)
+
+[`lib/machine/farm.ts`](../lib/machine/farm.ts) is an in-app list of machines (`id`, `name`, `printerId`, `adapterId` mock | bambu-lan, optional host/serial/notes). It is **not** live multi-send.
+
+- Seeded with the current default **Bambu Lab P2S**. Adding **P2S-2** (and further stubs) does not require LAN credentials.
+- `FarmRegistry` supports list / get / add / remove / select. The client persists the snapshot in `localStorage` (`describeprint.machine.farm`). The server keeps only an in-memory selected machine so `/api/machine` stays mock-safe.
+- The Machine panel shows the selected name, a compact selector, and a count (`1 machine` / `2 machines`). Selecting switches which machine the existing monitor / doctor talks to **through the current adapter factory** — still mock unless that machine’s LAN path has the existing flag+creds. Registry add/select/remove never write MQTT or blast commands across the farm.
+- `FarmJob { machineId, status: queued | active | done }` is a queue type only. No worker. The panel line `Queue (stub) · send-across-farm later` documents that send-across-farm is later.
+
+No `FARM_REGISTRY` flag: one default machine is today’s single-printer path.
+
 ### LAN MQTT (flagged)
 
 P2S LAN control uses **MQTT over TLS** (not Bambu Cloud):
@@ -206,7 +217,7 @@ Taken from Bambu’s published P2S specs / FAQ (see sources below):
 
 ## Tests
 
-`npm test` must pass **without** a physical printer. Coverage targets: profile tables (including PA), material session parse, doctor diagnoses + “use PETG settings” / “best for PA”, 3MF preset metadata / sidecar fields, AMS mapping, pause-before-risky, mock connection state machine, flag off = mock, UI toggle + incomplete creds = mock + hint, UI toggle + complete creds selects `bambu-lan` without setting the env flag, env override still works, live adapter + fake/unhealthy endpoint fails safe without leaking secrets, camera stub `detectFailure` (stub only), live poll + detect (flag off = no detect; flag on + mock `none` = `camera: ok`; injected spaghetti / scrape / empty-bed surfaces on the panel and doctor without auto-pause), AMS autofix flag off (no commands) vs flag on (pause then autofix or physical steps), remaining-layer reshape flag off (no pause, no live plan) vs flag on + injected remaining height (pause + plan, no resume, `remainingHeightMm` / `currentZ` present). Handoff optionals (`previousCode`, `stumpCutPlaneBoundsMm`, `layerHeightMm`) are present when a job / live layer height / selected preset exists and omitted when those sources are unknown. `remainingHeightMm` is still not derived from remaining layer count.
+`npm test` must pass **without** a physical printer. Coverage targets: profile tables (including PA), material session parse, doctor diagnoses + “use PETG settings” / “best for PA”, 3MF preset metadata / sidecar fields, AMS mapping, pause-before-risky, mock connection state machine, flag off = mock, UI toggle + incomplete creds = mock + hint, UI toggle + complete creds selects `bambu-lan` without setting the env flag, env override still works, live adapter + fake/unhealthy endpoint fails safe without leaking secrets, camera stub `detectFailure` (stub only), live poll + detect (flag off = no detect; flag on + mock `none` = `camera: ok`; injected spaghetti / scrape / empty-bed surfaces on the panel and doctor without auto-pause), AMS autofix flag off (no commands) vs flag on (pause then autofix or physical steps), remaining-layer reshape flag off (no pause, no live plan) vs flag on + injected remaining height (pause + plan, no resume, `remainingHeightMm` / `currentZ` present). Handoff optionals (`previousCode`, `stumpCutPlaneBoundsMm`, `layerHeightMm`) are present when a job / live layer height / selected preset exists and omitted when those sources are unknown. `remainingHeightMm` is still not derived from remaining layer count. Farm registry: default one P2S; add / select / remove; selected machine is what adapter `status()` uses; registry ops never perform LAN writes.
 
 ## Sources
 

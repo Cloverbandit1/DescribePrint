@@ -56,6 +56,7 @@ const DEMO_SLOTS: AmsSlotStatus[] = [
 export class MockMachineAdapter implements MachineAdapter {
   readonly id = "mock";
   readonly printerId: PrinterId;
+  readonly machineId?: string;
   private connection: ConnectionState = "disconnected";
   private print: PrintState = "idle";
   private message?: string;
@@ -76,8 +77,9 @@ export class MockMachineAdapter implements MachineAdapter {
   private amsHint?: AmsHint;
   private amsSoftwareFixable = true;
 
-  constructor(printerId: PrinterId = defaultPrinter().id) {
+  constructor(printerId: PrinterId = defaultPrinter().id, machineId?: string) {
     this.printerId = printerId;
+    this.machineId = machineId;
     this.slots = emptyAmsSlots(getPrinter(printerId).ams.slotsPerUnit);
   }
 
@@ -295,6 +297,7 @@ export class MockMachineAdapter implements MachineAdapter {
     return {
       adapterId: this.id,
       printerId: this.printerId,
+      ...(this.machineId ? { machineId: this.machineId } : {}),
       connection: this.connection,
       print: this.print,
       message: this.message,
@@ -320,4 +323,4 @@ function validAmsSlot(slot: number): boolean {
   return Number.isInteger(slot) && slot >= 1 && slot <= 20;
 }
 
-registerMachineAdapter("mock", () => new MockMachineAdapter());
+registerMachineAdapter("mock", (options) => new MockMachineAdapter(options?.printerId, options?.machineId));

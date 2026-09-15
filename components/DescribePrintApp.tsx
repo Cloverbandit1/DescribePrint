@@ -31,6 +31,16 @@ import {
   type CameraDoctorHeld,
   type CameraDoctorMidPrintChip,
 } from "@/lib/machine/camera-doctor-bridge";
+import {
+  FAILURE_PHOTO_NOTE,
+  annotateFailurePhotoDiagnosis,
+  diagnosisFromFailurePhoto,
+  failurePhotoAskResult,
+  formatFailurePhotoUserLine,
+  looksLikeFailurePhotoCaption,
+  replayFailurePhoto,
+  type FailurePhotoInput,
+} from "@/lib/machine/failure-photo";
 import type { AmsSlotPlan, AmsSlotStatus } from "@/lib/machine/types";
 import { MACHINE_RESHAPE_STORAGE_KEY, parseReshapeRemainingPref } from "@/lib/machine/reshape-pref";
 import { FARM_QUEUE_NOTE, nextFarmStubName } from "@/lib/machine/farm";
@@ -359,6 +369,55 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
     scrollToEnd();
   }
 
+  async function submitFailurePhoto(input: FailurePhotoInput) {
+    if (busy) return;
+    const replay = replayFailurePhoto(input);
+    const userText = formatFailurePhotoUserLine(input);
+    setPrompt("");
+    if (replay.kind === "unknown") {
+      const ask = failurePhotoAskResult();
+      setDoctorResult(ask);
+      setItems((prev) => [
+        ...prev,
+        { id: nid(), kind: "user", text: userText },
+        { id: nid(), kind: "doctor", result: ask },
+      ]);
+      scrollToEnd();
+      return;
+    }
+    let diagnosis =
+      diagnosisFromFailurePhoto(input, { printerId: printer.id, material }) ??
+      diagnosePrintComplaint({ complaint: replay.doctorSymptom, printerId: printer.id, material });
+    setBusy(true);
+    try {
+      const response = await fetch("/api/machine", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          complaint: replay.doctorSymptom,
+          material,
+          reshapeRemaining: false,
+        }),
+      });
+      if (response.ok) {
+        const data = (await response.json()) as { diagnosis?: typeof diagnosis };
+        if (data.diagnosis) diagnosis = annotateFailurePhotoDiagnosis(data.diagnosis, replay);
+      }
+    } catch {
+      // Keep the local stub diagnosis if the machine API is down.
+    } finally {
+      setBusy(false);
+    }
+    diagnosis = applyStoredDoctorMemory(readDoctorMemory(), diagnosis);
+    setDoctorResult(diagnosis);
+    setItems((prev) => [
+      ...prev,
+      { id: nid(), kind: "user", text: userText },
+      { id: nid(), kind: "doctor", result: diagnosis },
+    ]);
+    scrollToEnd();
+  }
+
   const appendCameraDoctor = useCallback((diagnosis: PrintDoctorResult) => {
     const tagged = applyStoredDoctorMemory(
       parsePrintDoctorMemory(
@@ -467,18 +526,29 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       return;
     }
 
-    if (looksLikePrintDoctorComplaint(cleaned)) {
+    const captionReplay = looksLikeFailurePhotoCaption(cleaned) ? replayFailurePhoto({ hint: cleaned }) : undefined;
+    const doctorComplaint = looksLikePrintDoctorComplaint(cleaned)
+      ? cleaned
+      : captionReplay && captionReplay.kind !== "unknown"
+        ? captionReplay.doctorSymptom
+        : undefined;
+
+    if (doctorComplaint) {
       const reshapePref = parseReshapeRemainingPref(
         typeof window !== "undefined" ? window.localStorage.getItem(MACHINE_RESHAPE_STORAGE_KEY) : null,
       );
-      let diagnosis = diagnosePrintComplaint({ complaint: cleaned, printerId: printer.id, material });
+      const fromCaption = doctorComplaint !== cleaned;
+      let diagnosis = fromCaption
+        ? (diagnosisFromFailurePhoto({ hint: cleaned }, { printerId: printer.id, material }) ??
+          diagnosePrintComplaint({ complaint: doctorComplaint, printerId: printer.id, material }))
+        : diagnosePrintComplaint({ complaint: doctorComplaint, printerId: printer.id, material });
       setBusy(true);
       try {
         const response = await fetch("/api/machine", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            complaint: cleaned,
+            complaint: doctorComplaint,
             material,
             reshapeRemaining: reshapePref,
             jobId: result?.jobId,
@@ -488,7 +558,12 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
         });
         if (response.ok) {
           const data = (await response.json()) as { diagnosis?: typeof diagnosis };
-          if (data.diagnosis) diagnosis = data.diagnosis;
+          if (data.diagnosis) {
+            diagnosis =
+              fromCaption && captionReplay
+                ? annotateFailurePhotoDiagnosis(data.diagnosis, captionReplay)
+                : data.diagnosis;
+          }
         }
       } catch {
         // Keep the local diagnosis if the machine API is down.
@@ -1104,6 +1179,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
               result={result}
               packPlan={packPlan}
               onCameraDoctor={appendCameraDoctor}
+              onFailurePhoto={(input) => void submitFailurePhoto(input)}
               onPacked={(plan, outlines) => {
                 setPackPlan(plan);
                 setPackOutlines(outlines);
@@ -1703,6 +1779,79 @@ function PrintEstimateBlock({
   );
 }
 
+function FailedPhotoControls({
+  disabled,
+  onReplay,
+}: {
+  disabled?: boolean;
+  onReplay?: (input: FailurePhotoInput) => void;
+}) {
+  const [hint, setHint] = useState("");
+  const [filename, setFilename] = useState("");
+  const [mime, setMime] = useState("");
+
+  function replay() {
+    if (!onReplay) return;
+    onReplay({
+      filename: filename || undefined,
+      hint: hint.trim() || undefined,
+      mime: mime || undefined,
+    });
+  }
+
+  return (
+    <div className="mt-2 border-t border-line pt-2">
+      <div className="font-medium text-ink">Failed photo (stub)</div>
+      <p className="mt-0.5">{FAILURE_PHOTO_NOTE}</p>
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+        <label className="sr-only" htmlFor="failed-photo-file">
+          Failed print photo
+        </label>
+        <input
+          id="failed-photo-file"
+          type="file"
+          accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
+          disabled={disabled}
+          aria-label="Failed print photo"
+          className="max-w-[11rem] text-[11px] text-ink file:mr-1.5 file:rounded file:border file:border-line file:bg-panel file:px-1.5 file:py-0.5"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            setFilename(file?.name ?? "");
+            setMime(file?.type ?? "");
+          }}
+        />
+        <label className="sr-only" htmlFor="failed-photo-hint">
+          One-line hint
+        </label>
+        <input
+          id="failed-photo-hint"
+          type="text"
+          value={hint}
+          disabled={disabled}
+          placeholder="one-line hint"
+          aria-label="One-line hint"
+          className="studio-field h-6 min-w-[7rem] flex-1 px-1.5 text-[11px]"
+          onChange={(event) => setHint(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              replay();
+            }
+          }}
+        />
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={replay}
+          className="studio-btn studio-btn-ghost h-6 px-2 text-[11px]"
+        >
+          Replay
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function packPlacementLabel(id: string, index: number): string {
   const copy = id.match(/#(\d+)$/);
   if (copy) return `copy ${copy[1]}`;
@@ -1888,6 +2037,7 @@ function MachinePanel({
   packPlan,
   onPacked,
   onCameraDoctor,
+  onFailurePhoto,
 }: {
   printer: PrinterProfile;
   doctor: PrintDoctorResult | null;
@@ -1897,6 +2047,7 @@ function MachinePanel({
   packPlan: PackPlan | null;
   onPacked: (plan: PackPlan | null, outlines: PackOutline[]) => void;
   onCameraDoctor?: (result: PrintDoctorResult) => void;
+  onFailurePhoto?: (input: FailurePhotoInput) => void;
 }) {
   const [plateW, plateD, plateH] = printer.buildVolumeMm;
   const preset = filamentPreset(material, printer);
@@ -2177,6 +2328,7 @@ function MachinePanel({
           {cameraSeverity === "suspected" && cameraDetect?.cue ? <div>{cameraDetect.cue}</div> : null}
         </div>
       ) : null}
+      <FailedPhotoControls disabled={busy} onReplay={onFailurePhoto} />
       <label className="mt-2 flex items-center gap-1.5 text-ink">
         <input
           type="checkbox"
@@ -2579,8 +2731,8 @@ function EmptyState({ onPick }: { onPick: (value: string) => void }) {
         Describe a part in plain language, or <span className="text-ink">import an STL/3MF or a photo</span>. If a
         known fork is unclear, the chat offers a few chips — pick one, then <span className="text-ink">Print</span>.
         Open <span className="text-ink">More options</span> for a one-off size or saved profile defaults (this device
-        only). The plate is a Bambu Lab P2S (256 × 256 × 256 mm) by default. A print defect (stringing, AMS loop) goes
-        to Print doctor instead of CAD.
+        only).         The plate is a Bambu Lab P2S (256 × 256 × 256 mm) by default. A print defect (stringing, AMS loop) or a
+        failed-print photo / caption (stub) goes to Print doctor instead of CAD.
       </p>
       <div className="studio-label">Try saying</div>
       <div className="space-y-1.5">

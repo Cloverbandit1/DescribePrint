@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   AGENT_SMITH_MODEL_RE,
   DEFAULT_LLM_TIMEOUT_MS,
@@ -8,11 +8,14 @@ import {
   DEFAULT_SMART_PIPELINE,
   getLlmConfig,
   getLlmTimeoutMs,
+  getConfiguredModel,
   getPlanModel,
   isLocalAiActive,
   isLocalOpenAiBaseUrl,
   isSmartPipelineEnabled,
   LIGHTER_MODELS,
+  QWEN_CODER_TIER_MODELS,
+  resetAdaptiveTierForTests,
 } from "@/lib/llm-config";
 
 const TRACKED = [
@@ -44,6 +47,10 @@ function withEnv(vars: Record<string, string | undefined>, fn: () => void) {
 }
 
 describe("local LLM config defaults", () => {
+  afterEach(() => {
+    resetAdaptiveTierForTests();
+  });
+
   it("points at local Ollama when env is unset", () => {
     withEnv(
       {
@@ -97,6 +104,15 @@ describe("local LLM config defaults", () => {
   it("documents lighter 14b and 7b MODEL overrides without making them the default", () => {
     expect(LIGHTER_MODELS).toEqual(["qwen2.5-coder:14b", "qwen2.5-coder:7b"]);
     expect(LIGHTER_MODELS).not.toContain(DEFAULT_MODEL);
+    expect(QWEN_CODER_TIER_MODELS).toEqual(["qwen2.5-coder:32b", "qwen2.5-coder:14b", "qwen2.5-coder:7b"]);
+  });
+
+  it("refuses an Agent Smith MODEL value and falls back to 32b", () => {
+    withEnv({ MODEL: "smith-minicpm5" }, () => {
+      expect(getConfiguredModel()).toBe("qwen2.5-coder:32b");
+      expect(getLlmConfig().model).toBe("qwen2.5-coder:32b");
+      expect(getLlmConfig().model).not.toMatch(/minicpm5|smith-/i);
+    });
   });
 
   it("allows qwen2.5-coder:14b and :7b as lighter MODEL overrides", () => {

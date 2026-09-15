@@ -23,6 +23,9 @@ export const DEFAULT_MODEL = "qwen2.5-coder:32b";
  */
 export const LIGHTER_MODELS = ["qwen2.5-coder:14b", "qwen2.5-coder:7b"] as const;
 
+/** Locked adaptive-throttle family. Never include Agent Smith models. */
+export const QWEN_CODER_TIER_MODELS = [DEFAULT_MODEL, ...LIGHTER_MODELS] as const;
+
 /** Two-pass plan → OpenSCAD is on by default (`SMART_PIPELINE=1`). Set `0`/`false` to skip planning. */
 export const DEFAULT_SMART_PIPELINE = true;
 
@@ -34,11 +37,38 @@ export const LOCAL_AI_START_MESSAGE = "Start local AI (Ollama)";
 /** Patterns that belong to Agent Smith — must never be our compiled-in default. */
 export const AGENT_SMITH_MODEL_RE = /(?:^|[/:._-])(?:smith-)?minicpm5(?:$|[/:._-])/i;
 
+import {
+  isAgentSmithModel,
+  pickLighterQwenModel,
+  resolveActiveCompletionModel,
+} from "./llm-tier";
+
 export type LlmConfig = {
   apiKey: string;
   baseUrl: string;
   model: string;
 };
+
+export {
+  ALLOWED_QWEN_MODELS,
+  HOST_SIGNAL_ENV,
+  QWEN_CODER_MODELS,
+  QWEN_CODER_TIERS,
+  defaultHostSignalPath,
+  getAdaptiveTierSnapshot,
+  isQwenCoderModel,
+  parseQwenCoderTier,
+  pickLighterQwenModel,
+  refreshAdaptiveTier,
+  rememberInstalledModels,
+  resetAdaptiveTierForTests,
+  resolveActiveCompletionModel,
+  withLlmQueue,
+  type AdaptiveTierSnapshot,
+  type HostContention,
+  type HostContentionSignal,
+  type QwenCoderTier,
+} from "./llm-tier";
 
 function envOrDefault(name: string, fallback: string): string {
   const value = process.env[name]?.trim();
@@ -57,17 +87,27 @@ function parseBoolEnv(name: string, fallback: boolean): boolean {
   return fallback;
 }
 
+export function getConfiguredModel(): string {
+  const raw = envOrDefault("MODEL", DEFAULT_MODEL);
+  return AGENT_SMITH_MODEL_RE.test(raw) ? DEFAULT_MODEL : raw;
+}
+
 export function getLlmConfig(): LlmConfig {
+  const configured = getConfiguredModel();
   return {
     apiKey: envOrDefault("OPENAI_API_KEY", DEFAULT_OPENAI_API_KEY),
     baseUrl: stripTrailingSlash(envOrDefault("OPENAI_BASE_URL", DEFAULT_OPENAI_BASE_URL)),
-    model: envOrDefault("MODEL", DEFAULT_MODEL),
+    model: resolveActiveCompletionModel(configured),
   };
 }
 
-/** Planning model for SMART_PIPELINE pass A. Defaults to the same MODEL. */
+/** Planning model for SMART_PIPELINE pass A. Defaults to the active completion model. */
 export function getPlanModel(): string {
-  return envOrDefault("PLAN_MODEL", getLlmConfig().model);
+  const explicit = process.env.PLAN_MODEL?.trim();
+  const active = getLlmConfig().model;
+  if (!explicit) return active;
+  if (isAgentSmithModel(explicit)) return active;
+  return pickLighterQwenModel(explicit, active);
 }
 
 /**

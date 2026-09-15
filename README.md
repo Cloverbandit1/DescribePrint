@@ -56,6 +56,7 @@ Ollama on this machine may already be used by **Agent Smith**. DescribePrint **s
 - Isolation is a **dedicated model name**. Default `MODEL` is `qwen2.5-coder:32b` — never `smith-minicpm5`, `openbmb/minicpm5-*`, or any other Agent Smith model.
 - **Leave Smith models untouched.** Do not delete, replace, or retarget existing models.
 - The 32b default needs a capable machine (roughly **32GB RAM**). If generation is slow or Ollama is swapping, override `MODEL` to `qwen2.5-coder:14b` or `qwen2.5-coder:7b`.
+- **Adaptive throttle:** Desktop Pack (or the host) can publish a contention signal; CAD Core then steps `32b` ↔ `14b` ↔ `7b` at runtime with hysteresis. Default stays **32b** when the host is clear. Generate jobs wait in order — they are not dropped. Contract: [`docs/adaptive-tier-signal.md`](docs/adaptive-tier-signal.md). The header **Local AI** chip shows the active tier (`Local AI · 14b`). Agent Smith models are never selected.
 - Pull DescribePrint’s model *alongside* whatever is already installed:
 
 ```bash

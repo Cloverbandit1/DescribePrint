@@ -3,9 +3,14 @@ import { shouldUseFixture } from "./fixtures";
 import type { HealthReport, LocalAiHealth, OpenscadHealth } from "./health-types";
 import {
   DEFAULT_MODEL,
+  getConfiguredModel,
   getLlmConfig,
   isLocalAiActive,
   LOCAL_AI_START_MESSAGE,
+  refreshAdaptiveTier,
+  rememberInstalledModels,
+  type AdaptiveTierSnapshot,
+  type QwenCoderTier,
 } from "./llm-config";
 import { resolveOpenscad } from "./openscad";
 import { defaultPrinter } from "./printers";
@@ -66,6 +71,9 @@ function localAiTips(input: {
   reachable: boolean;
   modelPresent: boolean;
   model: string;
+  activeTier?: QwenCoderTier | null;
+  contention?: AdaptiveTierSnapshot["contention"] | null;
+  reason?: string | null;
 }): string[] {
   const tips: string[] = [];
   if (!input.reachable) {
@@ -79,7 +87,23 @@ function localAiTips(input: {
       tips.push("32b needs roughly 32GB RAM. Lighter overrides: MODEL=qwen2.5-coder:14b or :7b.");
     }
   }
+  if (input.reachable && input.activeTier) {
+    const tierLine = `Active tier: ${input.activeTier} (${input.model}).`;
+    if (input.reason) {
+      tips.push(
+        `${tierLine} ${input.reason} Generate stays queued — jobs wait instead of failing. Will step up after the host stays clear.`,
+      );
+    } else {
+      tips.push(`${tierLine} Default 32b when the host is clear. Adaptive throttle never retargets Agent Smith.`);
+    }
+  }
   return tips;
+}
+
+function localAiLabel(mode: LocalAiHealth["mode"], activeTier?: QwenCoderTier | null): string {
+  if (mode === "fixture") return "Demo";
+  if (mode === "cloud") return "Cloud AI";
+  return activeTier ? `Local AI · ${activeTier}` : "Local AI";
 }
 
 function buildLocalAiHealth(partial: {
@@ -89,50 +113,68 @@ function buildLocalAiHealth(partial: {
   model: string;
   modelPresent: boolean;
   baseUrl: string;
+  configuredModel?: string;
+  activeTier?: QwenCoderTier | null;
+  contention?: AdaptiveTierSnapshot["contention"] | null;
+  reason?: string | null;
 }): LocalAiHealth {
-  const { mode, configured, reachable, model, modelPresent, baseUrl } = partial;
+  const { mode, configured, reachable, model, modelPresent, baseUrl, activeTier, contention, reason } = partial;
+  const healthFields = {
+    mode,
+    configured,
+    reachable,
+    model,
+    modelPresent,
+    baseUrl,
+    configuredModel: partial.configuredModel,
+    activeTier,
+    contention,
+  };
+  const label = localAiLabel(mode, activeTier);
+  const tipInput = { reachable, modelPresent, model, activeTier, contention, reason };
   if (mode === "fixture") {
     return {
-      ...partial,
+      ...healthFields,
       tone: "neutral",
-      label: "Demo",
+      label,
       detail: "Fixture / mock path is on — local AI is not required.",
       tips: ["Turn off USE_FIXTURE to use Ollama (qwen2.5-coder:32b by default)."],
     };
   }
   if (mode === "cloud") {
     return {
-      ...partial,
+      ...healthFields,
       tone: "ok",
-      label: "Cloud AI",
+      label,
       detail: `Using ${model} at ${baseUrl}.`,
       tips: [],
     };
   }
   if (!reachable) {
     return {
-      ...partial,
+      ...healthFields,
       tone: "danger",
-      label: "Local AI",
+      label,
       detail: "Ollama is not reachable on the default local port.",
-      tips: localAiTips({ reachable, modelPresent, model }),
+      tips: localAiTips(tipInput),
     };
   }
   if (!modelPresent) {
     return {
-      ...partial,
+      ...healthFields,
       tone: "warn",
-      label: "Local AI",
+      label,
       detail: `Ollama is running, but ${model} is not installed.`,
-      tips: localAiTips({ reachable, modelPresent, model }),
+      tips: localAiTips(tipInput),
     };
   }
+  const throttleNote = reason ? ` Stepped down under host contention.` : "";
   return {
-    ...partial,
+    ...healthFields,
     tone: configured ? "ok" : "warn",
-    label: "Local AI",
-    detail: `${model} is ready at ${baseUrl}.`,
-    tips: [],
+    label,
+    detail: `${model} is ready at ${baseUrl}.${throttleNote}`,
+    tips: localAiTips({ ...tipInput, modelPresent: true }),
   };
 }
 
@@ -204,7 +246,6 @@ export type HealthDeps = {
 };
 
 export async function getHealthReport(deps: HealthDeps = {}): Promise<HealthReport> {
-  const config = getLlmConfig();
   const fixture = shouldUseFixture();
   const local = isLocalAiActive();
   const mode = fixture ? "fixture" : local ? "local" : "cloud";
@@ -214,13 +255,25 @@ export async function getHealthReport(deps: HealthDeps = {}): Promise<HealthRepo
 
   let reachable = mode !== "local";
   let modelPresent = mode !== "local";
+  let installed: string[] = [];
+  const preview = getLlmConfig();
   if (mode === "local") {
-    const probe = await probeModels(config.baseUrl);
+    const probe = await probeModels(preview.baseUrl);
     reachable = probe.reachable;
-    modelPresent = modelIsInstalled(probe.models, config.model);
+    installed = probe.models;
+    rememberInstalledModels(probe.models);
   } else if (mode === "cloud") {
     reachable = true;
     modelPresent = true;
+  }
+
+  const snapshot = await refreshAdaptiveTier({
+    configuredModel: getConfiguredModel(),
+    installedModels: mode === "local" ? installed : undefined,
+  });
+  const config = getLlmConfig();
+  if (mode === "local") {
+    modelPresent = modelIsInstalled(installed, config.model);
   }
 
   const localAi = buildLocalAiHealth({
@@ -230,6 +283,10 @@ export async function getHealthReport(deps: HealthDeps = {}): Promise<HealthRepo
     model: config.model,
     modelPresent,
     baseUrl: config.baseUrl,
+    configuredModel: snapshot.configuredModel,
+    activeTier: snapshot.activeTier,
+    contention: snapshot.contention,
+    reason: snapshot.reason,
   });
 
   const resolved = resolveBin();

@@ -16,7 +16,7 @@ import {
   setCadReshapeUpperConsumerForTests,
   stumpCutPlaneBoundsFromMesh,
 } from "@/lib/machine";
-import type { CadReshapeHandoff } from "@/lib/machine/reshape-plan";
+import { formatCadUpperStatus, type CadReshapeHandoff } from "@/lib/machine/reshape-plan";
 import {
   diagnosePrintComplaint,
   isEmergencyReshapeRequest,
@@ -485,6 +485,17 @@ describe("CadReshapeHandoff optionals from Print Control sources", () => {
 });
 
 describe("CAD consumer wiring + scope", () => {
+  it("formats CAD upper status without a double period", () => {
+    expect(formatCadUpperStatus({ invoked: true, ok: true })).toBe("CAD upper is on the plate.");
+    expect(
+      formatCadUpperStatus({
+        invoked: true,
+        ok: false,
+        error: "CAD reshape upper needs remainingHeightMm > 0 from Print Control.",
+      }),
+    ).toBe("CAD refused: CAD reshape upper needs remainingHeightMm > 0 from Print Control.");
+  });
+
   it("does not import etch, Agent Smith, or Ollama on the Print Control reshape path", async () => {
     const files = [
       "lib/machine/reshape.ts",

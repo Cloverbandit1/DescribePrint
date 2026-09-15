@@ -156,6 +156,13 @@ function photoPlateHeadline(meta?: ImageImportMeta | null): string {
   return "Photo solid on the plate — backside inferred (luminance depth)";
 }
 
+function cadUpperStatusLine(upper?: { invoked?: boolean; ok?: boolean; error?: string }): string {
+  if (!upper?.invoked) return "";
+  if (upper.ok) return " CAD upper ready.";
+  const error = (upper.error ?? "unknown error").replace(/\.+$/, "");
+  return ` CAD refused: ${error}.`;
+}
+
 /** Everyday status only — pipeline jargon stays out of the main view. */
 const FRIENDLY_STEP: Record<PipelineStep, string> = {
   queued: "Starting…",
@@ -1488,11 +1495,7 @@ function ChatBubble({
                   : "Remaining height unknown"}
                 {result.reshape.currentZ != null ? ` above Z ${result.reshape.currentZ.toFixed(2)}` : ""}. Resume is
                 manual.
-                {result.reshape.cadUpper?.ok
-                  ? " CAD upper ready."
-                  : result.reshape.cadUpper?.invoked
-                    ? ` CAD refused: ${result.reshape.cadUpper.error ?? "unknown error"}.`
-                    : ""}
+                {cadUpperStatusLine(result.reshape.cadUpper)}
               </div>
             ) : null}
           </div>
@@ -2179,11 +2182,7 @@ function MachinePanel({
             ? `remaining ${reshapePlan.remainingHeightMm.toFixed(2)} mm`
             : "remaining height unknown"}
           {reshapePlan.currentZ != null ? ` above Z ${reshapePlan.currentZ.toFixed(2)}` : ""}. Resume is manual.
-          {reshapePlan.cadUpper?.ok
-            ? " CAD upper ready."
-            : reshapePlan.cadUpper?.invoked
-              ? ` CAD refused: ${reshapePlan.cadUpper.error ?? "unknown error"}.`
-              : ""}
+          {cadUpperStatusLine(reshapePlan.cadUpper)}
         </div>
       ) : reshapeOn ? (
         <div className="mt-1">reshape: stub · resume is manual</div>

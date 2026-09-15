@@ -280,5 +280,6 @@ export function formatEmergencyReshapeMessage(input: {
 export function formatCadUpperStatus(upper?: CadReshapeUpperOutcome): string | undefined {
   if (!upper?.invoked) return undefined;
   if (upper.ok) return "CAD upper is on the plate.";
-  return `CAD refused: ${upper.error ?? "unknown error"}.`;
+  const error = (upper.error ?? "unknown error").replace(/\.+$/, "");
+  return `CAD refused: ${error}.`;
 }

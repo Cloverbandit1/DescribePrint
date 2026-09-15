@@ -90,6 +90,10 @@ describe("LLM prompt", () => {
     expect(prompt).toMatch(/0\.4 mm/);
     expect(planSystemPrompt()).toMatch(/256 × 256 × 256 mm/);
     expect(planSystemPrompt()).toMatch(/through-holes fully pierce/i);
+    expect(prompt).toMatch(/print-in-place/i);
+    expect(prompt).toMatch(/never union/i);
+    expect(planSystemPrompt()).toMatch(/"type":"hinge\|pin\|ball\|snap"/);
+    expect(planSystemPrompt()).toMatch(/omit the joints array unless/i);
   });
 
   it("embeds a design plan in the codegen prompt", () => {
@@ -132,6 +136,9 @@ describe("LLM prompt", () => {
     );
     expect(classifyCompileIssue("Floating island: 2 disconnected solids")).toEqual(
       expect.arrayContaining([expect.stringMatching(/one connected solid/i)]),
+    );
+    expect(classifyCompileIssue("Floating island: 2 disconnected solids", { printInPlace: true })).toEqual(
+      expect.arrayContaining([expect.stringMatching(/do not union the pin/i)]),
     );
     expect(classifyCompileIssue("Part does not sit on z=0 (lowest Z is 12.0 mm)")).toEqual(
       expect.arrayContaining([expect.stringMatching(/z=0/i)]),
@@ -200,6 +207,7 @@ describe("LLM prompt", () => {
     expect(prompt).toContain("follow-up");
     expect(prompt).toContain("cube(20);");
     expect(prompt).toMatch(/Keep one_piece true/i);
+    expect(prompt).toMatch(/Keep joints only if they still want motion/i);
   });
 
   it("parses a CAD plan from raw or fenced JSON and rejects junk", () => {
@@ -213,6 +221,19 @@ describe("LLM prompt", () => {
     expect(raw?.holes[0]?.through).toBe(true);
     expect(raw?.sit_on_z0).toBe(true);
     expect(raw?.color_regions).toBeUndefined();
+    const withJoints = parseCadPlan(
+      JSON.stringify({
+        object: "box",
+        features: [{ name: "lid" }],
+        holes: [],
+        min_wall_mm: 1.6,
+        clearance_mm: 0.4,
+        joints: [{ type: "hinge", intent: "print-in-place", radial_mm: 0.4, axial_mm: 0.5 }],
+        clearance_intent: "print-in-place",
+      }),
+    );
+    expect(withJoints?.joints?.[0]).toMatchObject({ type: "hinge", intent: "print-in-place", radial_mm: 0.4 });
+    expect(withJoints?.clearance_intent).toBe("print-in-place");
     expect(parseCadPlan("not json at all")).toBeNull();
     expect(parseCadPlan('{"hello":true}')).toBeNull();
   });
@@ -250,6 +271,28 @@ describe("LLM prompt", () => {
     const thin = normalizeCadPlan(raw!, { prompt: "0.8mm wall clip" });
     expect(thin.min_wall_mm).toBe(0.8);
     expect(thin.features[0]?.dims_mm?.wall).toBe(0.8);
+
+    const hallucinatedJoints = parseCadPlan(
+      JSON.stringify({
+        object: "tray",
+        features: [{ name: "body" }],
+        holes: [],
+        min_wall_mm: 1.6,
+        clearance_mm: 0.3,
+        joints: [{ type: "hinge", intent: "print-in-place", radial_mm: 0.4, axial_mm: 0.5 }],
+        clearance_intent: "print-in-place",
+      }),
+    );
+    const stillOnePiece = normalizeCadPlan(hallucinatedJoints!, { prompt: "a sturdy tray" });
+    expect(stillOnePiece.one_piece).toBe(true);
+    expect(stillOnePiece.joints).toBeUndefined();
+    expect(stillOnePiece.clearance_intent).toBeUndefined();
+
+    const hinged = normalizeCadPlan(hallucinatedJoints!, { prompt: "hinged box lid print-in-place" });
+    expect(hinged.one_piece).toBe(true);
+    expect(hinged.clearance_intent).toBe("print-in-place");
+    expect(hinged.joints?.[0]).toMatchObject({ type: "hinge", radial_mm: 0.4, axial_mm: 0.5 });
+    expect(hinged.clearance_mm).toBe(0.4);
 
     const colored = parseCadPlan(
       JSON.stringify({

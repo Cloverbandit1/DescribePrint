@@ -165,6 +165,40 @@ describe("generate pipeline (local AI + fixtures)", () => {
     });
   });
 
+  it("keeps print-in-place joints on a motion prompt and strips them otherwise", async () => {
+    await withEnv({ SMART_PIPELINE: "1" }, async () => {
+      const hingePlan = JSON.stringify({
+        object: "box",
+        one_piece: false,
+        units: "mm",
+        features: [{ name: "lid", kind: "hinge" }],
+        holes: [],
+        min_wall_mm: 1.6,
+        clearance_mm: 0.4,
+        joints: [{ type: "hinge", intent: "print-in-place", radial_mm: 0.4, axial_mm: 0.5 }],
+        clearance_intent: "print-in-place",
+        sit_on_z0: true,
+      });
+      mockedChat.mockResolvedValueOnce(hingePlan).mockResolvedValueOnce(GOOD_SCAD);
+      mockedCompile.mockResolvedValue(compileOk());
+      await runGeneratePipeline({ prompt: "hinged box lid print-in-place" });
+      const [codeMessages] = mockedChat.mock.calls[1] as unknown as [{ role: string; content: string }[]];
+      const user = codeMessages[1]?.content ?? "";
+      expect(user).toMatch(/"one_piece":true/);
+      expect(user).toMatch(/"clearance_intent":"print-in-place"/);
+      expect(user).toMatch(/"type":"hinge"/);
+      expect(user).toMatch(/do not union moving members/i);
+
+      mockedChat.mockClear();
+      mockedChat.mockResolvedValueOnce(hingePlan).mockResolvedValueOnce(GOOD_SCAD);
+      await runGeneratePipeline({ prompt: "a sturdy tray" });
+      const [trayMessages] = mockedChat.mock.calls[1] as unknown as [{ role: string; content: string }[]];
+      const trayUser = trayMessages[1]?.content ?? "";
+      expect(trayUser).toMatch(/"one_piece":true/);
+      expect(trayUser).not.toMatch(/"type":"hinge"/);
+    });
+  });
+
   it("falls back to single codegen when the plan JSON is unusable", async () => {
     await withEnv({ SMART_PIPELINE: "1" }, async () => {
       mockedChat.mockResolvedValueOnce("I refuse to plan this").mockResolvedValueOnce(GOOD_SCAD);

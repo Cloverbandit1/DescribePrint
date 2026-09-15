@@ -2,6 +2,7 @@
  * Printer-aware printability rules for the describe → OpenSCAD path.
  * Defaults come from the V0 P2S stub in printers.ts (256³ mm, 0.4 mm nozzle).
  */
+import { formatJointConstraints } from "./joints";
 import { defaultPrinter, type PrinterProfile } from "./printers";
 import type { PrintabilityReport } from "./types";
 
@@ -125,7 +126,8 @@ export function formatPrinterConstraints(rules: PrintRules = printRules()): stri
     `Printer target: ${rules.printerName}. Build volume ${x} × ${y} × ${z} mm. Nozzle ${rules.nozzleMm} mm.`,
     `- Fit every dimension on that bed unless the user asks for a larger object.`,
     `- Minimum wall ${rules.minWallMm} mm (4× nozzle). Minimum through-hole ${rules.minHoleMm} mm unless they ask smaller.`,
-    `- Clearance ~${rules.clearanceMm} mm per side on fits. One connected solid on z=0. No floating islands.`,
+    `- Clearance ~${rules.clearanceMm} mm per side on fits. One connected solid on z=0 unless the user asked for a joint / moving assembly.`,
+    formatJointConstraints(),
   ].join("\n");
 }
 
@@ -136,9 +138,10 @@ const IMPORTED_WRAP_RETRY_CODES = new Set(["disconnected", "off-bed"]);
 export function shouldRetryPrintability(
   report: PrintabilityReport,
   rules: PrintRules = printRules(),
-  opts: { importedWrap?: boolean } = {},
+  opts: { importedWrap?: boolean; allowDisconnected?: boolean } = {},
 ): boolean {
-  const retryCodes = opts.importedWrap ? IMPORTED_WRAP_RETRY_CODES : RETRY_CODES;
+  const retryCodes = new Set(opts.importedWrap ? IMPORTED_WRAP_RETRY_CODES : RETRY_CODES);
+  if (opts.allowDisconnected) retryCodes.delete("disconnected");
   if (report.issues.some((issue) => retryCodes.has(issue.code))) return true;
   if (!report.issues.some((issue) => issue.code === "thin-wall" || issue.code === "undersized")) {
     return false;

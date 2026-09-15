@@ -7,6 +7,15 @@ import {
 } from "./llm-config";
 import { isDefaultOnlyRegions, mergeColorRegionSources } from "./color-regions";
 import {
+  hasPrintInPlaceJoints,
+  inferClearanceIntent,
+  normalizeCadJoints,
+  parseCadJoints,
+  parseClearanceIntent,
+  type CadJoint,
+  type ClearanceIntent,
+} from "./joints";
+import {
   allowsThinWalls,
   bedMaxMm,
   extractScadParams,
@@ -48,6 +57,9 @@ export type CadPlan = {
   clearance_mm: number;
   sit_on_z0: boolean;
   safety_notes?: string;
+  /** Present only when the user asked for motion / a moving assembly. */
+  joints?: CadJoint[];
+  clearance_intent?: ClearanceIntent;
   color_regions?: Array<{
     name: string;
     color?: string;
@@ -65,7 +77,7 @@ Reply with ONLY OpenSCAD code (no markdown unless fenced as \`\`\`openscad). No 
 
 Units and output
 - Units are millimeters. OpenSCAD is unitless; treat 1 unit = 1 mm. Never invent inches or "OpenSCAD units".
-- Produce a single manifold solid suitable for slicing. Prefer one piece first (union overlapping solids). Split only if the user clearly needs an assembly.
+- Produce a single manifold solid suitable for slicing. Prefer one piece first (union overlapping solids). Split only if the user clearly needs an assembly or a moving joint.
 - Sit the part on z=0 (build plate) when practical. Keep the positive-Z up orientation printable without supports when a simple redesign can avoid them.
 - Keep the part on the target printer bed unless the user asks otherwise.
 
@@ -73,6 +85,7 @@ Printable engineering
 - Minimum wall thickness 1.6 mm (1.2 mm only if the user insists and the feature is short).
 - Through-holes diameter >= 2.5 mm unless the user asks smaller; add 0.3–0.4 mm clearance on holes meant to fit a real fastener or shaft.
 - Snap / press / sliding fits: leave 0.2–0.4 mm clearance per side. Do not design interference that cannot print.
+- Joints only when the user asks for a hinge, pin, ball, snap, or other moving assembly. Prefer print-in-place: emit SEPARATE solids with named radial_mm / axial_mm gaps — never union the pin, lid, or rotor into a fused blob. Removable multi-part kits use the larger documented clearances. Hinge and pin must be real CSG (knuckles + captured pin, or cheeks + rotor/pin). Ball and snap are stubs: a socket or cantilever with the documented gap, not a full gimbal / living-hinge library.
 - Avoid zero-thickness faces, knife edges, and non-manifold boolean leftovers. Difference() cutters should fully pierce the host solid (overshoot by 0.2–1 mm).
 - Prefer fillets/chamfers only when they stay printable (no tiny unsupported overhangs).
 - If the request is mechanically ambiguous, pick everyday real-world dimensions and still emit a printable part.
@@ -94,13 +107,14 @@ Safety
 const PLAN_SYSTEM_PROMPT = `You are a CAD planner for FDM 3D printing. Reply with ONLY compact JSON (no markdown, no prose).
 
 Schema:
-{"object":string,"one_piece":true,"units":"mm","overall_mm":{"x":n,"y":n,"z":n},"features":[{"name":string,"kind":string,"dims_mm":{"…":n},"notes":string}],"holes":[{"d":n,"purpose":string,"through":true}],"min_wall_mm":n,"clearance_mm":n,"sit_on_z0":true,"safety_notes":string,"color_regions":[{"name":string,"color":string,"hex":"#RRGGBB","filament":"pla","ams_slot":1}]}
+{"object":string,"one_piece":true,"units":"mm","overall_mm":{"x":n,"y":n,"z":n},"features":[{"name":string,"kind":string,"dims_mm":{"…":n},"notes":string}],"holes":[{"d":n,"purpose":string,"through":true}],"min_wall_mm":n,"clearance_mm":n,"sit_on_z0":true,"safety_notes":string,"joints":[{"type":"hinge|pin|ball|snap","intent":"print-in-place|multi-part","radial_mm":n,"axial_mm":n,"notes":string}],"clearance_intent":"print-in-place","color_regions":[{"name":string,"color":string,"hex":"#RRGGBB","filament":"pla","ams_slot":1}]}
 
 Rules:
-- Millimeters only. Real-world dimensions. One piece first unless the user clearly asks for an assembly / multi-part kit.
+- Millimeters only. Real-world dimensions. One piece first unless the user clearly asks for an assembly / multi-part kit or a moving joint.
+- Joints: omit the joints array unless the user asks for a hinge, pin, ball, snap, or other motion. Prefer print-in-place (one print, separate solids with radial/axial gaps). Use multi-part only when they ask for separate / removable pieces. Hinge and pin are real; ball and snap are clearance stubs.
 - If the user names colors or materials, fill color_regions (named body or painted feature, hex, optional pla/petg/abs/tpu). ams_slot is 1–4 export metadata, not a live printer. Omit color_regions when no color is mentioned.
-- Every feature must attach to the main solid (no floating islands). Through-holes fully pierce (overshoot 0.2–1 mm).
-- min_wall_mm >= 1.6 unless the user insists thinner. clearance_mm ~ 0.3 for fits. Sit the part on z=0.
+- Every feature must attach to the main solid unless it is a planned joint member. Through-holes fully pierce (overshoot 0.2–1 mm).
+- min_wall_mm >= 1.6 unless the user insists thinner. clearance_mm ~ 0.3 for ordinary fits; for joints use the documented radial_mm. Sit the part on z=0.
 - Fit overall_mm on the target printer bed unless they asked for a larger object.
 - If the request is unsafe or nonsense, plan a safe printable alternative and note it in safety_notes. Do not refuse in words — plan the safe part.
 - Keep the JSON short. No OpenSCAD in this pass.
@@ -127,7 +141,10 @@ export const IMPORTED_MESH_REPAIR_INSTRUCTIONS = `Fix instructions (imported-mes
 6. Sit the result on z=0. One connected solid. Walls ≥ 1.6 mm.
 7. Prefer the smallest change that compiles. Feed compiler / mesh / printability errors back into this same wrap.`;
 
-export function classifyCompileIssue(error: string, opts: { importedMesh?: boolean } = {}): string[] {
+export function classifyCompileIssue(
+  error: string,
+  opts: { importedMesh?: boolean; printInPlace?: boolean } = {},
+): string[] {
   const hints: string[] = [];
   const text = error ?? "";
   if (/syntax|parser|unexpected|missing ;|WARNING: Ignoring unknown|ERROR:/i.test(text)) {
@@ -156,7 +173,9 @@ export function classifyCompileIssue(error: string, opts: { importedMesh?: boole
     hints.push(
       opts.importedMesh
         ? "A second solid is usually a unioned cutter. difference() the hole; keep one connected imported part."
-        : "Union every body into one connected solid; add a 1.6+ mm bridge if pieces must stay attached.",
+        : opts.printInPlace
+          ? "Print-in-place joints are separate solids. Do not union the pin, lid, or rotor. Keep the documented radial_mm / axial_mm gaps."
+          : "Union every body into one connected solid; add a 1.6+ mm bridge if pieces must stay attached.",
     );
   }
   if (/off-bed|sit on z|lowest z/i.test(text)) {
@@ -184,11 +203,15 @@ export function buildRepairPrompt(input: {
   plan?: CadPlan | null;
   importedMesh?: boolean;
 }): string {
+  const printInPlace = hasPrintInPlaceJoints(input.plan);
   const parts = [
     REPAIR_HEADER,
     input.importedMesh ? IMPORTED_MESH_REPAIR_INSTRUCTIONS : REPAIR_INSTRUCTIONS,
   ];
-  const hints = classifyCompileIssue(input.error, { importedMesh: input.importedMesh });
+  const hints = classifyCompileIssue(input.error, {
+    importedMesh: input.importedMesh,
+    printInPlace,
+  });
   if (hints.length) {
     parts.push(`Error-specific hints:\n- ${hints.join("\n- ")}`);
   }
@@ -351,10 +374,19 @@ export function buildUserPrompt(input: {
   }
   if (input.plan) {
     parts.push(`Design plan (follow these features and millimeters):\n${JSON.stringify(input.plan)}`);
+    if (input.plan.joints?.length) {
+      parts.push(
+        `Joints: emit separate solids with radial_mm / axial_mm from the plan. Prefer print-in-place. Do not union moving members. Hinge and pin must be real CSG; ball and snap are stubs with those gaps.`,
+      );
+    }
   }
   if (input.previousCode) {
     if (wantsNewDesign(input.prompt)) {
       parts.push(`The user wants a new object. You may start from scratch.`);
+    } else if (input.plan?.joints?.length) {
+      parts.push(
+        `This is a follow-up edit of a working jointed part. Keep the named clearances and separate solids. Apply only the user's latest change.`,
+      );
     } else {
       parts.push(
         `This is a follow-up edit of a working printable part. Keep the same overall design, named parameters, unions, and difference() structure. Apply only the user's latest change. Do not drop working features, invent a new object, or split into multiple bodies unless they clearly ask.`,
@@ -386,7 +418,7 @@ export function buildPlanPrompt(input: {
       parts.push(`The user wants a new object. Plan from scratch.`);
     } else {
       parts.push(
-        `This is a follow-up edit. Update only the requested dimensions/features. Keep one_piece true unless they asked for an assembly. Do not start over.`,
+        `This is a follow-up edit. Update only the requested dimensions/features. Keep one_piece true unless they asked for an assembly or a moving joint. Keep joints only if they still want motion. Do not start over.`,
       );
     }
     if (input.previousPrompt) {
@@ -479,6 +511,16 @@ export function parseCadPlan(raw: string): CadPlan | null {
 
   const minWall = asFiniteNumber(rec.min_wall_mm) ?? 1.6;
   const clearance = asFiniteNumber(rec.clearance_mm) ?? 0.3;
+  const joints = parseCadJoints(rec.joints ?? rec.joint);
+  if (!joints.length) {
+    const inferred = parseCadJoints({
+      type: rec.joint_type ?? rec.jointType,
+      intent: rec.clearance_intent ?? rec.intent,
+      radial_mm: rec.clearance_mm,
+    });
+    joints.push(...inferred);
+  }
+  const clearance_intent = parseClearanceIntent(rec.clearance_intent ?? rec.intent) ?? joints[0]?.intent;
 
   const rawColors = Array.isArray(rec.color_regions)
     ? rec.color_regions
@@ -515,6 +557,8 @@ export function parseCadPlan(raw: string): CadPlan | null {
     clearance_mm: clearance > 0 ? clearance : 0.3,
     sit_on_z0: rec.sit_on_z0 !== false,
     safety_notes: asString(rec.safety_notes),
+    joints: joints.length ? joints : undefined,
+    clearance_intent,
     color_regions: colorRegions.length ? colorRegions : undefined,
   };
 }
@@ -671,7 +715,13 @@ export function normalizeCadPlan(
     min_wall_mm = rules.minWallMm;
   }
 
-  const clearance_mm = plan.clearance_mm > 0 ? plan.clearance_mm : rules.clearanceMm;
+  const intent = inferClearanceIntent(input.prompt);
+  const normalizedJoints = normalizeCadJoints(plan.joints ?? [], input.prompt);
+  const joints = normalizedJoints.joints;
+  const clearance_intent = normalizedJoints.clearance_intent;
+  const clearance_mm =
+    joints[0]?.radial_mm ??
+    (plan.clearance_mm > 0 ? plan.clearance_mm : rules.clearanceMm);
   const bed = bedMaxMm(rules);
   let overall_mm = plan.overall_mm;
   if (overall_mm) {
@@ -719,15 +769,24 @@ export function normalizeCadPlan(
         ams_slot: region.amsSlot,
       }));
 
+  let one_piece = true;
+  if (intent === "print-in-place") {
+    one_piece = true;
+  } else if (intent === "multi-part" || multi) {
+    one_piece = plan.one_piece;
+  }
+
   return {
     ...plan,
-    one_piece: multi ? plan.one_piece : true,
+    one_piece,
     sit_on_z0: true,
     min_wall_mm,
     clearance_mm,
     overall_mm,
     holes,
     features,
+    joints: joints.length ? joints : undefined,
+    clearance_intent,
     color_regions,
   };
 }

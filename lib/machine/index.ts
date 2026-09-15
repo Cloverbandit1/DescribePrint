@@ -150,6 +150,22 @@ export {
   type CameraDoctorMidPrintChip,
 } from "./camera-doctor-bridge";
 export {
+  FAILURE_PHOTO_ASK,
+  FAILURE_PHOTO_NOTE,
+  annotateFailurePhotoDiagnosis,
+  diagnosisFromFailurePhoto,
+  failurePhotoAskResult,
+  failurePhotoHaystack,
+  failurePhotoOwnsPrintControlOnly,
+  formatFailurePhotoUserLine,
+  looksLikeFailurePhotoCaption,
+  replayFailurePhoto,
+  type FailurePhotoCadSuggestion,
+  type FailurePhotoInput,
+  type FailurePhotoKind,
+  type FailurePhotoReplay,
+} from "./failure-photo";
+export {
   bambuTopics,
   buildBambuCommandPayload,
   buildPushAllRequest,

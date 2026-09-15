@@ -15,6 +15,14 @@ import type { HealthReport, HealthTone } from "@/lib/health-types";
 import { MACHINE_RESHAPE_STORAGE_KEY, parseReshapeRemainingPref } from "@/lib/machine/reshape";
 import { FARM_QUEUE_NOTE, nextFarmStubName } from "@/lib/machine/farm";
 import {
+  ESTIMATE_COST_SESSION_KEY,
+  defaultCostPerKgFor,
+  estimatePrintFromReport,
+  formatPrintEstimateLine,
+  parseCostPerKgMap,
+  serializeCostPerKgMap,
+} from "@/lib/machine/print-estimate";
+import {
   PLATE_PACK_NOTE,
   copiesOfPart,
   packOverlays,
@@ -698,6 +706,8 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
               }}
             />
 
+            <PrintEstimateBlock result={result} material={material} printer={printer} />
+
             <button
               type="button"
               disabled={!canPrint}
@@ -1043,6 +1053,78 @@ function DesignOptionChips({
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function PrintEstimateBlock({
+  result,
+  material,
+  printer,
+}: {
+  result: GenerateResult | null;
+  material: FilamentId;
+  printer: PrinterProfile;
+}) {
+  const [costByMaterial, setCostByMaterial] = useState<Partial<Record<FilamentId, number>>>({});
+  const [costReady, setCostReady] = useState(false);
+  const [showCost, setShowCost] = useState(false);
+
+  useEffect(() => {
+    setCostByMaterial(parseCostPerKgMap(window.localStorage.getItem(ESTIMATE_COST_SESSION_KEY)));
+    setCostReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!costReady) return;
+    window.localStorage.setItem(ESTIMATE_COST_SESSION_KEY, serializeCostPerKgMap(costByMaterial));
+  }, [costByMaterial, costReady]);
+
+  const costPerKg = costByMaterial[material] ?? defaultCostPerKgFor(material);
+  const estimate = useMemo(
+    () => estimatePrintFromReport(result?.report, material, { costPerKg, printer }),
+    [result?.report, material, costPerKg, printer],
+  );
+
+  return (
+    <div className="rounded-md border border-line bg-panel-2 p-2.5 text-[11px] leading-relaxed text-muted">
+      <div className="studio-label">Estimate (stub)</div>
+      {estimate ? (
+        <div className="mt-1 text-ink" title={estimate.assumptions.note}>
+          {formatPrintEstimateLine(estimate)}
+        </div>
+      ) : (
+        <div className="mt-1">Print something first</div>
+      )}
+      <button
+        type="button"
+        className="mt-1 text-[11px] text-muted underline-offset-2 hover:underline"
+        onClick={() => setShowCost((v) => !v)}
+      >
+        {showCost ? "Hide $/kg" : "$/kg"}
+      </button>
+      {showCost ? (
+        <label className="mt-1.5 grid grid-cols-[4.5rem_1fr] items-center gap-x-1.5 text-ink" htmlFor="print-estimate-cost">
+          <span>$/kg</span>
+          <input
+            id="print-estimate-cost"
+            type="number"
+            min={1}
+            max={9999}
+            step={1}
+            inputMode="decimal"
+            className="studio-field h-6 px-1.5 text-[11px]"
+            value={costPerKg}
+            onChange={(event) => {
+              const n = Number(event.target.value);
+              setCostByMaterial((prev) => ({
+                ...prev,
+                [material]: Number.isFinite(n) && n > 0 ? n : defaultCostPerKgFor(material),
+              }));
+            }}
+          />
+        </label>
+      ) : null}
     </div>
   );
 }

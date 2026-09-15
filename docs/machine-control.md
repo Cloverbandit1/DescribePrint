@@ -11,6 +11,7 @@ Default machine remains **Bambu Lab P2S** with one **AMS (4 slots)**.
 3. A **Print doctor** keyword/rule stub: plain-language defect or machine complaint → structured diagnosis + proposed setting or physical steps. No LLM and no LAN I/O.
 4. A **camera / failure-detect stub** (flag off by default), **AMS feed-loop autofix** (flag off by default), and **emergency remaining-layer reshape** (flag off by default).
 5. A **smart plate-packing stub** — largest-first shelf layout of current-job AABBs (or N copies) on the P2S 256×256 mm bed. Layout only; no LAN and no farm enqueue.
+6. A **print time / filament / cost estimate stub** — compact line above Print from mesh volume (or AABB) × infill × density, using the selected material preset. Advisory only.
 
 The Print column shows a compact **Machine** panel. Everyday path: toggle **LAN MQTT**, enter IP / serial / LAN access code (saved in the browser). Off stays disconnected / mock. On with incomplete fields stays mock and shows a short hint — no crash. Env `BAMBU_LAN_MQTT=1` plus creds is a headless/dev override. Live P2S/AMS status and tiny pause/resume/speed/temp controls appear when connected. Chat can route a complaint to Print doctor **without** calling the CAD generate path. STL/3MF export still works with no printer.
 
@@ -141,6 +142,17 @@ Chat-first: a complaint hits `/api/machine` with `{ complaint }`. When the flag 
 
 Chat can also say “use PETG settings” or “best for PA” to switch the Machine-panel material and apply that table. Those presets stay advisory (panel + export metadata). No CAD rewrite. No LLM. Chat-first: “stringing with PETG” or “AMS 2 keeps looping feed/unfeed”.
 
+### Time / filament / cost estimate (stub)
+
+[`lib/machine/print-estimate.ts`](../lib/machine/print-estimate.ts) shows an approximate **estimate (stub)** in the Print column (above Print, under the material presets):
+
+- Volume: current job `report.volumeMm3` (STL / mesh signed volume) when present; otherwise the same AABB `report.boundingBoxMm.size` product packing uses.
+- Filament: volume × **20% infill** × approximate density (PLA 1.24 / PETG 1.27 / PA 1.14 / ABS 1.04 / TPU 1.21 g/cm³ — typical slicer / datasheet constants, not a spool lot).
+- Time: plastic volume ÷ (`printSpeedMms` × `nozzleMm` × `layerHeightMm` × flow) from the selected P2S auto-best preset (default PLA, 0.2 mm layer).
+- Cost: grams × user-editable **$/kg** (defaults $20 / $25 / $45 / $22 / $35). Overrides stay in `localStorage` (`describeprint.estimate.costPerKg`).
+
+Empty plate → “Print something first”. Line looks like `~1h 5m · 12 g · $0.24 (stub)`. Recalculates when the result or material changes. No LAN, no farm enqueue, no packing change.
+
 ### Auto-best material presets
 
 The Print column material picker (default **PLA**) reads [`P2S_FILAMENT_PRESETS`](../lib/printers.ts). **PA / nylon** is a P2S-safe table: higher nozzle/bed within 300 °C / 110 °C, low fan, dryer + closed-door notes. Choosing a material updates the compact defaults (temps, speed tier, cooling hint) and stamps the same snapshot onto:
@@ -228,7 +240,7 @@ Taken from Bambu’s published P2S specs / FAQ (see sources below):
 
 ## Tests
 
-`npm test` must pass **without** a physical printer. Coverage targets: profile tables (including PA), material session parse, doctor diagnoses + “use PETG settings” / “best for PA”, 3MF preset metadata / sidecar fields, AMS mapping, pause-before-risky, mock connection state machine, flag off = mock, UI toggle + incomplete creds = mock + hint, UI toggle + complete creds selects `bambu-lan` without setting the env flag, env override still works, live adapter + fake/unhealthy endpoint fails safe without leaking secrets, camera stub `detectFailure` (stub only), live poll + detect (flag off = no detect; flag on + mock `none` = `camera: ok`; injected spaghetti / scrape / empty-bed surfaces on the panel and doctor without auto-pause), AMS autofix flag off (no commands) vs flag on (pause then autofix or physical steps), remaining-layer reshape flag off (no pause, no live plan) vs flag on + injected remaining height (pause + plan, no resume, `remainingHeightMm` / `currentZ` present). Handoff optionals (`previousCode`, `stumpCutPlaneBoundsMm`, `layerHeightMm`) are present when a job / live layer height / selected preset exists and omitted when those sources are unknown. `remainingHeightMm` is still not derived from remaining layer count. Farm registry: default one P2S; add / select / remove; selected machine is what adapter `status()` uses; registry ops never perform LAN writes. Farm queue worker: enqueue → `queued`; tick → `active` then `done`; enqueue/tick never select `bambu-lan` or call connect/send. Plate pack: single part fits; two parts pack without overlap; oversized → `fitted: false` + rotate/split advice; placements stay inside the P2S 256×256 mm plate.
+`npm test` must pass **without** a physical printer. Coverage targets: profile tables (including PA), material session parse, doctor diagnoses + “use PETG settings” / “best for PA”, 3MF preset metadata / sidecar fields, AMS mapping, pause-before-risky, mock connection state machine, flag off = mock, UI toggle + incomplete creds = mock + hint, UI toggle + complete creds selects `bambu-lan` without setting the env flag, env override still works, live adapter + fake/unhealthy endpoint fails safe without leaking secrets, camera stub `detectFailure` (stub only), live poll + detect (flag off = no detect; flag on + mock `none` = `camera: ok`; injected spaghetti / scrape / empty-bed surfaces on the panel and doctor without auto-pause), AMS autofix flag off (no commands) vs flag on (pause then autofix or physical steps), remaining-layer reshape flag off (no pause, no live plan) vs flag on + injected remaining height (pause + plan, no resume, `remainingHeightMm` / `currentZ` present). Handoff optionals (`previousCode`, `stumpCutPlaneBoundsMm`, `layerHeightMm`) are present when a job / live layer height / selected preset exists and omitted when those sources are unknown. `remainingHeightMm` is still not derived from remaining layer count. Farm registry: default one P2S; add / select / remove; selected machine is what adapter `status()` uses; registry ops never perform LAN writes. Farm queue worker: enqueue → `queued`; tick → `active` then `done`; enqueue/tick never select `bambu-lan` or call connect/send. Plate pack: single part fits; two parts pack without overlap; oversized → `fitted: false` + rotate/split advice; placements stay inside the P2S 256×256 mm plate. Print estimate: known cube volume → ballpark grams; material switch changes density/cost; no mesh → null.
 
 ## Sources
 

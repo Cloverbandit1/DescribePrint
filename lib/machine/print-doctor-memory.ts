@@ -46,7 +46,7 @@ export function memoryScopeFromResult(result: PrintDoctorResult): PrintDoctorMem
   return {
     printerId: result.printerId,
     material: memoryMaterialKey(String(result.material)),
-    symptom: result.defectId,
+    symptom: result.amsGuide?.id ?? result.defectId,
   };
 }
 

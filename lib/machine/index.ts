@@ -74,6 +74,7 @@ export {
   AMS_FEED_LOOP_SENTINEL,
   amsFeedLoopPhysicalSteps,
   amsHintFromReport,
+  amsPhysicalStepsFor,
   detectsAmsFeedLoop,
   isAmsAutofixEnabled,
   isAmsPrintError,
@@ -81,6 +82,19 @@ export {
   trayIndexToSlot,
   type AmsAutofixResult,
 } from "./ams-autofix";
+export {
+  AMS_HELP_GUIDE_IDS,
+  amsHelpPhysicalSteps,
+  buildAmsHelpGuide,
+  formatAmsSlotLabel,
+  isAmsHelpGuideId,
+  resolveAmsHelpSlot,
+  selectAmsHelpGuide,
+  selectAmsHelpGuideId,
+  type AmsHelpGuide,
+  type AmsHelpGuideId,
+  type AmsHelpSelectInput,
+} from "./ams-help";
 export {
   MACHINE_CAMERA_STORAGE_KEY,
   cameraDetectCallCount,

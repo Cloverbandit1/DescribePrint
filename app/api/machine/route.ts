@@ -34,7 +34,13 @@ import {
 } from "@/lib/machine/reshape";
 import { getSharedMachine } from "@/lib/machine/runtime";
 import { getMachineUiSession, setMachineUiSession } from "@/lib/machine/session";
-import { diagnosisFromCameraDetect, diagnosePrintComplaint, withAutofix, withReshape } from "@/lib/print-doctor";
+import {
+  diagnosisFromAmsHint,
+  diagnosisFromCameraDetect,
+  diagnosePrintComplaint,
+  withAutofix,
+  withReshape,
+} from "@/lib/print-doctor";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -84,7 +90,7 @@ function payload(
     cameraDetect,
     ...extras,
     lastReshape: extras?.lastReshape ?? peekLastReshapePlan(),
-    diagnosis: extras?.diagnosis ?? diagnosisFromCameraDetect(cameraDetect),
+    diagnosis: extras?.diagnosis ?? diagnosisFromCameraDetect(cameraDetect) ?? diagnosisFromAmsHint(status.amsHint),
   };
 }
 
@@ -155,11 +161,22 @@ export async function POST(request: Request) {
   if (doctor) {
     applyReshapeRemainingPref(doctor.reshapeRemaining);
     const machine = getSharedMachine();
-    const diagnosis = doctor.complaint
-      ? diagnosePrintComplaint({ complaint: doctor.complaint, material: doctor.material })
-      : undefined;
-    const patched = diagnosis && doctor.slot != null ? { ...diagnosis, amsSlot: doctor.slot } : diagnosis;
     const status = await machine.status();
+    const liveSlot = doctor.slot ?? status.amsHint?.slot;
+    const liveRemain =
+      liveSlot != null
+        ? status.amsSlots.find((slot) => slot.slot === liveSlot)?.remainingPercent
+        : status.amsSlots.find((slot) => slot.remainingPercent === 0)?.remainingPercent;
+    const diagnosis = doctor.complaint
+      ? diagnosePrintComplaint({
+          complaint: doctor.complaint,
+          material: doctor.material,
+          amsSlot: liveSlot,
+          remainingPercent: liveRemain,
+          amsHint: status.amsHint,
+        })
+      : diagnosisFromAmsHint(status.amsHint, { remainingPercent: liveRemain, material: doctor.material });
+    const patched = diagnosis && liveSlot != null ? { ...diagnosis, amsSlot: diagnosis.amsSlot ?? liveSlot } : diagnosis;
     const session = getMachineUiSession();
     const cameraDetect = isCameraDetectEnabled(process.env, session.cameraStub)
       ? toCameraDetectReport(detectFailure(currentStubCameraFrame()))

@@ -1,5 +1,6 @@
 import { extractAmsSlot, type PrintDoctorResult } from "../print-doctor";
 import type { MachineAdapter } from "./adapter";
+import { amsHelpPhysicalSteps } from "./ams-help";
 import { envFlagEnabled, type ProcessEnvLike } from "./config";
 import type { AmsHint, CommandResult, LiveMachineStatus } from "./types";
 
@@ -27,11 +28,15 @@ export function isAmsAutofixEnabled(env: ProcessEnvLike = process.env): boolean 
 }
 
 export function amsFeedLoopPhysicalSteps(slot: number): string[] {
-  return [
-    `Pull filament from AMS ${slot}, check PTFE, retry.`,
-    "Make sure the spool can turn freely and is not tangled.",
-    "If the tip is chewed or flattened, cut a fresh 45° tip and reseat it.",
-  ];
+  return amsHelpPhysicalSteps("ams-feed-loop", slot);
+}
+
+export function amsPhysicalStepsFor(diagnosis?: PrintDoctorResult, slot?: number): string[] {
+  if (diagnosis?.amsGuide?.steps.length) {
+    return diagnosis.amsGuide.steps;
+  }
+  const resolved = slot ?? diagnosis?.amsSlot ?? 1;
+  return amsHelpPhysicalSteps("ams-feed-loop", resolved);
 }
 
 export function trayIndexToSlot(tray: number | undefined): number | undefined {
@@ -120,9 +125,14 @@ export async function maybeAutofixAmsFeedLoop(opts: {
   const looping = detectsAmsFeedLoop({ diagnosis: opts.diagnosis, status });
   const slot = resolveAmsLoopSlot({ diagnosis: opts.diagnosis, complaint: opts.complaint, status });
 
+  const physicalSteps = amsPhysicalStepsFor(opts.diagnosis, slot);
+
   if (!looping) return idleResult("No AMS feed loop detected.", slot);
   if (!enabled) {
-    return idleResult("AMS autofix is off — diagnosis only, no printer commands.", slot);
+    return {
+      ...idleResult("AMS autofix is off — diagnosis only, no printer commands.", slot),
+      physicalSteps,
+    };
   }
   if (status.connection !== "connected") {
     return {
@@ -132,7 +142,7 @@ export async function maybeAutofixAmsFeedLoop(opts: {
       slot,
       message: "Printer is not connected. Software autofix skipped.",
       commands: [],
-      physicalSteps: amsFeedLoopPhysicalSteps(slot),
+      physicalSteps,
     };
   }
 
@@ -150,7 +160,7 @@ export async function maybeAutofixAmsFeedLoop(opts: {
         slot,
         message: `Could not pause before AMS autofix. ${paused.message}`,
         commands,
-        physicalSteps: ["On the P2S screen, tap Pause.", ...amsFeedLoopPhysicalSteps(slot)],
+        physicalSteps: ["On the P2S screen, tap Pause.", ...physicalSteps],
       };
     }
     pausedFirst = true;
@@ -166,7 +176,7 @@ export async function maybeAutofixAmsFeedLoop(opts: {
       slot,
       message: `Paused, but could not stop AMS ${slot} feed. ${stop.message}`,
       commands,
-      physicalSteps: stop.physicalSteps ?? amsFeedLoopPhysicalSteps(slot),
+      physicalSteps: stop.physicalSteps ?? physicalSteps,
     };
   }
 
@@ -180,7 +190,7 @@ export async function maybeAutofixAmsFeedLoop(opts: {
       slot,
       message: `Software could not clear AMS ${slot}. Use the physical steps.`,
       commands,
-      physicalSteps: retry.physicalSteps ?? amsFeedLoopPhysicalSteps(slot),
+      physicalSteps: retry.physicalSteps ?? physicalSteps,
     };
   }
 

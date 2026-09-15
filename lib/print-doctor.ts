@@ -1,3 +1,10 @@
+import {
+  buildAmsHelpGuide,
+  isAmsHelpGuideId,
+  selectAmsHelpGuideId,
+  type AmsHelpGuide,
+} from "./machine/ams-help";
+import type { AmsHint } from "./machine/types";
 import type { EmergencyRemainingReshapePlan } from "./machine/reshape-plan";
 import {
   defaultPrinter,
@@ -13,6 +20,10 @@ export type PrintDoctorRequest = {
   complaint: string;
   printerId?: PrinterId;
   material?: FilamentId | string;
+  /** Live 1-based AMS slot when status/plan already knows it. */
+  amsSlot?: number;
+  remainingPercent?: number;
+  amsHint?: Pick<AmsHint, "kind" | "slot">;
 };
 
 export type PrintDoctorFix = {
@@ -48,6 +59,8 @@ export type PrintDoctorResult = {
   printerId: PrinterId;
   material: FilamentId | string;
   amsSlot?: number;
+  /** Structured AMS physical guide when the complaint or live hint is an AMS fault. */
+  amsGuide?: AmsHelpGuide;
   fixes: PrintDoctorFix[];
   physicalSteps: string[];
   autofix?: PrintDoctorAutofix;
@@ -120,6 +133,36 @@ const DEFECT_RULES: DefectRule[] = [
     id: "ams-feed-loop",
     title: "AMS feed / unfeed loop",
     re: /\b(feed|unfeed|reload|unload)\b[\s\S]{0,40}\b(loop(?:ing)?|ams)\b/i,
+    confidence: "high",
+  },
+  {
+    id: "ams-load-failed",
+    title: "AMS load failed",
+    re: /\b(can'?t\s+load|cannot\s+load|failed\s+to\s+load|load\s+failed|won'?t\s+load|not\s+loading)\b/i,
+    confidence: "high",
+  },
+  {
+    id: "ams-spool-empty",
+    title: "AMS spool empty / runout",
+    re: /\b(spool\s+empty|empty\s+spool|run-?out|ran\s+out|filament\s+ran\s+out|no\s+filament)\b/i,
+    confidence: "high",
+  },
+  {
+    id: "ams-tangled-spool",
+    title: "AMS tangled spool",
+    re: /\b(tangl(?:e|ed|ing)|over-?wound)\b[\s\S]{0,24}\b(spool|ams|filament)\b|\b(spool|ams)\b[\s\S]{0,28}\b(tangl(?:e|ed|ing)|over-?wound|won'?t\s+turn)\b/i,
+    confidence: "high",
+  },
+  {
+    id: "ams-ptfe-path",
+    title: "AMS PTFE path",
+    re: /\b(ptfe|bowden|buffer\s+tube)\b/i,
+    confidence: "high",
+  },
+  {
+    id: "ams-wet-pa",
+    title: "Wet PA / nylon",
+    re: /\b(?:wet\s+)?(?:pa(?:6|12|ht)?|nylon)\b[\s\S]{0,32}\b(wet|humid(?:ity)?|dryer|dry(?:ing)?)\b|\b(humid(?:ity)?|dryer)\b[\s\S]{0,24}\b(?:pa|nylon|ams)\b/i,
     confidence: "high",
   },
   {
@@ -197,7 +240,7 @@ const DEFECT_RULES: DefectRule[] = [
 ];
 
 const DOCTOR_HINT =
-  /\b(stringing|warp(?:ing)?|ams|clog|jam|spaghetti|empty\s+bed|nozzle\s*scrape|layer\s*shift|under[-\s]?extrud|over[-\s]?extrud|elephant|first\s+layer|not stick|nozzle|bed temp|feed\/?unfeed|wisps?|blobs?|zits?|clicking|grinding)\b/i;
+  /\b(stringing|warp(?:ing)?|ams|clog|jam|spaghetti|empty\s+bed|nozzle\s*scrape|layer\s*shift|under[-\s]?extrud|over[-\s]?extrud|elephant|first\s+layer|not stick|nozzle|bed temp|feed\/?unfeed|wisps?|blobs?|zits?|clicking|grinding|run-?out|spool\s+empty|can'?t\s+load|ptfe)\b/i;
 
 const MATERIAL_WORD = "petg|nylon|pla|abs|tpu|pa(?:6|12|ht)?|pa-?cf";
 const MATERIAL_PRESET_RE = new RegExp(
@@ -261,7 +304,12 @@ const NEXT_CAUSE: Record<string, string> = {
   "over-extrusion": "wet-filament",
   warping: "first-layer",
   "first-layer": "warping",
-  "ams-feed-loop": "clog",
+  "ams-feed-loop": "ams-ptfe-path",
+  "ams-ptfe-path": "ams-tangled-spool",
+  "ams-tangled-spool": "ams-load-failed",
+  "ams-load-failed": "ams-spool-empty",
+  "ams-spool-empty": "ams-wet-pa",
+  "ams-wet-pa": "under-extrusion",
   clog: "ams-feed-loop",
   spaghetti: "first-layer",
   "empty-bed": "first-layer",
@@ -340,7 +388,7 @@ export function confirmPerfect(result: PrintDoctorResult): PrintDoctorResult {
 
 export function diagnoseByDefectId(
   defectId: string,
-  request: Pick<PrintDoctorRequest, "printerId" | "material"> = {},
+  request: Pick<PrintDoctorRequest, "printerId" | "material" | "amsSlot"> = {},
 ): PrintDoctorResult {
   const printer = defaultPrinter();
   const printerId = request.printerId ?? printer.id;
@@ -348,15 +396,17 @@ export function diagnoseByDefectId(
     ? (request.material as FilamentId)
     : normalizeFilamentId(request.material);
   const material = sessionMaterial ?? printer.defaultFilament;
-  const { fixes, steps } = buildFixes(defectId, material);
+  const { fixes, steps, guide } = buildFixes(defectId, material, request.amsSlot);
   const materialSwitch = defectId === "material-preset";
   return {
     defectId,
     title: defectTitle(defectId),
-    diagnosis: diagnosisFor(defectId, material),
+    diagnosis: diagnosisFor(defectId, material, request.amsSlot),
     confidence: defectId === "unknown" ? "low" : defectId === "over-extrusion" ? "medium" : "high",
     printerId,
     material,
+    amsSlot: request.amsSlot,
+    ...(guide ? { amsGuide: guide } : {}),
     fixes: tagFixes(defectId, fixes),
     physicalSteps: steps,
     appliedPreset: materialSwitch,
@@ -386,7 +436,11 @@ export function nextAfterRejected(
   const rejectedDefectIds = [...new Set([...(hint.rejectedDefectIds ?? []), tagged.defectId])];
   const nextId = nextDefectCause(tagged.defectId, rejectedDefectIds);
   if (nextId) {
-    const next = diagnoseByDefectId(nextId, { printerId: tagged.printerId, material: tagged.material });
+    const next = diagnoseByDefectId(nextId, {
+      printerId: tagged.printerId,
+      material: tagged.material,
+      amsSlot: tagged.amsSlot,
+    });
     return {
       ...next,
       learned: false,
@@ -433,11 +487,24 @@ function setting(
   return { kind: "setting", summary, key, value, autoApplicable };
 }
 
-function physical(summary: string): PrintDoctorFix {
-  return { kind: "physical", summary, autoApplicable: false };
+function physical(summary: string, id?: string): PrintDoctorFix {
+  return { kind: "physical", summary, autoApplicable: false, ...(id ? { id } : {}) };
 }
 
-function buildFixes(defectId: string, material: FilamentId): { fixes: PrintDoctorFix[]; steps: string[] } {
+function amsGuideFixes(defectId: string, amsSlot?: number): { fixes: PrintDoctorFix[]; steps: string[]; guide: AmsHelpGuide } {
+  const guide = buildAmsHelpGuide(isAmsHelpGuideId(defectId) ? defectId : "ams-feed-loop", amsSlot);
+  return {
+    guide,
+    fixes: [physical(guide.symptom, guide.id)],
+    steps: guide.steps,
+  };
+}
+
+function buildFixes(
+  defectId: string,
+  material: FilamentId,
+  amsSlot?: number,
+): { fixes: PrintDoctorFix[]; steps: string[]; guide?: AmsHelpGuide } {
   const preset = filamentPreset(material);
 
   switch (defectId) {
@@ -457,19 +524,12 @@ function buildFixes(defectId: string, material: FilamentId): { fixes: PrintDocto
       };
     }
     case "ams-feed-loop":
-      return {
-        fixes: [
-          physical("This is almost always a path or spool problem, not a CAD setting."),
-          setting("Pause the job before touching AMS tubes or swapping slots.", "pause", "now", false),
-        ],
-        steps: [
-          "Pause if a print is running.",
-          "Check the PTFE path from that AMS slot to the toolhead for kinks or leftover filament.",
-          "Make sure the spool can turn freely and is not tangled or over-tight on the cardboard core.",
-          "Reseat the filament in the slot until the hub grips, then retry a feed.",
-          "If the tip is chewed or flattened, cut a fresh 45° tip and try again.",
-        ],
-      };
+    case "ams-load-failed":
+    case "ams-spool-empty":
+    case "ams-tangled-spool":
+    case "ams-wet-pa":
+    case "ams-ptfe-path":
+      return amsGuideFixes(defectId, amsSlot);
     case "warping":
       return {
         fixes: [
@@ -653,6 +713,16 @@ function diagnosisFor(defectId: string, material: FilamentId, amsSlot?: number):
         : `${material.toUpperCase()} strings when travel is wet or the nozzle is a few degrees high. Lower temp slightly and increase retraction.`;
     case "ams-feed-loop":
       return `${slotBit} is cycling feed/unfeed. That is a path, tip, or spool-tangle fault — software cannot clear a physical jam.`;
+    case "ams-load-failed":
+      return `${slotBit} did not load. Check the tip, hub grip, and PTFE inlet before retrying once.`;
+    case "ams-spool-empty":
+      return `${slotBit} looks empty or has run out. Load a new spool or pick another tray — do not force another feed.`;
+    case "ams-tangled-spool":
+      return `The spool on ${slotBit} is tangled or will not turn. Unwind it by hand before retrying a feed.`;
+    case "ams-ptfe-path":
+      return `The PTFE path from ${slotBit} to the toolhead looks jammed or kinked. Clear it by hand — software cannot push through a stub.`;
+    case "ams-wet-pa":
+      return `PA / nylon on ${slotBit} is likely wet. Dry the spool before chasing temperature or another AMS retry.`;
     case "warping":
       return `${material.toUpperCase()} corners are lifting. On the P2S (no active chamber heater) raise the bed a little, add a brim, and keep the door closed.`;
     case "first-layer":
@@ -688,6 +758,22 @@ function diagnosisFor(defectId: string, material: FilamentId, amsSlot?: number):
   }
 }
 
+export function diagnosisFromAmsHint(
+  hint?: Pick<AmsHint, "kind" | "slot" | "message">,
+  extras?: { remainingPercent?: number; material?: FilamentId | string },
+): PrintDoctorResult | undefined {
+  if (!hint) return undefined;
+  if (hint.kind !== "feed-loop" && hint.kind !== "hopper-error") return undefined;
+  const slotBit = hint.slot != null ? `AMS ${hint.slot}` : "AMS";
+  return diagnosePrintComplaint({
+    complaint: hint.message?.trim() || `${slotBit} feed/unfeed loop`,
+    amsSlot: hint.slot,
+    remainingPercent: extras?.remainingPercent,
+    amsHint: hint,
+    material: extras?.material,
+  });
+}
+
 export function diagnosisFromCameraDetect(
   detect: { kind: string; failure?: string } | undefined,
 ): PrintDoctorResult | undefined {
@@ -713,23 +799,38 @@ export function diagnosePrintComplaint(request: PrintDoctorRequest): PrintDoctor
     : normalizeFilamentId(request.material);
   const fallback = sessionMaterial ?? printer.defaultFilament;
   const material = inferMaterial(`${request.material ?? ""} ${complaint}`, fallback);
-  const amsSlot = extractAmsSlot(complaint);
+  const complaintSlot = extractAmsSlot(complaint);
   const slotAssignment = extractAmsSlotPlanAssignment(complaint);
+  const amsSlot =
+    request.amsSlot ?? (slotAssignment ? slotAssignment.index + 1 : undefined) ?? complaintSlot ?? request.amsHint?.slot;
   const rule = matchDefect(complaint);
   const materialSwitch = !rule && looksLikeMaterialPresetRequest(complaint);
-  const defectId = rule?.id ?? (materialSwitch ? "material-preset" : "unknown");
-  const { fixes, steps } = buildFixes(defectId, material);
+  let defectId = rule?.id ?? (materialSwitch ? "material-preset" : "unknown");
+  const selectedGuideId = selectAmsHelpGuideId({
+    defectId,
+    complaint,
+    hint: request.amsHint,
+    slot: amsSlot,
+    remainingPercent: request.remainingPercent,
+    material,
+  });
+  if (selectedGuideId && (defectId === "unknown" || defectId === "wet-filament" || isAmsHelpGuideId(defectId))) {
+    defectId = selectedGuideId;
+  }
+  const { fixes, steps, guide } = buildFixes(defectId, material, amsSlot);
+  const amsGuide = guide ?? (isAmsHelpGuideId(defectId) ? buildAmsHelpGuide(defectId, amsSlot) : undefined);
 
   return {
     defectId,
-    title: rule?.title ?? (materialSwitch ? "Auto-best settings" : "Print problem"),
+    title: defectTitle(defectId),
     diagnosis: diagnosisFor(defectId, material, slotAssignment ? slotAssignment.index + 1 : amsSlot),
-    confidence: rule?.confidence ?? (materialSwitch ? "high" : "low"),
+    confidence: rule?.confidence ?? (materialSwitch ? "high" : selectedGuideId ? "high" : "low"),
     printerId,
     material,
     amsSlot: slotAssignment ? slotAssignment.index + 1 : amsSlot,
+    ...(amsGuide ? { amsGuide } : {}),
     fixes: tagFixes(defectId, fixes),
-    physicalSteps: steps,
+    physicalSteps: amsGuide?.steps ?? steps,
     appliedPreset: materialSwitch,
     appliedSlotPlan: defectId === "ams-slot-assign",
     ...(slotAssignment ? { slotPlanAssignment: slotAssignment } : {}),

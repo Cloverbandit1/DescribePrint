@@ -73,6 +73,30 @@ describe("print-doctor NLP stub", () => {
     expect(result.diagnosis).toMatch(/AMS 2/);
     expect(result.fixes.some((fix) => fix.kind === "physical" && !fix.autoApplicable)).toBe(true);
     expect(result.physicalSteps.join(" ")).toMatch(/PTFE|spool|tip/i);
+    expect(result.amsGuide?.id).toBe("ams-feed-loop");
+    expect(result.fixes[0]?.id).toBe("ams-feed-loop");
+    expect(result.physicalSteps.length).toBeGreaterThanOrEqual(4);
+    expect(result.physicalSteps.join(" ")).toMatch(/AMS 2/);
+  });
+
+  it("diagnoses AMS load failed, empty spool, tangle, PTFE, and wet PA", () => {
+    const load = diagnosePrintComplaint({ complaint: "AMS 3 can't load" });
+    expect(load.defectId).toBe("ams-load-failed");
+    expect(load.amsSlot).toBe(3);
+    expect(load.physicalSteps.join(" ")).toMatch(/AMS 3/);
+
+    const empty = diagnosePrintComplaint({ complaint: "filament ran out on AMS 1" });
+    expect(empty.defectId).toBe("ams-spool-empty");
+    expect(empty.amsGuide?.steps.join(" ")).toMatch(/AMS 1/);
+
+    const tangle = diagnosePrintComplaint({ complaint: "tangled spool on AMS 4" });
+    expect(tangle.defectId).toBe("ams-tangled-spool");
+
+    const ptfe = diagnosePrintComplaint({ complaint: "PTFE path check AMS 2" });
+    expect(ptfe.defectId).toBe("ams-ptfe-path");
+
+    const wet = diagnosePrintComplaint({ complaint: "PA needs drying in the AMS" });
+    expect(wet.defectId).toBe("ams-wet-pa");
   });
 
   it("stays printer-aware for ABS warp on a P2S without chamber heat", () => {

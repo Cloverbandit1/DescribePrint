@@ -23,9 +23,11 @@ import {
   RESUME_IS_MANUAL,
   buildCadReshapeHandoff,
   buildReslicePlanStub,
+  isStumpCutPlaneBoundsMm,
   suggestedCadNextStep,
   type CadReshapeHandoff,
   type ReslicePlanStub,
+  type StumpCutPlaneBoundsMm,
 } from "./machine/reshape-plan";
 import { checkMesh, hasHardMeshFailure } from "./mesh-check";
 import { sitMeshOnBed } from "./mesh-transform";
@@ -77,7 +79,7 @@ export type CadReshapeUpperInput = {
   previousPrompt?: string | null;
   previousJobId?: string | null;
   fixture?: boolean;
-  /** CAD-side only — not on CadReshapeHandoff. */
+  /** CAD-side override when the handoff has no `stumpCutPlaneBoundsMm`. */
   stumpFootprintMm?: StumpFootprintMm;
   reslice?: ReslicePlanStub;
 };
@@ -153,6 +155,36 @@ export function parseCadReshapeHandoff(value: unknown): CadReshapeParseResult {
       ? row.suggestedNextStep.trim()
       : suggestedCadNextStep(currentZ ?? null, remainingHeightMm ?? null);
 
+  if (row.previousCode != null && typeof row.previousCode !== "string") {
+    return { ok: false, error: "CadReshapeHandoff.previousCode must be a string when present." };
+  }
+  const previousCode = typeof row.previousCode === "string" && row.previousCode.trim() ? row.previousCode : undefined;
+
+  if (row.stumpCutPlaneBoundsMm != null && !isStumpCutPlaneBoundsMm(row.stumpCutPlaneBoundsMm)) {
+    return {
+      ok: false,
+      error:
+        "CadReshapeHandoff.stumpCutPlaneBoundsMm must be { minX, minY, maxX, maxY } mm with maxX > minX and maxY > minY.",
+    };
+  }
+  const stumpCutPlaneBoundsMm = isStumpCutPlaneBoundsMm(row.stumpCutPlaneBoundsMm)
+    ? {
+        minX: row.stumpCutPlaneBoundsMm.minX,
+        minY: row.stumpCutPlaneBoundsMm.minY,
+        maxX: row.stumpCutPlaneBoundsMm.maxX,
+        maxY: row.stumpCutPlaneBoundsMm.maxY,
+      }
+    : undefined;
+
+  if (row.layerHeightMm !== undefined && row.layerHeightMm !== null) {
+    const layerHeightMm = asFiniteNumber(row.layerHeightMm);
+    if (layerHeightMm === undefined || !(layerHeightMm > 0)) {
+      return { ok: false, error: "CadReshapeHandoff.layerHeightMm must be a finite number > 0 when present." };
+    }
+  }
+  const layerHeightMm =
+    row.layerHeightMm === undefined || row.layerHeightMm === null ? undefined : asFiniteNumber(row.layerHeightMm);
+
   return {
     ok: true,
     handoff: {
@@ -167,6 +199,9 @@ export function parseCadReshapeHandoff(value: unknown): CadReshapeParseResult {
       totalLayers: asOptionalLayer(row.totalLayers),
       printerId,
       suggestedNextStep: suggested,
+      ...(previousCode ? { previousCode } : {}),
+      ...(stumpCutPlaneBoundsMm ? { stumpCutPlaneBoundsMm } : {}),
+      ...(layerHeightMm != null && layerHeightMm > 0 ? { layerHeightMm } : {}),
     },
   };
 }
@@ -186,12 +221,27 @@ export function reshapeUpperNotes(handoff: CadReshapeHandoff): string[] {
   ];
 }
 
+export function stumpFootprintFromCutPlaneBounds(bounds: StumpCutPlaneBoundsMm): StumpFootprintMm {
+  return {
+    x: bounds.maxX - bounds.minX,
+    y: bounds.maxY - bounds.minY,
+  };
+}
+
 export function inferStumpFootprintMm(input: {
   previousCode?: string | null;
   previousPrompt?: string | null;
   stumpFootprintMm?: StumpFootprintMm;
+  stumpCutPlaneBoundsMm?: StumpCutPlaneBoundsMm;
   nativeSizeMm?: [number, number, number];
 }): StumpFootprintMm {
+  if (input.stumpCutPlaneBoundsMm && isStumpCutPlaneBoundsMm(input.stumpCutPlaneBoundsMm)) {
+    const fromBounds = stumpFootprintFromCutPlaneBounds(input.stumpCutPlaneBoundsMm);
+    const params = extractScadParams(input.previousCode);
+    const hole = params.hole_d ?? params.hole;
+    const holeMm = hole != null && hole > 0 ? hole : input.stumpFootprintMm?.holeMm;
+    return { ...fromBounds, holeMm };
+  }
   if (input.stumpFootprintMm && input.stumpFootprintMm.x > 0 && input.stumpFootprintMm.y > 0) {
     return {
       x: input.stumpFootprintMm.x,
@@ -253,15 +303,16 @@ export function reshapeUpperFixtureScad(input: {
   const remaining = input.handoff.remainingHeightMm;
   if (remaining == null || !(remaining > 0)) {
     throw new Error(
-      "CAD reshape upper needs remainingHeightMm > 0. CadReshapeHandoff has no layerHeightMm — cannot invent remaining height from remainingLayers alone.",
+      "CAD reshape upper needs remainingHeightMm > 0. Cannot invent remaining height from remainingLayers alone.",
     );
   }
   const currentZ = input.handoff.currentZ;
   const prompt = input.prompt?.trim() ?? "";
   const footprint = inferStumpFootprintMm({
-    previousCode: input.previousCode,
+    previousCode: input.handoff.previousCode ?? input.previousCode,
     previousPrompt: input.previousPrompt,
     stumpFootprintMm: input.stumpFootprintMm,
+    stumpCutPlaneBoundsMm: input.handoff.stumpCutPlaneBoundsMm,
     nativeSizeMm: input.nativeSizeMm,
   });
   const promptedHole = holeFromPrompt(prompt);
@@ -370,9 +421,16 @@ export function buildReshapeUpperUserPrompt(input: {
     `currentZ (already-printed stump, world): ${zBit}`,
     `remainingHeightMm (this mesh height): ${hBit}`,
     `remainingLayers: ${input.handoff.remainingLayers ?? "unknown"}`,
+    `layerHeightMm: ${input.handoff.layerHeightMm ?? "unknown"} (do not invent remainingHeightMm from remainingLayers alone)`,
     `Stump footprint to mate (XY mm): ${input.footprint.x.toFixed(2)} × ${input.footprint.y.toFixed(2)}`,
     `User request:\n${input.prompt.trim() || CAD_RESHAPE_INSTRUCTION}`,
   ];
+  if (input.handoff.stumpCutPlaneBoundsMm) {
+    const b = input.handoff.stumpCutPlaneBoundsMm;
+    parts.push(
+      `Stump cut-plane XY bounds (stumpCutPlaneBoundsMm, mm): minX=${b.minX}, minY=${b.minY}, maxX=${b.maxX}, maxY=${b.maxY}`,
+    );
+  }
   if (input.plan) {
     parts.push(`Design plan (follow these features; keep overall_mm.z = remaining height):\n${JSON.stringify(input.plan)}`);
   }
@@ -490,15 +548,17 @@ export async function runCadReshapeUpper(
   const handoff = parsed.handoff;
   if (handoff.remainingHeightMm == null || !(handoff.remainingHeightMm > 0)) {
     throw new Error(
-      "CAD reshape upper needs remainingHeightMm > 0 from Print Control. CadReshapeHandoff has no layerHeightMm — cannot invent remaining height from remainingLayers alone.",
+      "CAD reshape upper needs remainingHeightMm > 0 from Print Control. Cannot invent remaining height from remainingLayers alone.",
     );
   }
 
   const previous = input.previousJobId ? getJob(input.previousJobId) : undefined;
+  const previousCode = handoff.previousCode ?? input.previousCode ?? previous?.scad;
   const footprint = inferStumpFootprintMm({
-    previousCode: input.previousCode ?? previous?.scad,
+    previousCode,
     previousPrompt: input.previousPrompt,
     stumpFootprintMm: input.stumpFootprintMm,
+    stumpCutPlaneBoundsMm: handoff.stumpCutPlaneBoundsMm,
     nativeSizeMm: previous?.nativeSizeMm,
   });
   const prompt = input.prompt?.trim() || CAD_RESHAPE_INSTRUCTION;
@@ -507,9 +567,21 @@ export async function runCadReshapeUpper(
   if (handoff.currentZ == null) {
     notes.push("currentZ was null on the handoff — the upper sits on the cut plane, but mating world Z is unknown.");
   }
-  notes.push(
-    "CadReshapeHandoff has no previousCode / stumpFootprintMm / layerHeightMm. CAD infers XY from the last part when present.",
-  );
+  if (handoff.stumpCutPlaneBoundsMm) {
+    notes.push(
+      `Using stumpCutPlaneBoundsMm from the handoff (${handoff.stumpCutPlaneBoundsMm.minX}…${handoff.stumpCutPlaneBoundsMm.maxX} × ${handoff.stumpCutPlaneBoundsMm.minY}…${handoff.stumpCutPlaneBoundsMm.maxY} mm).`,
+    );
+  } else {
+    notes.push("No stumpCutPlaneBoundsMm on the handoff — CAD infers XY from the last part when present.");
+  }
+  if (handoff.previousCode) {
+    notes.push("Using previousCode from the handoff.");
+  }
+  if (handoff.layerHeightMm != null) {
+    notes.push(
+      `layerHeightMm ${handoff.layerHeightMm} mm is documented only — remainingHeightMm must still come from Print Control.`,
+    );
+  }
 
   emit(sink, { step: "planning", message: "Reading the remaining-layer handoff…" });
 
@@ -522,7 +594,7 @@ export async function runCadReshapeUpper(
     code = reshapeUpperFixtureScad({
       handoff,
       prompt,
-      previousCode: input.previousCode ?? previous?.scad,
+      previousCode,
       previousPrompt: input.previousPrompt,
       stumpFootprintMm: input.stumpFootprintMm,
       nativeSizeMm: previous?.nativeSizeMm,
@@ -540,7 +612,7 @@ export async function runCadReshapeUpper(
                 prompt,
                 handoff,
                 footprint,
-                previousCode: input.previousCode ?? previous?.scad,
+                previousCode,
                 previousPrompt: input.previousPrompt,
               }),
             },
@@ -550,7 +622,7 @@ export async function runCadReshapeUpper(
         const parsedPlan = parseCadPlan(raw);
         plan = parsedPlan
           ? clampPlanToRemainingHeight(
-              normalizeCadPlan(parsedPlan, { prompt, previousCode: input.previousCode }),
+              normalizeCadPlan(parsedPlan, { prompt, previousCode }),
               handoff.remainingHeightMm,
             )
           : null;
@@ -568,7 +640,7 @@ export async function runCadReshapeUpper(
         prompt,
         handoff,
         footprint,
-        previousCode: input.previousCode ?? previous?.scad,
+        previousCode,
         previousPrompt: input.previousPrompt,
       },
       undefined,
@@ -611,7 +683,7 @@ export async function runCadReshapeUpper(
           prompt,
           handoff,
           footprint,
-          previousCode: input.previousCode ?? previous?.scad,
+          previousCode,
           previousPrompt: input.previousPrompt,
         },
         { code: lastCode, error: message },
@@ -650,5 +722,5 @@ export async function runCadReshapeUpper(
   };
 }
 
-export { buildCadReshapeHandoff, CAD_RESHAPE_INSTRUCTION, RESUME_IS_MANUAL };
-export type { CadReshapeHandoff, ReslicePlanStub };
+export { buildCadReshapeHandoff, CAD_RESHAPE_INSTRUCTION, RESUME_IS_MANUAL, isStumpCutPlaneBoundsMm };
+export type { CadReshapeHandoff, ReslicePlanStub, StumpCutPlaneBoundsMm };

@@ -3,11 +3,15 @@ import { buildImportedMeshWrapper, canBuildDeterministicImportWrap } from "@/lib
 import { boundingBoxMm } from "@/lib/mesh-check";
 import { normalizeCadPlan, parseCadPlan, planSystemPrompt, systemPrompt } from "@/lib/llm";
 import {
+  CHEST_CHEVRON_PROMPT,
   CUBE_ETCH_PROMPT,
   DEFAULT_EMBOSS_HEIGHT_MM,
   DEFAULT_ETCH_DEPTH_MM,
+  GAUNTLET_CUFF_PROMPT,
   HELMET_EMBOSS_PROMPT,
+  HELMET_MULTI_RELIEF_PROMPT,
   MIN_RELIEF_MM,
+  attachImageMotif,
   clampReliefExtentMm,
   cubeEtchFixtureScad,
   defaultReliefRegion,
@@ -16,7 +20,9 @@ import {
   inferCadReliefs,
   normalizeCadReliefs,
   parseCadReliefs,
+  parseReliefRegion,
   promptHasRelief,
+  reliefMotifScad,
 } from "@/lib/relief";
 import { matchConversationFixture, matchFixture } from "@/lib/fixtures";
 import { sanitizeOpenScad } from "@/lib/sanitize";
@@ -154,5 +160,89 @@ describe("CAD plan schema mentions reliefs", () => {
     expect(plan.reliefs?.[0]).toMatchObject({ kind: "emboss", motif: "crest", region: "back" });
     const stripped = normalizeCadPlan(raw!, { prompt: "a sturdy tray" });
     expect(stripped.reliefs).toBeUndefined();
+  });
+});
+
+describe("richer motifs + multi-relief + wearable regions", () => {
+  it("does not treat a chest plate as the build plate", () => {
+    expect(parseReliefRegion("chest plate")).toBe("front");
+    expect(parseReliefRegion("back of helmet")).toBe("back");
+    expect(parseReliefRegion("gauntlet cuff")).toBe("front");
+    expect(parseReliefRegion("build plate")).toBe("bottom");
+  });
+
+  it("infers chevron on a chest plate and a ring on a gauntlet cuff", () => {
+    const chest = inferCadReliefs(CHEST_CHEVRON_PROMPT, [120, 28, 90]);
+    expect(chest[0]).toMatchObject({
+      kind: "emboss",
+      motif: "chevron",
+      region: "front",
+      target: "chest plate",
+      wearableCategory: "torso_armor",
+      height_mm: DEFAULT_EMBOSS_HEIGHT_MM,
+    });
+    const cuff = inferCadReliefs(GAUNTLET_CUFF_PROMPT, [70, 90, 45]);
+    expect(cuff[0]).toMatchObject({
+      kind: "etch",
+      motif: "ring",
+      region: "front",
+      target: "gauntlet cuff",
+      wearableCategory: "gauntlet",
+      depth_mm: DEFAULT_ETCH_DEPTH_MM,
+    });
+  });
+
+  it("splits multi-relief helmet crest + front initials", () => {
+    const reliefs = inferCadReliefs(HELMET_MULTI_RELIEF_PROMPT, [96, 108, 64]);
+    expect(reliefs).toHaveLength(2);
+    expect(reliefs[0]).toMatchObject({ kind: "emboss", motif: "crest", region: "back" });
+    expect(reliefs[1]).toMatchObject({ kind: "etch", motif: "text", region: "front", text: "DP" });
+    const normalized = normalizeCadReliefs([], HELMET_MULTI_RELIEF_PROMPT, [96, 108, 64]);
+    expect(normalized).toHaveLength(2);
+    expect(normalized[0]?.kind).toBe("emboss");
+    expect(normalized[1]?.kind).toBe("etch");
+  });
+
+  it("matches new wearable fixtures with sanitizable CSG", () => {
+    const chest = matchFixture(CHEST_CHEVRON_PROMPT);
+    expect(chest?.id).toBe("chest-chevron-emboss");
+    expect(sanitizeOpenScad(chest!.code).ok).toBe(true);
+    expect(chest?.code).toContain("module chest_plate()");
+    expect(chest?.code).toMatch(/union\(\)/);
+    expect(chest?.code).not.toMatch(/\btext\s*\(\s*["']/);
+
+    const cuff = matchFixture(GAUNTLET_CUFF_PROMPT);
+    expect(cuff?.id).toBe("gauntlet-cuff-etch");
+    expect(sanitizeOpenScad(cuff!.code).ok).toBe(true);
+    expect(cuff?.code).toContain("module gauntlet_cuff()");
+    expect(cuff?.code).toMatch(/difference\(\)/);
+
+    const multi = matchFixture(HELMET_MULTI_RELIEF_PROMPT);
+    expect(multi?.id).toBe("helmet-multi-relief");
+    expect(sanitizeOpenScad(multi!.code).ok).toBe(true);
+    expect(multi?.code).toMatch(/emboss_h = 0\.8/);
+    expect(multi?.code).toMatch(/etch_depth = 0\.6/);
+  });
+
+  it("attaches an image silhouette without dropping a second relief", () => {
+    const field = {
+      width: 4,
+      height: 4,
+      cells: [0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0],
+      pixelsInferred: false,
+      format: "png" as const,
+    };
+    const reliefs = attachImageMotif(
+      inferCadReliefs(HELMET_MULTI_RELIEF_PROMPT, [96, 108, 64]),
+      field,
+      "emboss this logo on the back of the helmet and etch initials on the front",
+      [96, 108, 64],
+    );
+    expect(reliefs).toHaveLength(2);
+    expect(reliefs[0]?.motif).toBe("image");
+    expect(reliefs[0]?.image?.width).toBe(4);
+    expect(reliefs[1]?.motif).toBe("text");
+    const box = { min: [0, 0, 0] as [number, number, number], max: [96, 108, 64] as [number, number, number], size: [96, 108, 64] as [number, number, number] };
+    expect(reliefMotifScad(reliefs[0]!, box)).toMatch(/cube\(/);
   });
 });

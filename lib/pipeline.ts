@@ -41,6 +41,12 @@ import { runCadReshapeUpper } from "./cad-reshape";
 import { designateMachineForSize } from "./alternate-machines";
 import { completeExistingSolid, completionNote, regionLabelsNote } from "./image-complete";
 import { buildImageSolidFromUpload, imageSolidStubScad, photoPlateHeadline, type ImageImportOptions } from "./image-import";
+import {
+  decodeImageReliefField,
+  formatImageReliefNote,
+  imageReliefHostSizeMm,
+  wantsImageRelief,
+} from "./relief-image";
 import { noneSubjectIdentify } from "./image-subject";
 import { getLlmConfig, getPlanModel, isLocalOpenAiBaseUrl, isSmartPipelineEnabled } from "./llm-config";
 import {
@@ -65,7 +71,7 @@ import {
   type ImportHoleSpec,
 } from "./import-hole";
 import { formatPrettyUpNote, inferCadPrettyUp } from "./pretty-up";
-import { formatReliefNote, inferCadReliefs } from "./relief";
+import { attachImageMotif, formatReliefNote, inferCadReliefs, standaloneImageReliefScad } from "./relief";
 import { cadKnowledgeFromPrompt, formatKnowledgeNote } from "./knowledge";
 import {
   applyChoicesToGenerateFields,
@@ -555,9 +561,28 @@ function resolvePreviousJob(request: GenerateRequest): StoredJob | undefined {
 }
 
 export async function runImageImportPipeline(
-  input: { buffer: Buffer; fileName?: string; options?: ImageImportOptions; filament?: string | null },
+  input: {
+    buffer: Buffer;
+    fileName?: string;
+    options?: ImageImportOptions;
+    filament?: string | null;
+    previousJobId?: string | null;
+    previousPrompt?: string | null;
+  },
   sink?: StatusSink,
 ): Promise<GenerateResult> {
+  const prompt = [input.options?.prompt, input.previousPrompt].filter(Boolean).join(" — ");
+  const previous = input.previousJobId ? getJob(input.previousJobId) : undefined;
+  if (
+    wantsImageRelief({
+      prompt,
+      fileName: input.fileName,
+      hasPreviousPart: Boolean(previous),
+    })
+  ) {
+    return runImageReliefImport(input, previous, prompt, sink);
+  }
+
   emit(sink, { step: "image", message: "Reading the photo…" });
   const options = input.options ?? { repair: true, keepWear: false, targetMaxMm: null };
   emit(sink, {
@@ -625,6 +650,106 @@ export async function runImageImportPipeline(
       ? "Photo solid is on the plate — current printer is too small."
       : `${photoPlateHeadline(built.meta)}.`,
   });
+  return toGenerateResult(job);
+}
+
+async function runImageReliefImport(
+  input: {
+    buffer: Buffer;
+    fileName?: string;
+    options?: ImageImportOptions;
+    filament?: string | null;
+  },
+  previous: StoredJob | undefined,
+  prompt: string,
+  sink?: StatusSink,
+): Promise<GenerateResult> {
+  emit(sink, { step: "image", message: "Reading the logo as a silhouette relief…" });
+  const field = decodeImageReliefField(input.buffer, input.fileName);
+  const printPreset = presetFromRequest(input.filament);
+  const reliefPrompt = prompt.trim() || "emboss this logo on the front";
+
+  if (previous) {
+    emit(sink, { step: "import", message: "Applying the image relief to the part on the plate…" });
+    const previousObjects = await objectsFromJob(previous);
+    const mesh = { triangles: previousObjects.flatMap((object) => object.mesh.triangles) };
+    const box = checkMesh(mesh).boundingBoxMm;
+    const reliefs = attachImageMotif(inferCadReliefs(reliefPrompt, box.size), field, reliefPrompt, box.size);
+    const fileName = previous.fileName ?? "imported.stl";
+    const importedStl = writeBinaryStl(mesh, fileName);
+    const code = buildImportedMeshWrapper({ mesh, reliefs, prompt: reliefPrompt });
+    emit(sink, { step: "compile", message: "Compiling image relief wrap → STL…" });
+    const compiled = await compileAndCheck(code, importedStl, {
+      sitOnBed: true,
+      printPreset,
+      prompt: reliefPrompt,
+    });
+    const notes = [
+      IMPORT_LIMITS_NOTE,
+      wearableChartNote(),
+      describeWearableSize(previous.wearableSize, previous.wearableCategory ?? DEFAULT_WEARABLE_CATEGORY),
+      formatReliefNote(reliefs),
+      formatImageReliefNote(field, reliefs[0]?.kind ?? "emboss"),
+    ];
+    const job = createJob({
+      stl: compiled.stl,
+      threemf: compiled.threemf,
+      scad: code,
+      report: compiled.report,
+      usedFixture: true,
+      retried: false,
+      source: "imported-mesh",
+      fileName,
+      wearableSize: previous.wearableSize,
+      wearableCategory: previous.wearableCategory,
+      nativeSizeMm: previous.nativeSizeMm,
+      editMode: "describe-wrapper",
+      notes,
+      colorRegions: compiled.colorRegions,
+      assembly: compiled.assembly,
+      printPreset,
+      imageImport: previous.imageImport ?? null,
+      machineDesignation: previous.machineDesignation ?? null,
+    });
+    emit(sink, { step: "done", message: "Image relief is on the plate (silhouette / heightfield stub)." });
+    return toGenerateResult(job);
+  }
+
+  const sizeMm = imageReliefHostSizeMm(reliefPrompt);
+  const reliefs = attachImageMotif(inferCadReliefs(reliefPrompt, sizeMm), field, reliefPrompt, sizeMm);
+  const code = standaloneImageReliefScad(reliefs, sizeMm, reliefPrompt);
+  emit(sink, { step: "compile", message: "Compiling image relief on a host solid…" });
+  const compiled = await compileAndCheck(code, undefined, {
+    sitOnBed: true,
+    printPreset,
+    prompt: reliefPrompt,
+  });
+  const wearableCategory = inferWearableCategory(reliefPrompt, input.fileName);
+  const notes = [
+    formatReliefNote(reliefs),
+    formatImageReliefNote(field, reliefs[0]?.kind ?? "emboss"),
+    wearableChartNote(),
+    describeWearableSize(null, wearableCategory),
+  ];
+  const job = createJob({
+    stl: compiled.stl,
+    threemf: compiled.threemf,
+    scad: code,
+    report: compiled.report,
+    usedFixture: true,
+    retried: false,
+    source: "openscad",
+    fileName: input.fileName ?? "logo-relief.scad",
+    wearableSize: null,
+    wearableCategory,
+    nativeSizeMm: compiled.report.boundingBoxMm.size,
+    editMode: "create",
+    notes,
+    colorRegions: compiled.colorRegions,
+    assembly: compiled.assembly,
+    printPreset,
+  });
+  emit(sink, { step: "done", message: "Image relief is on the plate (silhouette / heightfield stub)." });
   return toGenerateResult(job);
 }
 

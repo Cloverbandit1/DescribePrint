@@ -637,6 +637,8 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       form.append("keepWear", keepWear ? "1" : "0");
       if (prompt.trim()) form.append("prompt", prompt.trim());
       if (sizeNumber) form.append("targetMaxMm", String(toMillimeters(sizeNumber, units)));
+      if (result?.jobId) form.append("previousJobId", result.jobId);
+      if (designPrompt) form.append("previousPrompt", designPrompt);
       const response = await fetch("/api/import", { method: "POST", body: form });
       if (!response.ok && !response.body) {
         throw new Error(`HTTP ${response.status}`);

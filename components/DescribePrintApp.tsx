@@ -40,9 +40,20 @@ import {
 import { useFarmRegistry } from "@/lib/machine/use-farm-registry";
 import { useMachineMonitor } from "@/lib/machine/use-machine-monitor";
 import {
+  PRINT_DOCTOR_MEMORY_KEY,
+  applyStoredDoctorMemory,
+  parsePrintDoctorMemory,
+  rememberPerfect,
+  rememberStillBad,
+  writePrintDoctorMemory,
+} from "@/lib/machine/print-doctor-memory";
+import {
+  confirmPerfect,
   diagnosePrintComplaint,
+  looksLikeDoctorFeedback,
   looksLikeMaterialPresetRequest,
   looksLikePrintDoctorComplaint,
+  type DoctorFeedbackKind,
   type PrintDoctorResult,
 } from "@/lib/print-doctor";
 import {
@@ -101,7 +112,7 @@ type ChatItem =
   | { id: string; kind: "user"; text: string }
   | { id: string; kind: "status"; steps: StatusEvent[]; active: boolean }
   | { id: string; kind: "result"; result: GenerateResult }
-  | { id: string; kind: "doctor"; result: PrintDoctorResult }
+  | { id: string; kind: "doctor"; result: PrintDoctorResult; feedback?: DoctorFeedbackKind }
   | { id: string; kind: "error"; text: string };
 
 type WorkspaceTab = "prepare" | "preview";
@@ -244,6 +255,45 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
     });
   };
 
+  function readDoctorMemory() {
+    return parsePrintDoctorMemory(
+      typeof window !== "undefined" ? window.localStorage.getItem(PRINT_DOCTOR_MEMORY_KEY) : null,
+    );
+  }
+
+  function persistDoctorMemory(store: ReturnType<typeof parsePrintDoctorMemory>) {
+    if (typeof window === "undefined") return;
+    writePrintDoctorMemory(store, window.localStorage);
+  }
+
+  function applyDoctorFeedback(kind: DoctorFeedbackKind, spoken: string) {
+    if (!doctorResult) return;
+    const store = readDoctorMemory();
+    if (kind === "perfect") {
+      persistDoctorMemory(rememberPerfect(store, doctorResult));
+      const confirmation = confirmPerfect(doctorResult);
+      setPrompt("");
+      setDoctorResult(confirmation);
+      setItems((prev) => [
+        ...prev,
+        { id: nid(), kind: "user", text: spoken },
+        { id: nid(), kind: "doctor", result: confirmation, feedback: "perfect" },
+      ]);
+      scrollToEnd();
+      return;
+    }
+    const { store: nextStore, next } = rememberStillBad(store, doctorResult);
+    persistDoctorMemory(nextStore);
+    setPrompt("");
+    setDoctorResult(next);
+    setItems((prev) => [
+      ...prev,
+      { id: nid(), kind: "user", text: spoken },
+      { id: nid(), kind: "doctor", result: next },
+    ]);
+    scrollToEnd();
+  }
+
   function resetConversation() {
     setItems([]);
     setResult(null);
@@ -305,6 +355,12 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
     const sizeForRequest = options?.wearableSize !== undefined ? options.wearableSize : wearableSize;
     const categoryForRequest = options?.wearableCategory ?? wearableCategory;
 
+    const feedback = looksLikeDoctorFeedback(cleaned);
+    if (feedback && doctorResult) {
+      applyDoctorFeedback(feedback, cleaned);
+      return;
+    }
+
     if (looksLikePrintDoctorComplaint(cleaned)) {
       let diagnosis = diagnosePrintComplaint({ complaint: cleaned, printerId: printer.id, material });
       try {
@@ -326,6 +382,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       } catch {
         // Keep the local diagnosis if the machine API is down.
       }
+      diagnosis = applyStoredDoctorMemory(readDoctorMemory(), diagnosis);
       setPrompt("");
       const named = normalizeFilamentId(cleaned);
       if (named || diagnosis.appliedPreset) {
@@ -763,12 +820,19 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
                 }}
               />
             ) : (
-              items.map((item) => (
+              items.map((item, index) => (
                 <ChatBubble
                   key={item.id}
                   item={item}
                   onPickOption={pickDesignOption}
                   disabled={busy}
+                  onDoctorFeedback={
+                    item.kind === "doctor" &&
+                    index === items.length - 1 &&
+                    !item.feedback
+                      ? applyDoctorFeedback
+                      : undefined
+                  }
                 />
               ))
             )}
@@ -1147,10 +1211,12 @@ function ChatBubble({
   item,
   onPickOption,
   disabled,
+  onDoctorFeedback,
 }: {
   item: ChatItem;
   onPickOption?: (group: DesignOptionGroup, option: DesignOption) => void;
   disabled?: boolean;
+  onDoctorFeedback?: (kind: DoctorFeedbackKind, spoken: string) => void;
 }) {
   if (item.kind === "user") {
     return (
@@ -1198,6 +1264,31 @@ function ChatBubble({
                 manual.
               </div>
             ) : null}
+          </div>
+        ) : null}
+        {result.learned ? (
+          <div className="mt-1 text-[11px] text-muted">Remembered for this printer + filament.</div>
+        ) : null}
+        {onDoctorFeedback ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => onDoctorFeedback("perfect", "perfect")}
+              className="studio-btn studio-btn-ghost h-6 px-2 text-[11px]"
+              aria-label="Perfect — remember this fix"
+            >
+              Perfect
+            </button>
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => onDoctorFeedback("still-bad", "still bad")}
+              className="studio-btn studio-btn-ghost h-6 px-2 text-[11px]"
+              aria-label="Still bad — try the next cause"
+            >
+              Still bad
+            </button>
           </div>
         ) : null}
       </div>

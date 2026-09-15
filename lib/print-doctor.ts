@@ -16,11 +16,20 @@ export type PrintDoctorRequest = {
 };
 
 export type PrintDoctorFix = {
+  /** Stable id for feedback memory (`defectId:key` or `defectId:physical-n`). */
+  id?: string;
   kind: "setting" | "physical";
   summary: string;
   key?: string;
   value?: string | number;
   autoApplicable: boolean;
+};
+
+export type DoctorFeedbackKind = "perfect" | "still-bad";
+
+export type PrintDoctorMemoryHint = {
+  preferredFixId?: string;
+  rejectedFixIds?: string[];
 };
 
 export type PrintDoctorAutofix = {
@@ -48,6 +57,8 @@ export type PrintDoctorResult = {
   /** True when chat asked to put a role (accent/body) on an AMS tray. */
   appliedSlotPlan?: boolean;
   slotPlanAssignment?: { index: number; role?: string };
+  /** True when a remembered Perfect for this printer + filament was applied. */
+  learned?: boolean;
 };
 
 export function withAutofix(result: PrintDoctorResult, autofix: PrintDoctorAutofix): PrintDoctorResult {
@@ -227,6 +238,175 @@ export function looksLikePrintDoctorComplaint(text: string): boolean {
     looksLikeMaterialPresetRequest(cleaned) ||
     looksLikeAmsSlotPlanRequest(cleaned)
   );
+}
+
+const PERFECT_RE = /^(?:(?:that(?:'s| was)?\s+)?perfect|(?:that\s+)?worked(?:\s+perfectly)?)[.!]?$/i;
+const STILL_BAD_RE = /^(?:still[\s-]?bad|didn'?t work|still broken)[.!]?$/i;
+const THUMBS_UP_RE = /^(?:thumbs?\s*up|\u{1F44D})$/u;
+const THUMBS_DOWN_RE = /^(?:thumbs?\s*down|\u{1F44E})$/u;
+
+/** Short chat replies after a doctor diagnosis. Does not steal CAD prompts like "a perfect cube". */
+export function looksLikeDoctorFeedback(text: string): DoctorFeedbackKind | undefined {
+  const cleaned = text.trim();
+  if (!cleaned) return undefined;
+  if (PERFECT_RE.test(cleaned) || THUMBS_UP_RE.test(cleaned)) return "perfect";
+  if (STILL_BAD_RE.test(cleaned) || THUMBS_DOWN_RE.test(cleaned)) return "still-bad";
+  return undefined;
+}
+
+const NEXT_CAUSE: Record<string, string> = {
+  stringing: "wet-filament",
+  "wet-filament": "under-extrusion",
+  "under-extrusion": "clog",
+  "over-extrusion": "wet-filament",
+  warping: "first-layer",
+  "first-layer": "warping",
+  "ams-feed-loop": "clog",
+  clog: "ams-feed-loop",
+  spaghetti: "first-layer",
+  "empty-bed": "first-layer",
+  "layer-shift": "spaghetti",
+  "nozzle-scrape": "first-layer",
+  "elephant-foot": "first-layer",
+};
+
+export function defectTitle(defectId: string): string {
+  if (defectId === "material-preset") return "Auto-best settings";
+  return DEFECT_RULES.find((rule) => rule.id === defectId)?.title ?? "Print problem";
+}
+
+export function nextDefectCause(defectId: string, rejectedDefectIds: string[] = []): string | undefined {
+  const next = NEXT_CAUSE[defectId];
+  if (!next || rejectedDefectIds.includes(next)) return undefined;
+  return next;
+}
+
+export function tagFixes(defectId: string, fixes: PrintDoctorFix[]): PrintDoctorFix[] {
+  return fixes.map((fix, index) => ({
+    ...fix,
+    id: fix.id ?? (fix.key ? `${defectId}:${fix.key}` : `${defectId}:physical-${index}`),
+  }));
+}
+
+export function primaryFixId(result: PrintDoctorResult): string | undefined {
+  return result.fixes[0]?.id;
+}
+
+export function applyLearnedFixes(
+  result: PrintDoctorResult,
+  hint?: PrintDoctorMemoryHint | null,
+): PrintDoctorResult {
+  const tagged = { ...result, fixes: tagFixes(result.defectId, result.fixes) };
+  if (!hint) return tagged;
+  const rejected = new Set((hint.rejectedFixIds ?? []).filter(Boolean));
+  const preferredId = hint.preferredFixId && !rejected.has(hint.preferredFixId) ? hint.preferredFixId : undefined;
+  const preferred = preferredId ? tagged.fixes.find((fix) => fix.id === preferredId) : undefined;
+  const rest = tagged.fixes.filter((fix) => fix.id !== preferredId && !rejected.has(fix.id ?? ""));
+  const fixes = preferred ? [preferred, ...rest] : rest;
+  if (!preferred && fixes.length === tagged.fixes.length) return tagged;
+  if (fixes.length === 0) {
+    return {
+      ...tagged,
+      learned: Boolean(preferred),
+      fixes: [
+        {
+          id: `${tagged.defectId}:physical-escalate`,
+          kind: "physical",
+          summary: "Inspect the live job by hand. No more setting or LAN changes from this step.",
+          autoApplicable: false,
+        },
+      ],
+    };
+  }
+  if (!preferred) return { ...tagged, fixes, learned: false };
+  const material = String(tagged.material).toUpperCase();
+  return {
+    ...tagged,
+    fixes,
+    learned: true,
+    diagnosis: `Last time this worked for ${material} on this printer. ${tagged.diagnosis}`,
+  };
+}
+
+export function confirmPerfect(result: PrintDoctorResult): PrintDoctorResult {
+  const tagged = applyLearnedFixes(result);
+  const material = String(tagged.material).toUpperCase();
+  return {
+    ...tagged,
+    learned: true,
+    diagnosis: `Glad that helped. I’ll remember this ${tagged.title} fix for ${material} on this printer.`,
+  };
+}
+
+export function diagnoseByDefectId(
+  defectId: string,
+  request: Pick<PrintDoctorRequest, "printerId" | "material"> = {},
+): PrintDoctorResult {
+  const printer = defaultPrinter();
+  const printerId = request.printerId ?? printer.id;
+  const sessionMaterial = isFilamentId(String(request.material ?? ""))
+    ? (request.material as FilamentId)
+    : normalizeFilamentId(request.material);
+  const material = sessionMaterial ?? printer.defaultFilament;
+  const { fixes, steps } = buildFixes(defectId, material);
+  const materialSwitch = defectId === "material-preset";
+  return {
+    defectId,
+    title: defectTitle(defectId),
+    diagnosis: diagnosisFor(defectId, material),
+    confidence: defectId === "unknown" ? "low" : defectId === "over-extrusion" ? "medium" : "high",
+    printerId,
+    material,
+    fixes: tagFixes(defectId, fixes),
+    physicalSteps: steps,
+    appliedPreset: materialSwitch,
+    appliedSlotPlan: defectId === "ams-slot-assign",
+  };
+}
+
+/** After Still bad: next unused fix, else next likely cause, else physical steps. Never sends LAN. */
+export function nextAfterRejected(
+  last: PrintDoctorResult,
+  hint: { rejectedFixIds?: string[]; rejectedDefectIds?: string[] } = {},
+): PrintDoctorResult {
+  const tagged = applyLearnedFixes(last);
+  const rejectedFixIds = new Set((hint.rejectedFixIds ?? []).filter(Boolean));
+  const remaining = tagged.fixes.filter((fix) => !rejectedFixIds.has(fix.id ?? ""));
+  if (remaining.length > 0) {
+    const escalatePhysical = remaining.every((fix) => fix.kind === "physical");
+    return {
+      ...tagged,
+      learned: false,
+      fixes: remaining,
+      diagnosis: escalatePhysical
+        ? "That setting change didn’t help. Next are physical checks — I’m not sending LAN commands."
+        : "That didn’t land. Trying the next likely tweak for the same symptom.",
+    };
+  }
+  const rejectedDefectIds = [...new Set([...(hint.rejectedDefectIds ?? []), tagged.defectId])];
+  const nextId = nextDefectCause(tagged.defectId, rejectedDefectIds);
+  if (nextId) {
+    const next = diagnoseByDefectId(nextId, { printerId: tagged.printerId, material: tagged.material });
+    return {
+      ...next,
+      learned: false,
+      diagnosis: `Still seeing the issue. Next likely cause: ${next.title}. ${next.diagnosis}`,
+    };
+  }
+  return {
+    ...tagged,
+    learned: false,
+    confidence: "low",
+    fixes: [
+      {
+        id: `${tagged.defectId}:physical-escalate`,
+        kind: "physical",
+        summary: "Inspect the live job by hand. No more setting or LAN changes from this step.",
+        autoApplicable: false,
+      },
+    ],
+    diagnosis: "I’m out of setting tweaks for this symptom. Physical checks next — I’m not sending LAN commands.",
+  };
 }
 
 export function inferMaterial(text: string, fallback: FilamentId = "pla"): FilamentId {
@@ -548,7 +728,7 @@ export function diagnosePrintComplaint(request: PrintDoctorRequest): PrintDoctor
     printerId,
     material,
     amsSlot: slotAssignment ? slotAssignment.index + 1 : amsSlot,
-    fixes,
+    fixes: tagFixes(defectId, fixes),
     physicalSteps: steps,
     appliedPreset: materialSwitch,
     appliedSlotPlan: defectId === "ams-slot-assign",

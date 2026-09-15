@@ -3,6 +3,7 @@ import {
   diagnosePrintComplaint,
   extractAmsSlot,
   inferMaterial,
+  looksLikeDoctorFeedback,
   looksLikeMaterialPresetRequest,
   looksLikePrintDoctorComplaint,
 } from "@/lib/print-doctor";
@@ -15,6 +16,8 @@ describe("print-doctor NLP stub", () => {
     expect(looksLikePrintDoctorComplaint("reshape this cube to 20mm")).toBe(false);
     expect(looksLikePrintDoctorComplaint("a PETG phone stand")).toBe(false);
     expect(looksLikeMaterialPresetRequest("a PETG phone stand")).toBe(false);
+    expect(looksLikeDoctorFeedback("a perfect cube")).toBeUndefined();
+    expect(looksLikePrintDoctorComplaint("perfect")).toBe(false);
   });
 
   it("switches to PETG or PA auto-best tables from chat", () => {

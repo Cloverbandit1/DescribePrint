@@ -267,6 +267,7 @@ export type Mesh = {
  * Still later:
  * - describe-to-modify already sends previousPrompt/previousCode on CAD follow-ups
  * - version history / undo is an in-session stack (see lib/version-history.ts)
+ * - user profile stub is localStorage-only (see lib/user-profile.ts)
  * - Neural Style2Fab / image style transfer (pretty-up shipped as heuristic CSG)
  * - organic mesh, photogrammetry / NeRF image→3D, Print doctor, machine control
  *

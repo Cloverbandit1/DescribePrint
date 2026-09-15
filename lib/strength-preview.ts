@@ -622,9 +622,21 @@ export function previewStrength(mesh: Mesh, rules: PrintRules = printRules()): S
     triangleCount: n,
     maxScore,
     meanScore,
-    issues,
+    issues: dedupeStrengthIssues(issues),
     triangleScores,
   };
+}
+
+function dedupeStrengthIssues(issues: StrengthPreviewIssue[]): StrengthPreviewIssue[] {
+  const seen = new Set<string>();
+  const out: StrengthPreviewIssue[] = [];
+  for (const issue of issues) {
+    const key = `${issue.kind}:${issue.message}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(issue);
+  }
+  return out;
 }
 
 export function formatStrengthPreviewNote(preview?: StrengthPreview | null): string {
@@ -632,10 +644,7 @@ export function formatStrengthPreviewNote(preview?: StrengthPreview | null): str
   if (!preview.issues.length) {
     return preview.maxScore < 0.2 ? "" : `${preview.disclaimer} Highest heuristic score ${preview.maxScore.toFixed(2)}.`;
   }
-  const top = preview.issues
-    .slice(0, 3)
-    .map((issue) => issue.message)
-    .join("; ");
+  const top = [...new Set(preview.issues.map((issue) => issue.message))].slice(0, 3).join("; ");
   return `${preview.disclaimer} ${top}.`;
 }
 

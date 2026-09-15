@@ -91,7 +91,9 @@ describe("strength-preview fixture meshes", () => {
     expect(thin?.message).toMatch(/near hole/);
     expect(thin?.thicknessMm).toBeGreaterThan(0.8);
     expect(thin?.thicknessMm).toBeLessThan(1.7);
+    expect(preview.issues.filter((issue) => issue.kind === "thin-wall")).toHaveLength(1);
     expect(formatStrengthPreviewNote(preview)).toMatch(/thin wall ~/);
+    expect(formatStrengthPreviewNote(preview).match(/thin wall ~/g)?.length).toBe(1);
   });
 
   it("flags an unsupported downward face as an overhang", () => {

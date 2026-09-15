@@ -14,6 +14,13 @@ import {
 import type { LiveMachineStatus, RemainingLayerReshapePlan } from "./types";
 import { getJob, getLatestJob } from "../jobs";
 import { isEmergencyReshapeRequest } from "../print-doctor";
+import {
+  MACHINE_RESHAPE_STORAGE_KEY,
+  parseReshapeRemainingPref,
+  serializeReshapeRemainingPref,
+} from "./reshape-pref";
+
+export { MACHINE_RESHAPE_STORAGE_KEY, parseReshapeRemainingPref, serializeReshapeRemainingPref };
 
 export type ReshapePlannerInput = {
   print?: "idle" | "printing" | "paused" | "finished";
@@ -25,8 +32,6 @@ export type ReshapePlannerInput = {
   /** Injected remaining height (mock / tests). Wins over derived height. */
   remainingHeightMm?: number;
 };
-
-export const MACHINE_RESHAPE_STORAGE_KEY = "describeprint.machine.reshapeRemaining";
 
 const LATER_OPTION =
   "Emergency reshape of remaining layers is a later option (off unless RESHAPE_REMAINING is on).";
@@ -41,14 +46,6 @@ export function isReshapeRemainingEnabled(env: ProcessEnvLike = process.env): bo
 /** Env flag or Machine-panel checkbox (session / poll query). */
 export function isReshapeRemainingActive(env: ProcessEnvLike = process.env, sessionFlag = false): boolean {
   return isReshapeRemainingEnabled(env) || sessionFlag === true;
-}
-
-export function parseReshapeRemainingPref(raw: string | null | undefined): boolean {
-  return envFlagEnabled(raw ?? undefined, false);
-}
-
-export function serializeReshapeRemainingPref(enabled: boolean): string {
-  return enabled ? "1" : "0";
 }
 
 export function peekLastReshapePlan(): EmergencyRemainingReshapePlan | undefined {

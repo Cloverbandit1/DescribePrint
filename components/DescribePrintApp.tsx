@@ -12,7 +12,7 @@ import {
 } from "@/lib/design-options";
 import { EXAMPLE_PROMPTS } from "@/lib/fixtures";
 import type { HealthReport, HealthTone } from "@/lib/health-types";
-import { MACHINE_RESHAPE_STORAGE_KEY, parseReshapeRemainingPref } from "@/lib/machine/reshape";
+import { MACHINE_RESHAPE_STORAGE_KEY, parseReshapeRemainingPref } from "@/lib/machine/reshape-pref";
 import { FARM_QUEUE_NOTE, nextFarmStubName } from "@/lib/machine/farm";
 import {
   ESTIMATE_COST_SESSION_KEY,
@@ -1775,8 +1775,8 @@ function ResultPanel({
           <p className="text-[11px] leading-relaxed text-muted">{report.strengthPreview.disclaimer}</p>
           {report.strengthPreview.issues.length ? (
             <ul className="mt-1.5 space-y-1 text-xs text-warn">
-              {report.strengthPreview.issues.map((issue) => (
-                <li key={`${issue.kind}-${issue.message}`}>{issue.message}</li>
+              {report.strengthPreview.issues.map((issue, index) => (
+                <li key={`${issue.kind}-${index}`}>{issue.message}</li>
               ))}
             </ul>
           ) : (

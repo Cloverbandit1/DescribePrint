@@ -330,7 +330,14 @@ export function Viewer({
         />
         <Suspense fallback={null}>
           <BuildPlate sizeMm={plateMm} heightMm={heightMm} theme={theme} />
-          {stlUrl ? <LoadedModel url={stlUrl} heatmap={heatmap} triangleScores={triangleScores} /> : null}
+          {stlUrl ? (
+            <LoadedModel
+              key={`${stlUrl}-${heatmap ? "heat" : "plain"}`}
+              url={stlUrl}
+              heatmap={heatmap}
+              triangleScores={triangleScores}
+            />
+          ) : null}
           <PackOutlines plateMm={plateMm} outlines={packOutlines} theme={theme} />
         </Suspense>
         <ContactShadows opacity={theme === "dark" ? 0.32 : 0.2} scale={plateMm} blur={2.1} far={50} />

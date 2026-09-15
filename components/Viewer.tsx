@@ -222,7 +222,7 @@ export function Viewer({
       {!stlUrl ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-12 flex justify-center px-4">
           <p className="rounded-md bg-bg/70 px-3 py-1.5 text-xs text-muted backdrop-blur-sm">
-            Empty plate — describe a part, then Print.
+            Empty plate — describe a part or import STL/3MF, then Print.
           </p>
         </div>
       ) : null}

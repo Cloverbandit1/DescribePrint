@@ -55,6 +55,20 @@ describe("sanitizeOpenScad", () => {
     }
   });
 
+  it("allows only import(\"imported.stl\") when editing an imported mesh", () => {
+    const allowed = sanitizeOpenScad(
+      'difference() { import("imported.stl", convexity = 10); cylinder(h = 20, d = 8); }',
+      { allowImportedMesh: true },
+    );
+    expect(allowed.ok).toBe(true);
+
+    const blockedDefault = sanitizeOpenScad('import("imported.stl");');
+    expect(blockedDefault.ok).toBe(false);
+
+    const otherFile = sanitizeOpenScad('import("evil.stl"); cube(1);', { allowImportedMesh: true });
+    expect(otherFile.ok).toBe(false);
+  });
+
   it("rejects oversized payloads", () => {
     const result = sanitizeOpenScad(`cube(1);\n${"//".padEnd(80_010, "x")}`);
     expect(result.ok).toBe(false);

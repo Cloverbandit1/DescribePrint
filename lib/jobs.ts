@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { GenerateResult, PrintabilityReport } from "./types";
+import type { GenerateResult, PartSource, PlateEditMode, PrintabilityReport, WearableSizeId } from "./types";
 
 export type StoredJob = {
   id: string;
@@ -10,6 +10,21 @@ export type StoredJob = {
   report: PrintabilityReport;
   usedFixture: boolean;
   retried: boolean;
+  source: PartSource;
+  fileName: string | null;
+  wearableSize: WearableSizeId | null;
+  nativeSizeMm: [number, number, number];
+  editMode: PlateEditMode;
+  notes: string[];
+};
+
+export type CreateJobInput = Omit<StoredJob, "id" | "createdAt"> & {
+  source?: PartSource;
+  fileName?: string | null;
+  wearableSize?: WearableSizeId | null;
+  nativeSizeMm?: [number, number, number];
+  editMode?: PlateEditMode;
+  notes?: string[];
 };
 
 const TTL_MS = 60 * 60 * 1000;
@@ -24,10 +39,21 @@ function sweep() {
   }
 }
 
-export function createJob(input: Omit<StoredJob, "id" | "createdAt">): StoredJob {
+export function createJob(input: CreateJobInput): StoredJob {
   sweep();
   const job: StoredJob = {
-    ...input,
+    stl: input.stl,
+    threemf: input.threemf,
+    scad: input.scad,
+    report: input.report,
+    usedFixture: input.usedFixture,
+    retried: input.retried,
+    source: input.source ?? "openscad",
+    fileName: input.fileName ?? null,
+    wearableSize: input.wearableSize ?? null,
+    nativeSizeMm: input.nativeSizeMm ?? input.report.boundingBoxMm.size,
+    editMode: input.editMode ?? "create",
+    notes: input.notes ?? [],
     id: randomUUID(),
     createdAt: Date.now(),
   };
@@ -51,5 +77,10 @@ export function toGenerateResult(job: StoredJob): GenerateResult {
     threemfUrl: `/api/jobs/${job.id}/model.3mf`,
     scadUrl: `/api/jobs/${job.id}/model.scad`,
     report: job.report,
+    source: job.source,
+    fileName: job.fileName,
+    wearableSize: job.wearableSize,
+    editMode: job.editMode,
+    notes: job.notes,
   };
 }

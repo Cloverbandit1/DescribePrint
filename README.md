@@ -19,6 +19,21 @@ DescribePrint is **fully end-to-end in the web app**. Users must **never** need 
 
 V0 already follows the mesh path: the viewer plus STL/3MF download is the complete user path today. Full Bambu / Orca integration is **not** a V0 blocker.
 
+## Milestones
+
+Owner timeline for DescribePrint as a personal tool. **M0 is done.** M1 is the current slice (this repo): a packaged / self-contained first useful release — power + program only, as far as practical.
+
+| Milestone | Status | Target | What it means |
+| --- | --- | --- | --- |
+| **M0** | **Done** | — | Describe → local AI (`qwen2.5-coder:32b` on default Ollama) → OpenSCAD → STL/3MF in the studio UI. |
+| **M1** | **In progress** | early Oct 2026 | First useful release: one-click-ish Windows start from AllosWorkstation, launch health check (Ollama + MODEL + OpenSCAD), portable OpenSCAD path, everyday describe → options → Print (P2S default). |
+| **M2** | Planned | Nov–Dec 2026 | Daily driver: tighter loop, fewer setup steps, reliable personal use. |
+| **M3** | Planned | Q1 2027 | Machine control + live monitor (P2S / AMS in-app). |
+| **M4** | Planned | mid 2027 | Advanced vision / articulation. |
+| **Full vision** | Later | 12–24+ months | In-app slice/print, Print doctor, image import, pluggable machines, and the rest of the [Roadmap](#roadmap). |
+
+M1 does **not** change the Ollama port, retarget Agent Smith models, or drop the smart pipeline / 32b defaults.
+
 ## Local AI (Ollama)
 
 DescribePrint defaults to a **local** OpenAI-compatible API:
@@ -31,7 +46,7 @@ DescribePrint defaults to a **local** OpenAI-compatible API:
 | `SMART_PIPELINE` | `1` (default on): plan JSON then OpenSCAD. Set `0` for a single codegen pass |
 | `PLAN_MODEL` | optional; defaults to the same `MODEL` |
 
-When this path is active, the header shows a **Local AI** badge.
+On launch the header **Local AI / tools** chip probes Ollama, the configured `MODEL`, and OpenSCAD. Click it for status and fix tips (start Ollama, `ollama pull`, install or set `OPENSCAD_PATH`). The chip stays green when the local path is ready.
 
 ### Sharing Ollama with Agent Smith
 
@@ -87,14 +102,47 @@ V0 compiles **OpenSCAD**, not build123d / OpenCascade.
 
 Units are **millimeters**. OpenSCAD is unitless; DescribePrint treats `1` unit as `1 mm` and converts optional inch size hints (`× 25.4`).
 
+### OpenSCAD on Windows (portable / bundled plan)
+
+M1 does **not** ship the OpenSCAD binary (size + separate license). Resolution order:
+
+1. `OPENSCAD_PATH` — file, or a folder that contains `openscad.exe`
+2. `OPENSCAD_BIN` — legacy explicit executable
+3. Portable drop-in: `vendor/openscad/openscad.exe` (also `tools/openscad`, `bundled/openscad`, `.local/openscad`)
+4. Common Windows installs: `Program Files\OpenSCAD`, Nightly, `LOCALAPPDATA\Programs\OpenSCAD`, scoop, Chocolatey
+5. `PATH`
+
+A later packaged build can copy a portable OpenSCAD into `vendor/openscad/` and the app will find it with no env change. Until then, install from [openscad.org](https://openscad.org/) or set `OPENSCAD_PATH`.
+
 ## Quick start
+
+### Windows (AllosWorkstation)
+
+Near one-click from the repo folder:
+
+1. Install [Node.js LTS](https://nodejs.org) if needed.
+2. Double-click `Start-DescribePrint.cmd` (or run `npm run start:windows`).
+3. The script copies `.env.local` if missing, runs `npm install` on first launch, and opens [http://localhost:3000](http://localhost:3000).
+
+First-time machine prep (once):
+
+```bat
+npm run setup
+ollama pull qwen2.5-coder:32b
+```
+
+Install OpenSCAD from https://openscad.org/ **or** set `OPENSCAD_PATH` **or** drop `openscad.exe` in `vendor\openscad\`. Keep Ollama on port **11434**. Do not delete Agent Smith models.
+
+The header chip reports Local AI + OpenSCAD. Click it if something is red or yellow.
+
+### Any OS (terminal)
 
 ```bash
 # 1) Compiler (pick one)
 sudo apt-get install -y openscad          # Debian / Ubuntu
 brew install openscad                     # macOS
-# Windows: install from https://openscad.org/ and put it on PATH
-# Optional: OPENSCAD_BIN=/path/to/openscad
+# Windows: Start-DescribePrint.cmd, or install from https://openscad.org/
+# Optional: OPENSCAD_PATH=/path/to/openscad   (or OPENSCAD_BIN)
 
 # 2) Local AI — pull DescribePrint’s model only (leave other Ollama models alone)
 #    Install Ollama from https://ollama.com if it is not already running.
@@ -103,13 +151,12 @@ brew install openscad                     # macOS
 ollama pull qwen2.5-coder:32b
 
 # 3) App
-cp .env.example .env.local                # defaults already point at local Ollama
-npm install
+npm run setup                             # .env.local + npm install if needed
 npm test
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Confirm the **Local AI** badge.
+Open [http://localhost:3000](http://localhost:3000). Confirm the **Local AI** chip (click for OpenSCAD + model tips).
 
 Headless servers sometimes need a virtual display:
 
@@ -130,7 +177,8 @@ xvfb-run -a npm run dev
 | `LLM_TIMEOUT_MS` | no | Local completion timeout (default `180000`) |
 | `USE_FIXTURE` | no | `true` forces the mock path even when local AI is configured |
 | `FORCE_LLM` | no | `true` always calls the LLM unless `USE_FIXTURE` is also set |
-| `OPENSCAD_BIN` | no | OpenSCAD executable (default `openscad`) |
+| `OPENSCAD_PATH` | no | Preferred OpenSCAD executable **or** folder (portable ZIP, custom install). |
+| `OPENSCAD_BIN` | no | Legacy executable override. Bare `openscad` still searches well-known locations. |
 | `OPENSCAD_TIMEOUT_MS` | no | Compile timeout (default `45000`) |
 
 Secrets stay in the environment only. Do not commit `.env.local`.
@@ -157,7 +205,7 @@ Printability report: bounding box (mm), volume, triangle count, manifold flag, a
 ## Success paths
 
 - **Local AI (default):** Ollama on `127.0.0.1:11434` with DescribePrint’s model (`qwen2.5-coder:32b`) → describe → (optional plan JSON) → OpenSCAD → STL → viewer → download. No cloud key. Use `MODEL=qwen2.5-coder:14b` or `7b` on smaller machines.
-- **Ollama not running:** the UI shows **Start local AI (Ollama)**.
+- **Ollama not running / model missing / OpenSCAD missing:** the header chip turns yellow or red; click it for fix tips. Generation still shows **Start local AI (Ollama)** if the model call fails.
 - **Fixture / mock:** `USE_FIXTURE=true` (or `fixture: true`) compiles example/heuristic OpenSCAD without calling a model.
 - **Optional cloud:** set `OPENAI_BASE_URL` + a real `OPENAI_API_KEY` to use a hosted model.
 
@@ -169,7 +217,9 @@ Run as a Node process (`next dev` / `next start`). V0 is not aimed at serverless
 npm test
 ```
 
-Covers local LLM config defaults, code sanitization, and the mesh-check / STL / 3MF path. If OpenSCAD is installed, an integration test compiles the default fixture.
+Covers local LLM config defaults, OpenSCAD path resolution, launch health (Ollama + MODEL + OpenSCAD), code sanitization, and the mesh-check / STL / 3MF path. If OpenSCAD is installed, an integration test compiles the default fixture.
+
+`GET /api/health` returns the same Local AI / OpenSCAD / P2S status the header chip shows.
 
 ## Out of V0
 

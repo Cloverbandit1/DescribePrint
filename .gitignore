@@ -52,6 +52,11 @@ __pycache__/
 .venv-*/
 *.pyc
 
+# portable / bundled OpenSCAD (drop the binary in locally; do not commit it)
+/vendor/openscad/*
+!/vendor/openscad/.gitkeep
+!/vendor/openscad/README.md
+
 # ide
 .idea/
 .vscode/

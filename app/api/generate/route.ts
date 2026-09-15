@@ -30,7 +30,8 @@ export async function POST(req: Request) {
         const result = await runGeneratePipeline(body, sink);
         send("result", result);
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Generation failed";
+        const raw = err instanceof Error ? err.message : "Generation failed";
+        const message = raw.split(/\r?\n/, 1)[0]?.trim() || "Generation failed";
         send("error", { message });
       } finally {
         controller.close();

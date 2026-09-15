@@ -74,6 +74,18 @@ import {
   wearableSizeRatio,
 } from "@/lib/wearable-sizes";
 import type { GenerateResult, ImageImportMeta, PipelineStep, StatusEvent, Unit, WearableCategoryId, WearableSizeId } from "@/lib/types";
+import {
+  VERSION_HISTORY_NOTE,
+  canUndo,
+  classifyPlateVersionKind,
+  emptyVersionHistory,
+  pushVersion,
+  restoreVersion,
+  undoVersion,
+  versionKindLabel,
+  type PlateVersion,
+  type VersionHistoryState,
+} from "@/lib/version-history";
 import type { CameraView, PackOutline, ViewerTheme } from "./Viewer";
 
 const EMPTY_AMS_SLOTS: AmsSlotStatus[] = [];
@@ -173,6 +185,8 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
   const [wearableSize, setWearableSize] = useState<WearableSizeId | null>(null);
   const [wearableCategory, setWearableCategory] = useState<WearableCategoryId>(DEFAULT_WEARABLE_CATEGORY);
   const [appliedChoices, setAppliedChoices] = useState<AppliedDesignChoice[]>([]);
+  const [history, setHistory] = useState<VersionHistoryState<ChatItem[]>>(() => emptyVersionHistory());
+  const [showHistory, setShowHistory] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [keepWear, setKeepWear] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -238,11 +252,43 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
     setWearableSize(null);
     setWearableCategory(DEFAULT_WEARABLE_CATEGORY);
     setAppliedChoices([]);
+    setHistory(emptyVersionHistory());
+    setShowHistory(false);
     setPrompt("");
     setShowDetails(false);
     setWorkspace("prepare");
     setPackPlan(null);
     setPackOutlines([]);
+  }
+
+  function applyRestoredVersion(version: PlateVersion<ChatItem[]>) {
+    setResult(version.result);
+    setDesignPrompt(version.designPrompt);
+    setWearableSize(version.wearableSize);
+    setWearableCategory(version.wearableCategory ?? DEFAULT_WEARABLE_CATEGORY);
+    setAppliedChoices(version.appliedChoices);
+    setItems(version.thread);
+    setShowDetails(false);
+    setWorkspace("prepare");
+    setPrompt("");
+  }
+
+  function undoPlate() {
+    if (busy || !canUndo(history)) return;
+    const { state, restored } = undoVersion(history);
+    if (!restored) return;
+    setHistory(state);
+    applyRestoredVersion(restored);
+    scrollToEnd();
+  }
+
+  function restorePlate(index: number) {
+    if (busy) return;
+    const { state, restored } = restoreVersion(history, index);
+    if (!restored || state.currentIndex === history.currentIndex) return;
+    setHistory(state);
+    applyRestoredVersion(restored);
+    scrollToEnd();
   }
 
   async function printPart(
@@ -301,7 +347,10 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
 
     const startFresh = /\b(new part|start over|something else|different part|forget that|scratch)\b/i.test(cleaned);
     const choicesForRequest = startFresh ? [] : (options?.choices ?? appliedChoices);
-    if (startFresh) setAppliedChoices([]);
+    if (startFresh) {
+      setAppliedChoices([]);
+      setHistory(emptyVersionHistory());
+    }
     const previousPrompt = startFresh ? null : designPrompt;
     const previousCode = startFresh ? null : result?.code;
     const previousJobId = startFresh ? null : result?.jobId;
@@ -375,16 +424,40 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       }
       const generated: GenerateResult = latest;
 
+      const nextDesignPrompt = startFresh || !previousPrompt ? cleaned : `${previousPrompt}. ${cleaned}`;
+      const nextWearableSize = generated.wearableSize ?? wearableSize;
+      const nextWearableCategory = generated.wearableCategory ?? wearableCategory;
+      const nextChoices = generated.appliedChoices ?? choicesForRequest;
       setResult(generated);
-      setWearableSize(generated.wearableSize ?? wearableSize);
-      setWearableCategory(generated.wearableCategory ?? wearableCategory);
-      setAppliedChoices(generated.appliedChoices ?? choicesForRequest);
-      setDesignPrompt(startFresh || !previousPrompt ? cleaned : `${previousPrompt}. ${cleaned}`);
+      setWearableSize(nextWearableSize);
+      setWearableCategory(nextWearableCategory);
+      setAppliedChoices(nextChoices);
+      setDesignPrompt(nextDesignPrompt);
       setShowDetails(false);
-      setItems((prev) => [
-        ...prev.map((item) => (item.id === statusId && item.kind === "status" ? { ...item, active: false } : item)),
-        { id: nid(), kind: "result", result: generated },
-      ]);
+      setItems((prev) => {
+        const nextItems = [
+          ...prev.map((item) => (item.id === statusId && item.kind === "status" ? { ...item, active: false } : item)),
+          { id: nid(), kind: "result" as const, result: generated },
+        ];
+        setHistory((prevHistory) =>
+          pushVersion(startFresh ? emptyVersionHistory<ChatItem[]>() : prevHistory, {
+            kind: classifyPlateVersionKind({
+              hasPrevious: Boolean(previousJobId),
+              startFresh,
+              source: generated.source,
+              editMode: generated.editMode,
+            }),
+            prompt: cleaned,
+            designPrompt: nextDesignPrompt,
+            result: generated,
+            thread: nextItems,
+            wearableSize: nextWearableSize,
+            wearableCategory: nextWearableCategory,
+            appliedChoices: nextChoices,
+          }),
+        );
+        return nextItems;
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Could not make this part";
       setItems((prev) => [
@@ -442,15 +515,35 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       if (lastError) throw new Error(lastError);
       if (!latest) throw new Error("No model was returned");
       const generated: GenerateResult = latest;
+      const importPrompt = `Imported ${file.name}`;
       setResult(generated);
       setWearableSize(generated.wearableSize ?? null);
       setWearableCategory(generated.wearableCategory ?? DEFAULT_WEARABLE_CATEGORY);
-      setDesignPrompt(`Imported ${file.name}`);
+      setDesignPrompt(importPrompt);
       setShowDetails(false);
-      setItems((prev) => [
-        ...prev.map((item) => (item.id === statusId && item.kind === "status" ? { ...item, active: false } : item)),
-        { id: nid(), kind: "result", result: generated },
-      ]);
+      setItems((prev) => {
+        const nextItems = [
+          ...prev.map((item) => (item.id === statusId && item.kind === "status" ? { ...item, active: false } : item)),
+          { id: nid(), kind: "result" as const, result: generated },
+        ];
+        setHistory((prevHistory) =>
+          pushVersion(prevHistory, {
+            kind: classifyPlateVersionKind({
+              hasPrevious: Boolean(result?.jobId),
+              source: generated.source,
+              editMode: generated.editMode,
+            }),
+            prompt: importPrompt,
+            designPrompt: importPrompt,
+            result: generated,
+            thread: nextItems,
+            wearableSize: generated.wearableSize ?? null,
+            wearableCategory: generated.wearableCategory ?? DEFAULT_WEARABLE_CATEGORY,
+            appliedChoices,
+          }),
+        );
+        return nextItems;
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Could not import this file";
       setItems((prev) => [
@@ -537,6 +630,8 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
           setWearableSize(null);
           setWearableCategory(DEFAULT_WEARABLE_CATEGORY);
           setAppliedChoices([]);
+          setHistory(emptyVersionHistory());
+          setShowHistory(false);
           setResult(null);
           return;
         }
@@ -618,16 +713,46 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
               <div className="studio-label">Chat</div>
               <div className="text-[11px] text-muted">Describe, then keep talking</div>
             </div>
-            {items.length > 0 ? (
-              <button
-                type="button"
-                onClick={resetConversation}
-                className="text-[11px] text-muted underline-offset-2 hover:underline"
-              >
-                Clear chat
-              </button>
-            ) : null}
+            <div className="flex items-center gap-2">
+              {history.versions.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={undoPlate}
+                  disabled={busy || !canUndo(history)}
+                  className="text-[11px] text-muted underline-offset-2 hover:underline disabled:opacity-40"
+                >
+                  Undo
+                </button>
+              ) : null}
+              {history.versions.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setShowHistory((open) => !open)}
+                  className="text-[11px] text-muted underline-offset-2 hover:underline"
+                  aria-expanded={showHistory}
+                >
+                  History
+                </button>
+              ) : null}
+              {items.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={resetConversation}
+                  className="text-[11px] text-muted underline-offset-2 hover:underline"
+                >
+                  Clear chat
+                </button>
+              ) : null}
+            </div>
           </div>
+
+          {showHistory && history.versions.length > 0 ? (
+            <VersionHistoryList
+              history={history}
+              busy={busy}
+              onRestore={restorePlate}
+            />
+          ) : null}
 
           <div ref={scroller} className="scrollbar-thin min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
             {items.length === 0 ? (
@@ -795,6 +920,51 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
           ) : null}
         </aside>
       </div>
+    </div>
+  );
+}
+
+function VersionHistoryList({
+  history,
+  busy,
+  onRestore,
+}: {
+  history: VersionHistoryState<ChatItem[]>;
+  busy: boolean;
+  onRestore: (index: number) => void;
+}) {
+  return (
+    <div className="border-b border-line bg-panel-2 px-3 py-2">
+      <div className="studio-label">Versions</div>
+      <p className="mt-0.5 text-[10px] leading-relaxed text-muted">{VERSION_HISTORY_NOTE}</p>
+      <ol className="scrollbar-thin mt-2 max-h-36 space-y-1 overflow-y-auto">
+        {history.versions.map((version, index) => {
+          const current = index === history.currentIndex;
+          return (
+            <li key={version.id}>
+              <button
+                type="button"
+                disabled={busy || current}
+                onClick={() => onRestore(index)}
+                className={`flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-[11px] ${
+                  current
+                    ? "bg-accent/15 text-ink"
+                    : "text-muted hover:bg-panel hover:text-ink disabled:opacity-40"
+                }`}
+              >
+                <span className="w-4 shrink-0 tabular-nums text-muted">{index + 1}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium text-ink">{version.label}</span>
+                  <span className="text-[10px] text-muted">
+                    {versionKindLabel(version.kind)}
+                    {current ? " · on plate" : ""}
+                  </span>
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }

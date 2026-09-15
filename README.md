@@ -13,7 +13,8 @@ DescribePrint is **fully end-to-end in the web app**. Users must **never** need 
 - Future Style2Fab-like edit, organic mesh, and other mesh work stay **in-app**. They are not a Blender plugin or an external DCC dependency.
 - **Long-term, a separate slicer app is not required** for the core path. Users pick a printer and print settings in DescribePrint.
 - **Very simple to use and print.** The everyday path is **describe → clear options → Print**. Smart defaults (mm, Bambu Lab P2S). Advanced controls stay hidden.
-- **Bambu-inspired layout, original chrome.** The desktop workspace follows Bambu Studio / Bambu Lab slicer structure: **Prepare** on the left, a large **3D plate preview** in the center, and **Print / options** on the right, with Prepare → Preview tabs. Dark and light themes use a compact studio palette (green actions, muted panels). The app does **not** use Bambu trademarks, logos, or proprietary assets — only a familiar workspace feel. Mobile stacks the plate first and keeps the same describe → Print path.
+- **Bambu-inspired layout, original chrome.** The desktop workspace follows Bambu Studio / Bambu Lab slicer structure: a large **3D plate preview** in the center, **Print / options** on the right, and Prepare → Preview tabs. Dark and light themes use a compact studio palette (green actions, muted panels). The app does **not** use Bambu trademarks, logos, or proprietary assets — only a familiar workspace feel.
+- **Chat stays first-class.** The left Prepare column is a live describe/chat thread, not a dead slicer object list. Users keep talking to add, remove, or change the part; follow-ups send the previous description and OpenSCAD so the plate can update. Mobile still keeps a composer on Preview so conversation is not trapped behind the plate.
 
 V0 already follows the mesh path: the viewer plus STL/3MF download is the complete user path today. Full Bambu / Orca integration is **not** a V0 blocker.
 
@@ -87,7 +88,7 @@ These three match built-in fixtures, so they work **without an API key**. With a
 
 ## What V0 does
 
-1. Studio-style UI: describe in **Prepare** → optional size/units → **Print** on the right (CAD details stay under More options / Details). The center plate previews the model; STL and 3MF download from the Print panel.
+1. Studio-style UI with a first-class **chat**: describe in Prepare, keep talking to iterate, then **Print** / **Update** (size/units and CAD details stay under More options / Details). The center plate previews the latest part; STL and 3MF download from the Print panel.
 2. LLM (or fixture) → OpenSCAD text.
 3. Sanitize / validate (no network, no filesystem escapes); run OpenSCAD in a subprocess with a timeout.
 4. Parse the STL; check non-empty, volume, triangle count, edge-manifold / watertight-ish.
@@ -133,7 +134,7 @@ All of the above ship **inside the web UI** (preview + printable export). None o
 
 ## Extension points (later)
 
-- **Describe-to-modify** — send the previous OpenSCAD plus “make the hole 8 mm”.
+- **Richer describe-to-modify** — V0 already threads the last prompt + OpenSCAD into chat follow-ups; later work can deepen multi-part / selection-aware edits.
 - **Style2Fab-style edit** — in-app stylization while keeping functional regions (not a Blender plugin).
 - **Organic mesh** — swap the OpenSCAD backend for a neural / implicit generator, still exported from the app.
 

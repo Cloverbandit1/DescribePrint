@@ -36,6 +36,8 @@ const FRIENDLY_STEP: Record<PipelineStep, string> = {
   done: "Ready",
 };
 
+const FOLLOW_UPS = ["Make the hole 8 mm", "Make it larger", "Start a new part"] as const;
+
 const THEME_KEY = "describeprint-theme";
 
 let counter = 0;
@@ -75,6 +77,7 @@ export function DescribePrintApp() {
   const [items, setItems] = useState<ChatItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<GenerateResult | null>(null);
+  const [designPrompt, setDesignPrompt] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [workspace, setWorkspace] = useState<WorkspaceTab>("prepare");
@@ -116,9 +119,22 @@ export function DescribePrintApp() {
     });
   };
 
+  function resetConversation() {
+    setItems([]);
+    setResult(null);
+    setDesignPrompt(null);
+    setPrompt("");
+    setShowDetails(false);
+    setWorkspace("prepare");
+  }
+
   async function printPart(text: string) {
     const cleaned = text.trim();
     if (!cleaned || busy) return;
+
+    const startFresh = /\b(new part|start over|something else|different part|forget that|scratch)\b/i.test(cleaned);
+    const previousPrompt = startFresh ? null : designPrompt;
+    const previousCode = startFresh ? null : result?.code;
 
     setBusy(true);
     setPrompt("");
@@ -129,6 +145,7 @@ export function DescribePrintApp() {
       { id: statusId, kind: "status", steps: [], active: true },
     ]);
     scrollToEnd();
+    setWorkspace("prepare");
 
     try {
       const response = await fetch("/api/generate", {
@@ -138,6 +155,8 @@ export function DescribePrintApp() {
           prompt: cleaned,
           sizeHint: sizeNumber,
           units,
+          previousPrompt,
+          previousCode,
           fixture: process.env.NODE_ENV === "test" ? true : undefined,
         }),
       });
@@ -178,8 +197,8 @@ export function DescribePrintApp() {
       const generated: GenerateResult = latest;
 
       setResult(generated);
+      setDesignPrompt(startFresh || !previousPrompt ? cleaned : `${previousPrompt}. ${cleaned}`);
       setShowDetails(false);
-      setWorkspace("preview");
       setItems((prev) => [
         ...prev.map((item) => (item.id === statusId && item.kind === "status" ? { ...item, active: false } : item)),
         { id: nid(), kind: "result", result: generated },
@@ -200,6 +219,39 @@ export function DescribePrintApp() {
   const plateW = printer.buildVolumeMm[0];
   const plateD = printer.buildVolumeMm[1];
   const plateH = printer.buildVolumeMm[2];
+  const actionLabel = busy ? "Updating…" : result ? "Update" : "Print";
+
+  const composer = (
+    <ChatComposer
+      prompt={prompt}
+      onPromptChange={setPrompt}
+      onSubmit={() => void printPart(prompt)}
+      busy={busy}
+      canSubmit={canPrint}
+      actionLabel={actionLabel}
+      placeholder={
+        result
+          ? "Keep talking — change it, add or remove a feature, or start a new part…"
+          : "A phone stand, or a 20 mm cube with a hole…"
+      }
+      showAdvanced={showAdvanced}
+      onToggleAdvanced={() => setShowAdvanced((v) => !v)}
+      sizeHint={sizeHint}
+      onSizeHintChange={setSizeHint}
+      units={units}
+      onUnitsChange={setUnits}
+      followUps={result && !busy ? FOLLOW_UPS : null}
+      onFollowUp={(value) => {
+        if (value.toLowerCase().includes("new part")) {
+          setPrompt("");
+          setDesignPrompt(null);
+          setResult(null);
+          return;
+        }
+        setPrompt(value);
+      }}
+    />
+  );
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-bg text-ink">
@@ -208,7 +260,7 @@ export function DescribePrintApp() {
           <StudioMark />
           <div className="min-w-0">
             <div className="text-[13px] font-semibold leading-none">DescribePrint</div>
-            <div className="mt-0.5 hidden truncate text-[10px] text-muted sm:block">Describe → options → Print</div>
+            <div className="mt-0.5 hidden truncate text-[10px] text-muted sm:block">Describe → talk → Print</div>
           </div>
         </div>
 
@@ -229,7 +281,7 @@ export function DescribePrintApp() {
           {busy ? (
             <span className="hidden items-center gap-1.5 text-[11px] text-muted sm:flex">
               <span className="pulse-dot h-1.5 w-1.5 rounded-full bg-accent" />
-              Preparing plate…
+              Listening…
             </span>
           ) : null}
           <div className="hidden items-center gap-1.5 rounded-md border border-line bg-panel-2 px-2 py-1 text-[11px] sm:flex">
@@ -248,15 +300,28 @@ export function DescribePrintApp() {
         </div>
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-rows-[minmax(220px,1fr)_auto] lg:grid-cols-[280px_minmax(0,1fr)_300px] lg:grid-rows-1">
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(200px,1fr)_auto] lg:grid-cols-[minmax(340px,400px)_minmax(0,1fr)_260px] lg:grid-rows-1">
         <section
-          className={`min-h-0 flex-col border-line bg-panel ${
-            workspace === "preview" ? "hidden lg:flex lg:border-r" : "flex border-t lg:border-r lg:border-t-0"
-          } ${workspace === "prepare" ? "order-2 max-h-[46vh] lg:order-none lg:max-h-none" : ""}`}
+          className={`min-h-0 flex-col border-line bg-panel lg:border-r ${
+            workspace === "preview" && !wideLayout
+              ? "hidden"
+              : `flex ${workspace === "prepare" ? "order-2 max-h-[58vh] border-t lg:order-none lg:max-h-none lg:border-t-0" : ""}`
+          }`}
         >
           <div className="flex items-center justify-between border-b border-line px-3 py-2">
-            <div className="studio-label">Prepare</div>
-            <div className="text-[10px] text-muted">Project</div>
+            <div>
+              <div className="studio-label">Chat</div>
+              <div className="text-[11px] text-muted">Describe, then keep talking</div>
+            </div>
+            {items.length > 0 ? (
+              <button
+                type="button"
+                onClick={resetConversation}
+                className="text-[11px] text-muted underline-offset-2 hover:underline"
+              >
+                Clear chat
+              </button>
+            ) : null}
           </div>
 
           <div ref={scroller} className="scrollbar-thin min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
@@ -268,80 +333,11 @@ export function DescribePrintApp() {
                 }}
               />
             ) : (
-              <div className="space-y-2">
-                <div className="studio-label">Objects</div>
-                {items.map((item) => (
-                  <ProjectRow key={item.id} item={item} />
-                ))}
-              </div>
+              items.map((item) => <ChatBubble key={item.id} item={item} />)
             )}
           </div>
 
-          <form
-            className="border-t border-line bg-panel p-3"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void printPart(prompt);
-            }}
-          >
-            <label className="studio-label mb-1.5 block" htmlFor="describe-input">
-              Describe
-            </label>
-            <textarea
-              id="describe-input"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  void printPart(prompt);
-                }
-              }}
-              rows={3}
-              placeholder="A phone stand, or a 20 mm cube with a hole…"
-              className="studio-field resize-none px-2.5 py-2 text-sm"
-            />
-            <div className="mt-2 flex items-center gap-2">
-              <div className="lg:hidden">
-                <button type="submit" disabled={!canPrint} className="studio-btn studio-btn-primary inline-flex h-8 px-3.5">
-                  {busy ? "Preparing…" : "Print"}
-                </button>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowAdvanced((v) => !v)}
-                className="text-[11px] text-muted underline-offset-2 hover:underline"
-              >
-                {showAdvanced ? "Hide options" : "More options"}
-              </button>
-            </div>
-            {showAdvanced ? (
-              <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-line bg-panel-2 p-2.5">
-                <label className="text-[11px] text-muted" htmlFor="size-hint">
-                  Size
-                </label>
-                <input
-                  id="size-hint"
-                  type="number"
-                  min={0}
-                  step="any"
-                  value={sizeHint}
-                  onChange={(e) => setSizeHint(e.target.value)}
-                  placeholder="optional"
-                  className="studio-field w-20 px-2 py-1.5 text-sm"
-                />
-                <select
-                  value={units}
-                  onChange={(e) => setUnits(e.target.value as Unit)}
-                  className="studio-field w-auto px-2 py-1.5 text-sm"
-                  aria-label="Units"
-                >
-                  <option value="mm">mm</option>
-                  <option value="in">inches</option>
-                </select>
-              </div>
-            ) : null}
-          </form>
+          <div className="border-t border-line bg-panel">{composer}</div>
         </section>
 
         <section className="relative order-1 flex min-h-0 flex-col bg-canvas lg:order-none">
@@ -390,34 +386,16 @@ export function DescribePrintApp() {
         >
           <div className="flex items-center justify-between border-b border-line px-3 py-2">
             <div className="studio-label">Print</div>
-            <div className="text-[10px] text-muted">Options</div>
+            <div className="text-[10px] text-muted">{printer.name}</div>
           </div>
 
-          <div className="scrollbar-thin min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3">
-            <section className="space-y-2">
-              <div className="studio-label">Printer</div>
-              <div className="rounded-md border border-line bg-panel-2 p-2.5">
-                <div className="text-sm font-medium">{printer.name}</div>
-                <div className="mt-1 space-y-0.5 text-[11px] leading-relaxed text-muted">
-                  <div>
-                    {plateW} × {plateD} × {plateH} mm
-                  </div>
-                  <div>
-                    {printer.nozzleMm} mm nozzle · {printer.filamentDiameterMm} mm filament
-                  </div>
-                </div>
+          <div className="scrollbar-thin min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
+            <div className="rounded-md border border-line bg-panel-2 p-2.5 text-[11px] leading-relaxed text-muted">
+              <div className="text-sm font-medium text-ink">{printer.name}</div>
+              <div className="mt-1">
+                {plateW} × {plateD} × {plateH} mm · {printer.nozzleMm} mm nozzle
               </div>
-            </section>
-
-            <section className="space-y-2">
-              <div className="studio-label">Process</div>
-              <div className="grid grid-cols-2 gap-2 text-[11px]">
-                <ProcessChip label="Nozzle" value={`${printer.nozzleMm} mm`} />
-                <ProcessChip label="Material" value="Generic PLA" />
-                <ProcessChip label="Bed" value={`${plateW} mm`} />
-                <ProcessChip label="Units" value={units} />
-              </div>
-            </section>
+            </div>
 
             <button
               type="button"
@@ -425,23 +403,141 @@ export function DescribePrintApp() {
               onClick={() => void printPart(prompt)}
               className="studio-btn studio-btn-primary inline-flex h-10 w-full text-sm"
             >
-              {busy ? "Preparing…" : "Print"}
+              {actionLabel}
             </button>
             <p className="text-[11px] leading-relaxed text-muted">
-              Describe on the left, adjust options if you need them, then Print. Files stay in this workspace.
+              The chat is the editor. Keep describing changes; Print puts the latest part on the plate.
             </p>
 
             {result ? (
               <ResultPanel result={result} showDetails={showDetails} onToggleDetails={() => setShowDetails((v) => !v)} />
             ) : (
               <p className="rounded-md border border-dashed border-line px-2.5 py-2 text-[11px] text-muted">
-                No model on the plate yet.
+                Nothing on the plate yet — tell the chat what to make.
               </p>
             )}
           </div>
+
+          {workspace === "preview" && !wideLayout ? (
+            <div className="border-t border-line bg-panel">{composer}</div>
+          ) : null}
         </aside>
       </div>
     </div>
+  );
+}
+
+function ChatComposer({
+  prompt,
+  onPromptChange,
+  onSubmit,
+  busy,
+  canSubmit,
+  actionLabel,
+  placeholder,
+  showAdvanced,
+  onToggleAdvanced,
+  sizeHint,
+  onSizeHintChange,
+  units,
+  onUnitsChange,
+  followUps,
+  onFollowUp,
+}: {
+  prompt: string;
+  onPromptChange: (value: string) => void;
+  onSubmit: () => void;
+  busy: boolean;
+  canSubmit: boolean;
+  actionLabel: string;
+  placeholder: string;
+  showAdvanced: boolean;
+  onToggleAdvanced: () => void;
+  sizeHint: string;
+  onSizeHintChange: (value: string) => void;
+  units: Unit;
+  onUnitsChange: (value: Unit) => void;
+  followUps: readonly string[] | null;
+  onFollowUp: (value: string) => void;
+}) {
+  return (
+    <form
+      className="p-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSubmit();
+      }}
+    >
+      {followUps ? (
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {followUps.map((chip) => (
+            <button
+              key={chip}
+              type="button"
+              onClick={() => onFollowUp(chip)}
+              className="rounded-full border border-line bg-panel-2 px-2.5 py-1 text-[11px] text-muted hover:border-accent/50 hover:text-ink"
+            >
+              {chip}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <label className="studio-label mb-1.5 block" htmlFor="describe-input">
+        Message
+      </label>
+      <textarea
+        id="describe-input"
+        value={prompt}
+        onChange={(e) => onPromptChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            onSubmit();
+          }
+        }}
+        rows={3}
+        placeholder={placeholder}
+        className="studio-field resize-none px-2.5 py-2 text-sm"
+      />
+      <div className="mt-2 flex items-center gap-2">
+        <button type="submit" disabled={!canSubmit} className="studio-btn studio-btn-primary inline-flex h-8 px-3.5">
+          {busy ? "Working…" : actionLabel}
+        </button>
+        <button
+          type="button"
+          onClick={onToggleAdvanced}
+          className="text-[11px] text-muted underline-offset-2 hover:underline"
+        >
+          {showAdvanced ? "Hide options" : "More options"}
+        </button>
+      </div>
+      {showAdvanced ? (
+        <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-line bg-panel-2 p-2.5">
+          <label className="text-[11px] text-muted" htmlFor="size-hint">
+            Size
+          </label>
+          <input
+            id="size-hint"
+            type="number"
+            min={0}
+            step="any"
+            value={sizeHint}
+            onChange={(e) => onSizeHintChange(e.target.value)}
+            placeholder="optional"
+            className="studio-field w-20 px-2 py-1.5 text-sm"
+          />
+          <select
+            value={units}
+            onChange={(e) => onUnitsChange(e.target.value as Unit)}
+            className="studio-field w-auto px-2 py-1.5 text-sm"
+            aria-label="Units"
+          >
+            <option value="mm">mm</option>
+            <option value="in">inches</option>
+          </select>
+        </div>
+      ) : null}
+    </form>
   );
 }
 
@@ -469,19 +565,10 @@ function WorkspaceTabButton({
   );
 }
 
-function ProcessChip({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-md border border-line bg-panel-2 px-2 py-1.5">
-      <div className="text-[10px] text-muted">{label}</div>
-      <div className="mt-0.5 font-medium">{value}</div>
-    </div>
-  );
-}
-
-function ProjectRow({ item }: { item: ChatItem }) {
+function ChatBubble({ item }: { item: ChatItem }) {
   if (item.kind === "user") {
     return (
-      <div className="rounded-md border border-line bg-panel-2 px-2.5 py-2 text-sm leading-relaxed">{item.text}</div>
+      <div className="ml-8 rounded-md bg-panel-2 px-2.5 py-2 text-sm leading-relaxed">{item.text}</div>
     );
   }
   if (item.kind === "status") {
@@ -501,8 +588,8 @@ function ProjectRow({ item }: { item: ChatItem }) {
   }
   const { report } = item.result;
   return (
-    <div className="rounded-md border border-ok/35 bg-ok/5 px-2.5 py-2 text-sm">
-      <div className="font-medium">Ready to print</div>
+    <div className="mr-4 rounded-md border border-ok/35 bg-ok/5 px-2.5 py-2 text-sm">
+      <div className="font-medium">On the plate — keep talking to change it</div>
       <div className="mt-1 text-muted">
         {formatMm(report.boundingBoxMm.size[0])} × {formatMm(report.boundingBoxMm.size[1])} ×{" "}
         {formatMm(report.boundingBoxMm.size[2])} mm
@@ -574,8 +661,11 @@ function ResultPanel({
 function EmptyState({ onPick }: { onPick: (value: string) => void }) {
   return (
     <div className="space-y-3">
-      <p className="text-sm leading-relaxed text-muted">Type what you want, or pick a preset, then Print.</p>
-      <div className="studio-label">Presets</div>
+      <p className="text-sm leading-relaxed text-muted">
+        Talk to the workspace. Describe a part, then keep chatting to add, remove, or change it. The plate updates when
+        you Print.
+      </p>
+      <div className="studio-label">Try saying</div>
       <div className="space-y-1.5">
         {EXAMPLE_PROMPTS.map((example) => (
           <button

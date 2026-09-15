@@ -1,7 +1,7 @@
 import { checkMesh, hasHardMeshFailure } from "./mesh-check";
 import { compileOpenScad, withTempDir } from "./compile";
 import { createJob, toGenerateResult } from "./jobs";
-import { defaultFixture, matchFixture, shouldUseFixture } from "./fixtures";
+import { defaultFixture, matchConversationFixture, matchFixture, shouldUseFixture } from "./fixtures";
 import { buildUserPrompt, completeChat, systemPrompt } from "./llm";
 import { sanitizeOpenScad } from "./sanitize";
 import { parseStl } from "./stl";
@@ -24,8 +24,9 @@ async function codeFromLlm(request: GenerateRequest, previous?: { code: string; 
       content: buildUserPrompt({
         prompt: request.prompt,
         sizeNote,
-        previousCode: previous?.code,
+        previousCode: previous?.code ?? request.previousCode ?? undefined,
         previousError: previous?.error,
+        previousPrompt: request.previousPrompt ?? undefined,
       }),
     },
   ]);
@@ -33,7 +34,16 @@ async function codeFromLlm(request: GenerateRequest, previous?: { code: string; 
 }
 
 function codeFromFixture(request: GenerateRequest): { code: string; usedFixture: true } {
-  const match = matchFixture(request.prompt, request.sizeHint, request.units ?? "mm") ?? defaultFixture();
+  const match =
+    matchConversationFixture(
+      request.prompt,
+      request.previousPrompt,
+      request.previousCode,
+      request.sizeHint,
+      request.units ?? "mm",
+    ) ??
+    matchFixture(request.prompt, request.sizeHint, request.units ?? "mm") ??
+    defaultFixture();
   return { code: match.code, usedFixture: true };
 }
 

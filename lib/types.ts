@@ -6,6 +6,10 @@ export type GenerateRequest = {
   units?: Unit;
   /** Force the built-in fixture/heuristic path (no live LLM). */
   fixture?: boolean;
+  /** Last successful description, used so follow-ups can edit the same part. */
+  previousPrompt?: string | null;
+  /** Last successful OpenSCAD, used so follow-ups can add/remove/change the design. */
+  previousCode?: string | null;
 };
 
 export type PipelineStep =
@@ -79,6 +83,7 @@ export type Mesh = {
  * V0 extension points (not implemented — reserved for later versions).
  *
  * - describe-to-modify: follow-up "make the hole 8mm" using previous SCAD as context
+ *   (V0 already sends previousPrompt/previousCode on chat follow-ups)
  * - Style2Fab-style edit: in-app stylization while preserving functional regions
  *   (not a Blender plugin or other DCC — preview + STL/3MF in the web UI is the full path)
  * - organic mesh: swap the OpenSCAD backend for a neural / implicit surface generator

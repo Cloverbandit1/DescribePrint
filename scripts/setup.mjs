@@ -4,14 +4,13 @@
  * Copies .env.local defaults, installs npm deps, prints the local-AI checklist.
  */
 import { spawn } from "node:child_process";
-import { copyFile, mkdir } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { ensureEnvLocal } from "./lib/describeprint-env.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const envExample = path.join(root, ".env.example");
-const envLocal = path.join(root, ".env.local");
 
 function run(command, args) {
   return new Promise((resolve, reject) => {
@@ -32,15 +31,13 @@ async function main() {
   console.log("DescribePrint setup");
   console.log("-------------------");
 
-  if (!existsSync(envLocal)) {
-    if (!existsSync(envExample)) {
-      throw new Error("Missing .env.example — cannot create .env.local");
-    }
-    await copyFile(envExample, envLocal);
-    console.log("Created .env.local from .env.example (local Ollama + qwen2.5-coder:32b).");
+  const env = ensureEnvLocal(root);
+  if (env.created) {
+    console.log("Created .env.local (local Ollama + qwen2.5-coder:32b).");
   } else {
-    console.log(".env.local already present — left unchanged.");
+    console.log(".env.local merged with local defaults (existing user keys kept).");
   }
+  for (const warning of env.warnings) console.warn(`  warn: ${warning}`);
 
   const vendorDir = path.join(root, "vendor", "openscad");
   if (!existsSync(vendorDir)) {
@@ -60,7 +57,7 @@ async function main() {
   console.log("  2. ollama pull qwen2.5-coder:32b");
   console.log("     Leave Agent Smith models installed and untouched.");
   console.log("     Lighter machines: MODEL=qwen2.5-coder:14b or :7b in .env.local");
-  console.log("  3. Install OpenSCAD from https://openscad.org/  or set OPENSCAD_PATH");
+  console.log("  3. OpenSCAD: npm run openscad:portable   or install from https://openscad.org/");
   console.log("     Portable drop-in: vendor/openscad/openscad.exe");
   console.log("");
   console.log("Then: npm run dev   or double-click Start-DescribePrint.cmd on Windows.");

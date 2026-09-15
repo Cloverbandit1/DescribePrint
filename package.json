@@ -9,8 +9,11 @@
     "build": "next build",
     "start": "next start",
     "setup": "node scripts/setup.mjs",
-    "health:preflight": "vite-node --config vitest.config.ts scripts/windows/health-preflight.ts",
+    "setup:windows": "node scripts/install-allos.mjs --layout current",
     "start:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/Start-DescribePrint.ps1",
+    "health:preflight": "vite-node --config vitest.config.ts scripts/windows/health-preflight.ts",
+    "openscad:portable": "node scripts/install-openscad-portable.mjs",
+    "pack:windows": "node scripts/build-portable.mjs",
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest"

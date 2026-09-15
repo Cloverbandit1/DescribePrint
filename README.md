@@ -26,7 +26,7 @@ Owner timeline for DescribePrint as a personal tool. **M0 is done.** M1 is the c
 | Milestone | Status | Target | What it means |
 | --- | --- | --- | --- |
 | **M0** | **Done** | — | Describe → local AI (`qwen2.5-coder:32b` on default Ollama) → OpenSCAD → STL/3MF in the studio UI. |
-| **M1** | **In progress** | early Oct 2026 | First useful release: one-click-ish Windows start from AllosWorkstation, launch health check (Ollama + MODEL + OpenSCAD), portable OpenSCAD path, everyday describe → options → Print (P2S default). |
+| **M1** | **In progress** | early Oct 2026 | First useful release: one-click-ish Windows start from AllosWorkstation, launch health check (Ollama + MODEL + OpenSCAD), portable OpenSCAD path, Windows zip/setup pack (`npm run pack:windows`), everyday describe → options → Print (P2S default). |
 | **M2** | Planned | Nov–Dec 2026 | Daily driver: tighter loop, fewer setup steps, reliable personal use. |
 | **M3** | Planned | Q1 2027 | Machine control + live monitor (P2S / AMS in-app). |
 | **M4** | Planned | mid 2027 | Advanced vision / articulation. |
@@ -121,7 +121,7 @@ M1 does **not** ship the OpenSCAD binary (size + separate license). Resolution o
 4. Common Windows installs: `Program Files\OpenSCAD`, Nightly, `LOCALAPPDATA\Programs\OpenSCAD`, scoop, Chocolatey
 5. `PATH`
 
-A later packaged build can copy a portable OpenSCAD into `vendor/openscad/` and the app will find it with no env change. Until then, install from [openscad.org](https://openscad.org/) or set `OPENSCAD_PATH`.
+The Windows setup pack can download the official OpenSCAD zip into `vendor/openscad/` at pack or install time (`npm run openscad:portable`). Until then, install from [openscad.org](https://openscad.org/) or set `OPENSCAD_PATH`.
 
 ## Quick start
 
@@ -142,9 +142,11 @@ npm run setup
 ollama pull qwen2.5-coder:32b
 ```
 
-Install OpenSCAD from https://openscad.org/ **or** set `OPENSCAD_PATH` **or** drop `openscad.exe` in `vendor\openscad\`. Keep Ollama on port **11434**. Do not delete Agent Smith models.
+Install OpenSCAD from https://openscad.org/ **or** set `OPENSCAD_PATH` **or** run `npm run openscad:portable` (official zip → `vendor\openscad\`). Keep Ollama on port **11434**. Do not delete Agent Smith models.
 
-The header chip reports Local AI + OpenSCAD. Click it if something is red or yellow.
+The header chip reports Local AI + OpenSCAD. Click it if something is red or yellow. First-run health: `npm run health:preflight`.
+
+**Windows portable / installer pack:** zip + bootstrap (not Electron). Build with `npm run pack:windows`. Install/setup: `Setup-DescribePrint.cmd` or `scripts/windows/Install-AllosWorstation.ps1 -Layout Laptop|Smith`. Full steps, OpenSCAD fetch, qwen-only Ollama pulls, and Smith-model safety: [`packaging/windows/README.md`](packaging/windows/README.md).
 
 ### Any OS (terminal)
 

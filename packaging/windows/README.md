@@ -1,0 +1,212 @@
+# AllosWorstation / DescribePrint — Windows power + program pack
+
+Portable **zip + Start**, not Electron/Tauri. Next.js still runs via `npm run dev` through the existing one-click scripts.
+
+This pack **reuses**:
+
+- `Start-DescribePrint.cmd` → `scripts/windows/Start-DescribePrint.ps1`
+- `npm run health:preflight`
+- `vendor/openscad` + `OPENSCAD_PATH` + `resolveOpenscad` in `lib/openscad.ts`
+
+Desktop launchers **must** `call` the repo `Start-DescribePrint.cmd`. Do not inline `npm run dev` in the bat.
+
+## What ships
+
+A **setup pack** (sources + scripts). `node_modules` and the OpenSCAD binary are **not** committed (size + OpenSCAD’s own license). Setup downloads OpenSCAD into `vendor/openscad` and runs `npm install`.
+
+| Output | How |
+| --- | --- |
+| `dist/AllosWorstation-portable/` | `npm run pack:windows` or `scripts/windows/Build-Portable.ps1` |
+| `dist/AllosWorstation-portable.zip` | same (omit `--skip-zip`) |
+| Optional `.exe` installer | Compile `AllosWorstation.iss` with Inno Setup 6 **after** the portable folder exists |
+| MSI | **Follow-up** — not in this slice |
+
+## Machine layouts (do not break)
+
+| Layout | Repo path | OpenSCAD | Desktop |
+| --- | --- | --- | --- |
+| **Smith** | Often OneDrive Desktop `AllosWorstation\DescribePrint` | Portable `vendor\openscad` is fine | `Desktop\AllosWorstation\Start DescribePrint.bat` → that repo |
+| **Laptop** | Prefer `C:\Users\clove\AllosWorstation\DescribePrint` **outside OneDrive** | Program Files OpenSCAD is OK | Same Desktop bat, pointed at the laptop path |
+
+Defaults:
+
+- Smith / Current: stay in the folder you ran setup from (if it already is DescribePrint).
+- Laptop: `%USERPROFILE%\AllosWorstation\DescribePrint` (for `clove` that is `C:\Users\clove\AllosWorstation\DescribePrint`).
+
+Override with `-RepoPath` / `--repo-path`.
+
+## Build the pack
+
+From a git checkout (any OS with Node 22+):
+
+```bat
+npm run pack:windows
+```
+
+Windows:
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\Build-Portable.ps1
+```
+
+Include a portable OpenSCAD binary **inside the zip** (optional, ~22 MB, not committed):
+
+```bat
+npm run pack:windows -- --fetch-openscad
+```
+
+Folder-only (no zip):
+
+```bat
+npm run pack:windows -- --skip-zip
+```
+
+## Install / first-run setup
+
+### From a zip
+
+1. Unzip `AllosWorstation-portable.zip`.
+2. Install [Node.js LTS](https://nodejs.org) if `node` is missing.
+3. Double-click `Setup-DescribePrint.cmd`  
+   or:
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\Install-AllosWorstation.ps1 -Layout Laptop
+```
+
+Smith (keep OneDrive checkout):
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\Install-AllosWorstation.ps1 -Layout Smith
+```
+
+Setup will:
+
+1. Copy the tree to the laptop path when `-Layout Laptop` and the source is elsewhere.
+2. Write/merge `.env.local` (local Ollama defaults; **never** `MODEL=smith-minicpm5`).
+3. Fetch OpenSCAD into `vendor\openscad` unless Program Files OpenSCAD is present (`-Layout Laptop` prefers the system install).
+4. Run `npm install` when `node_modules` is missing.
+5. Write `Desktop\AllosWorstation\Start DescribePrint.bat` that `call`s `Start-DescribePrint.cmd`.
+6. Run `npm run health:preflight` (soft — Ollama can be started later).
+
+### From this git clone
+
+Same scripts. You do not need the zip.
+
+```bat
+npm run setup:windows
+```
+
+## Start
+
+One click:
+
+- `Start-DescribePrint.cmd` in the repo / unpacked folder
+- or Desktop `\AllosWorstation\Start DescribePrint.bat` (calls that cmd)
+- or `npm run start:windows`
+
+The Start script copies `.env.local` if needed, `npm install`s on first launch, and runs `npm run dev` on [http://localhost:3000](http://localhost:3000).
+
+## Health
+
+```bat
+npm run health:preflight
+```
+
+Probes Ollama on `127.0.0.1:11434`, the configured `MODEL`, and OpenSCAD (`vendor/openscad`, Program Files, or `OPENSCAD_PATH`). This is the same check Start runs (`lib/health-preflight.ts` via `scripts/windows/health-preflight.ts`).
+
+- Exit `0` — PASS (Local AI + OpenSCAD look ready).
+- Exit `2` — soft WARN/FAIL (Ollama down, MODEL missing, OpenSCAD missing). **Start still continues.**
+- Exit `1` — runner crash only. Start still continues.
+
+Setup also runs `scripts/health-preflight.mjs` as a pack gate: it **refuses** an Agent Smith `MODEL` in `.env.local` (`--skip-network` checks files/env only). `ensure-env-local` rewrites a Smith `MODEL` key to qwen; Ollama’s installed Smith weights stay put.
+
+The in-app header chip and `GET /api/health` show the same idea after Start.
+
+## OpenSCAD
+
+Resolution order is unchanged (`lib/openscad.ts`):
+
+1. `OPENSCAD_PATH`
+2. `OPENSCAD_BIN`
+3. `vendor/openscad/openscad.exe` (this pack’s drop-in)
+4. Program Files / scoop / Chocolatey
+5. `PATH`
+
+Fetch without the full installer:
+
+```bat
+npm run openscad:portable
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\Install-OpenSCAD-Portable.ps1
+```
+
+Default URL (official stable 64-bit zip, downloaded at pack/setup time — **not** stored in git):
+
+`https://files.openscad.org/OpenSCAD-2021.01-x86-64.zip`
+
+Override: `$env:OPENSCAD_PORTABLE_URL` or `--url`. Laptop may use [openscad.org](https://openscad.org/) / `winget install --id=OpenSCAD.OpenSCAD -e` instead.
+
+## Ollama — qwen only
+
+DescribePrint talks to **local** Ollama only:
+
+| Setting | Value |
+| --- | --- |
+| Host | `127.0.0.1:11434` |
+| `OPENAI_BASE_URL` | `http://127.0.0.1:11434/v1` |
+| `MODEL` (default) | `qwen2.5-coder:32b` |
+| Lighter overrides | `qwen2.5-coder:14b` or `qwen2.5-coder:7b` in `.env.local` |
+
+Pull **DescribePrint’s** models alongside whatever is already installed:
+
+```bat
+ollama pull qwen2.5-coder:32b
+```
+
+Lighter machines (~less than 32GB RAM):
+
+```bat
+ollama pull qwen2.5-coder:14b
+REM then set MODEL=qwen2.5-coder:14b in .env.local
+```
+
+```bat
+ollama pull qwen2.5-coder:7b
+```
+
+No cloud API key is required.
+
+## Agent Smith model safety
+
+Ollama on these machines may already serve **Agent Smith**. DescribePrint **shares that server** and must not interfere.
+
+- **Do not** change Ollama’s port, host, or global config.
+- **Do not** delete, replace, retarget, or document replacing Smith models (`smith-minicpm5`, `openbmb/minicpm5-*`, anything matching `minicpm5`).
+- **Do not** run `ollama rm` against those models.
+- Isolation is a **dedicated model name**: `qwen2.5-coder:*` only.
+- The pack **refuses** to write a Smith name into `MODEL`. If `.env.local` already has one, setup rewrites **only that env key** to qwen. Ollama’s installed Smith weights stay put.
+- This pack does **not** embed Agent Smith code.
+
+## Optional Inno Setup
+
+After `npm run pack:windows`:
+
+1. Install [Inno Setup 6](https://jrsoftware.org/isinfo.php).
+2. Compile `packaging/windows/AllosWorstation.iss`.
+3. Output: `dist/AllosWorstation-DescribePrint-Setup.exe`.
+
+The script installs to `%USERPROFILE%\AllosWorstation\DescribePrint`, runs `Setup-DescribePrint.cmd`, and writes the Desktop bat. It does **not** bundle Node. **MSI is out of scope** for this slice.
+
+## Scripts map
+
+| Script | Role |
+| --- | --- |
+| `scripts/build-portable.mjs` | Create `dist/AllosWorstation-portable` + zip |
+| `scripts/install-allos.mjs` | Layouts, copy, env, OpenSCAD, npm, Desktop bat, health |
+| `scripts/ensure-env-local.mjs` | Merge `.env.local` (qwen / 11434) |
+| `scripts/windows/health-preflight.ts` + `lib/health-preflight.ts` | `npm run health:preflight` (Start) |
+| `scripts/health-preflight.mjs` | Pack/setup Smith-model gate |
+| `scripts/install-openscad-portable.mjs` | Download official zip → `vendor/openscad` |
+| `scripts/windows/*.ps1` | Windows wrappers (same behavior) |
+| `Setup-DescribePrint.cmd` | First-run entry (portable zip + clone) |
+| `Start-DescribePrint.cmd` | One-click app start (unchanged contract) |

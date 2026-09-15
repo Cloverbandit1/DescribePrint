@@ -2,11 +2,18 @@
 
 This folder is the **drop-in** location for a portable OpenSCAD binary.
 
-M1 does not ship the binary (it is large and licensed separately). A later
-packaged build can copy `openscad.exe` (Windows) or `openscad` (macOS/Linux)
-here and DescribePrint will find it automatically.
+The binary is **not** committed (size + separate license). The Windows setup
+pack fetches the official 64-bit zip at pack/setup time:
 
-Until then:
+```bat
+npm run openscad:portable
+```
+
+or `scripts/windows/Install-OpenSCAD-Portable.ps1`. That flattens the zip so
+`openscad.exe` sits in this directory. `resolveOpenscad` finds it with no env
+change.
+
+Until then / on other machines:
 
 1. Install OpenSCAD from https://openscad.org/ (common Windows paths are auto-detected).
 2. Or set `OPENSCAD_PATH` to the executable or its folder.

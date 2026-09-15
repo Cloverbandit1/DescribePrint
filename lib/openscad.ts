@@ -11,10 +11,9 @@
  *      /Applications, Linux /usr/bin).
  *   5. PATH (`openscad` / `openscad.exe`).
  *
- * M1 does not ship a bundled binary yet. The portable folders above are the
- * intended drop-in path so a later packager can place OpenSCAD there without
- * changing resolution. Until then, install from https://openscad.org/ or set
- * OPENSCAD_PATH.
+ * The Windows setup pack downloads the official OpenSCAD zip into
+ * vendor/openscad at pack or install time (see packaging/windows/README.md).
+ * Resolution does not change — drop-in or OPENSCAD_PATH still work.
  */
 
 import { existsSync, statSync } from "node:fs";

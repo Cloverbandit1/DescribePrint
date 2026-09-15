@@ -83,7 +83,7 @@ describe("relief fixtures + OpenSCAD", () => {
     expect(helmet?.code).toContain("module crest_motif()");
     expect(helmet?.code).toMatch(/emboss_h = 0\.8/);
     expect(helmet?.code).toMatch(/union\(\)/);
-    expect(helmet?.code).not.toMatch(/\btext\s*\(/);
+    expect(helmet?.code).not.toMatch(/\btext\s*\(\s*["']/);
 
     const cube = matchFixture(CUBE_ETCH_PROMPT);
     expect(cube?.id).toBe("cube-etched-initials");
@@ -91,7 +91,7 @@ describe("relief fixtures + OpenSCAD", () => {
     expect(cube?.code).toMatch(/etch_depth = 0\.6/);
     expect(cube?.code).toMatch(/difference\(\)/);
     expect(cube?.code).toMatch(/cube\(size/);
-    expect(cube?.code).not.toMatch(/\btext\s*\(/);
+    expect(cube?.code).not.toMatch(/\btext\s*\(\s*["']/);
     expect(matchFixture("20mm cube with 5mm hole")?.id).toBe("cube-with-hole");
     expect(matchFixture("helmet size L")).toBeNull();
   });
@@ -121,9 +121,11 @@ describe("relief fixtures + OpenSCAD", () => {
 describe("imported-mesh relief wrap", () => {
   it("differences etched initials on the front of an imported cube", () => {
     const mesh = makeAxisAlignedBoxMesh([20, 20, 20]);
-    const reliefs = inferCadReliefs("etch DP on the front", boundingBoxMm(mesh).size);
-    expect(canBuildDeterministicImportWrap("etch DP on the front", null, false, reliefs)).toBe(true);
-    const code = buildImportedMeshWrapper({ mesh, reliefs, prompt: "etch DP on the front" });
+    const reliefs = inferCadReliefs("etch initials DP on the front", boundingBoxMm(mesh).size);
+    expect(reliefs[0]?.motif).toBe("text");
+    expect(reliefs[0]?.text).toBe("DP");
+    expect(canBuildDeterministicImportWrap("etch initials DP on the front", null, false, reliefs)).toBe(true);
+    const code = buildImportedMeshWrapper({ mesh, reliefs, prompt: "etch initials DP on the front" });
     expect(code).toMatch(/import\("imported\.stl"/);
     expect(code).toMatch(/difference\(\)/);
     expect(code).toMatch(/relief: etch text on front/);

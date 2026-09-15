@@ -180,8 +180,10 @@ export function initialsFromPrompt(prompt: string): string | undefined {
     /\b(?:initials?|letters?|monogram|text)\s+(?:of\s+|is\s+|are\s+)?([A-Za-z]{1,4})\b/i,
   );
   if (labeled?.[1] && !INITIALS_STOP.test(labeled[1])) return labeled[1].toUpperCase();
-  const etched = prompt.match(/\b(?:etched?|engraved?|embossed?)\s+([A-Za-z]{2,4})\b/i);
+  const etched = prompt.match(/\b(?:etched?|engraved?|embossed?)\s+([A-Za-z]{1,4})\b/i);
   if (etched?.[1] && !INITIALS_STOP.test(etched[1])) return etched[1].toUpperCase();
+  const lone = prompt.match(/\b([A-Z]{2,4})\b/);
+  if (lone?.[1] && !INITIALS_STOP.test(lone[1])) return lone[1];
   return undefined;
 }
 
@@ -205,15 +207,20 @@ export function inferCadReliefs(
   const kind =
     parseReliefKind(prompt) ??
     (/\b(initials?|letters?|text|monogram)\b/i.test(prompt) ? "etch" : "emboss");
+  const letters = initialsFromPrompt(prompt);
   const motif =
     parseReliefMotif(prompt) ??
-    (/\b(helmet|crest|logo)\b/i.test(prompt) ? "crest" : /\b(initials?|letters?|text|monogram)\b/i.test(prompt) ? "text" : "bar");
+    (/\b(helmet|crest|logo)\b/i.test(prompt)
+      ? "crest"
+      : letters || /\b(initials?|letters?|text|monogram)\b/i.test(prompt)
+        ? "text"
+        : "bar");
   const region = parseReliefRegion(prompt) ?? defaultReliefRegion(sizeMm);
   const shell = inferShellThicknessMm(prompt);
   const host = shell ?? hostThicknessAlongRegion(sizeMm, region);
   const height_mm = clampReliefExtentMm("emboss", kind === "emboss" ? statedExtentMm(prompt, "emboss") : undefined, host);
   const depth_mm = clampReliefExtentMm("etch", kind === "etch" ? statedExtentMm(prompt, "etch") : undefined, host);
-  const text = motif === "text" ? initialsFromPrompt(prompt) ?? DEFAULT_INITIALS : undefined;
+  const text = motif === "text" ? letters ?? DEFAULT_INITIALS : undefined;
   const notes = [
     region === (parseReliefRegion(prompt) ?? undefined)
       ? undefined
@@ -331,13 +338,14 @@ export function formatReliefPromptHint(reliefs: CadRelief[]): string {
 }
 
 function fmt(n: number): string {
+  if (!Number.isFinite(n)) return "0";
   return Number.isInteger(n) ? String(n) : n.toFixed(3).replace(/\.?0+$/, "");
 }
 
 type FaceRect = { u: number; v: number; du: number; dv: number };
 
-/** 5×7-ish stroke boxes for block initials (local u/v, origin bottom-left of the cell). */
-const GLYPHS: Record<string, FaceRect[]> = {
+/** 5×7-ish stroke boxes for block initials (u, v, du, dv; origin bottom-left of the cell). */
+const GLYPHS: Record<string, Array<[number, number, number, number]>> = {
   A: [
     [0, 0, 1.2, 8],
     [3.8, 0, 1.2, 8],
@@ -429,7 +437,8 @@ const GLYPHS: Record<string, FaceRect[]> = {
 };
 
 function glyphRects(ch: string): FaceRect[] {
-  return GLYPHS[ch.toUpperCase()] ?? [{ u: 1.6, v: 0, du: 1.6, dv: 8 }];
+  const raw = GLYPHS[ch.toUpperCase()] ?? ([[1.6, 0, 1.6, 8]] as Array<[number, number, number, number]>);
+  return raw.map(([u, v, du, dv]) => ({ u, v, du, dv }));
 }
 
 function faceCenter(box: BoundingBoxMm, region: ReliefRegion): [number, number, number] {

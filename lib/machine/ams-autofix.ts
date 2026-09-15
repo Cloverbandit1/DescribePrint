@@ -39,10 +39,10 @@ export function trayIndexToSlot(tray: number | undefined): number | undefined {
   return (Math.floor(tray) % 4) + 1;
 }
 
-/** HMS AMS family uses high byte 0x0C on many P / X / H reports. */
+/** HMS AMS family uses top byte 0x0C (e.g. 0x0C00_0300 hopper/feed). */
 export function isAmsPrintError(printError: number | undefined): boolean {
   if (printError == null || !Number.isFinite(printError) || printError === 0) return false;
-  return ((printError >>> 16) & 0xff) === 0x0c;
+  return ((printError >>> 24) & 0xff) === 0x0c;
 }
 
 export function amsHintFromReport(input: {

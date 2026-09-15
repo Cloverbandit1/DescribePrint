@@ -8,6 +8,7 @@ import {
   detectsAmsFeedLoop,
   getSharedMachine,
   isAmsAutofixEnabled,
+  isAmsPrintError,
   maybeAutofixAmsFeedLoop,
   parseBambuPrintReport,
   resetSharedMachine,
@@ -49,6 +50,7 @@ describe("AMS feed-loop detection", () => {
         ams: { tray_now: 1, tray_tar: 1 },
       },
     });
+    expect(isAmsPrintError(0x0c000300)).toBe(true);
     expect(parsed?.statusPatch.amsHint?.kind).toBe("hopper-error");
     expect(parsed?.statusPatch.amsHint?.slot).toBe(2);
     expect(detectsAmsFeedLoop({ status: { amsHint: parsed?.statusPatch.amsHint, amsSlots: [] } as never })).toBe(true);

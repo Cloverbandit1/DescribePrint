@@ -3,6 +3,7 @@ import {
   emptyAmsSlots,
   midPrintCommandRisk,
   registerMachineAdapter,
+  validateLanCredentials,
   type MachineAdapter,
 } from "./adapter";
 import type {
@@ -96,8 +97,16 @@ export class MockMachineAdapter implements MachineAdapter {
     this.bedTargetC = 55;
   }
 
-  async connect(_credentials?: MachineCredentials): Promise<LiveMachineStatus> {
+  async connect(credentials?: MachineCredentials): Promise<LiveMachineStatus> {
     this.connection = "connecting";
+    if (credentials) {
+      const invalid = validateLanCredentials(credentials);
+      if (invalid) {
+        this.connection = "error";
+        this.message = invalid;
+        return this.snapshot();
+      }
+    }
     if (this.nextConnectError) {
       const message = this.nextConnectError;
       this.nextConnectError = null;

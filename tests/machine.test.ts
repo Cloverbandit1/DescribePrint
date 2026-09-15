@@ -35,6 +35,10 @@ describe("machine adapter stubs", () => {
     expect(status.amsSlots).toEqual(emptyAmsSlots(defaultPrinter().ams.slotsPerUnit));
     expect(status.amsSlots).toHaveLength(4);
 
+    const badCreds = await machine.connect({ host: "", serial: "01S", accessCode: "secret" });
+    expect(badCreds.connection).toBe("error");
+    expect(badCreds.message).toMatch(/IP/);
+
     machine.failNextConnect("LAN unreachable (simulated)");
     status = await machine.connect({ host: "192.168.1.20", serial: "01S", accessCode: "secret" });
     expect(status.connection).toBe("error");

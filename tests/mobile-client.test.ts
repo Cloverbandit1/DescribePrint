@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { IMAGE_IMPORT_ACCEPT } from "@/lib/image-import";
 import {
+  ANY_FILE_PICKER_ACCEPT,
   IPHONE_VIEWPORT_WIDTH_PX,
   MOBILE_PLATE_MAX_VH,
   MOBILE_PLATE_MIN_PX,
@@ -30,7 +31,8 @@ describe("mobile client helpers", () => {
   });
 
   it("builds camera-roll and rear-camera pickers without rewriting import accept", () => {
-    expect(filePickerAttrs("any")).toEqual({ accept: IMAGE_IMPORT_ACCEPT });
+    expect(filePickerAttrs("any")).toEqual({ accept: ANY_FILE_PICKER_ACCEPT });
+    expect(ANY_FILE_PICKER_ACCEPT).toBe(IMAGE_IMPORT_ACCEPT);
     expect(filePickerAttrs("photo")).toEqual({ accept: PHOTO_PICKER_ACCEPT });
     expect(filePickerAttrs("photo").accept).toBe("image/*");
     expect(filePickerAttrs("photo").capture).toBeUndefined();

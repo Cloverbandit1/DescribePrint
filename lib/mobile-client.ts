@@ -1,5 +1,3 @@
-import { IMAGE_IMPORT_ACCEPT } from "./image-import";
-
 /** Matches the existing `lg:` / `wideLayout` breakpoint (Prepare | Preview collapse). */
 export const NARROW_LAYOUT_MAX_PX = 1023;
 export const NARROW_LAYOUT_QUERY = `(max-width: ${NARROW_LAYOUT_MAX_PX}px)`;
@@ -17,6 +15,13 @@ export const IPHONE_VIEWPORT_WIDTH_PX = 390;
 
 /** Camera-roll / photo-library picker. No `capture` so iOS offers the library. */
 export const PHOTO_PICKER_ACCEPT = "image/*";
+
+/**
+ * Same accept list as `IMAGE_IMPORT_ACCEPT` in `lib/image-import.ts`.
+ * Duplicated here so the client bundle does not pull Node `zlib` via the import pipeline.
+ */
+export const ANY_FILE_PICKER_ACCEPT =
+  ".stl,.3mf,.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp,model/stl,application/vnd.ms-package.3dmanufacturing-3dmodel+xml";
 
 export type FilePickerKind = "any" | "photo" | "camera";
 
@@ -39,7 +44,7 @@ export function filePickerAttrs(kind: FilePickerKind): FilePickerAttrs {
   if (kind === "photo") {
     return { accept: PHOTO_PICKER_ACCEPT };
   }
-  return { accept: IMAGE_IMPORT_ACCEPT };
+  return { accept: ANY_FILE_PICKER_ACCEPT };
 }
 
 export type ViewerTouchMode = {

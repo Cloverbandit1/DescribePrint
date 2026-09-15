@@ -228,6 +228,8 @@ export function parseBambuPrintReport(
 
   const layer = asNumber(print.layer_num);
   const totalLayers = asNumber(print.total_layer_num);
+  const layerHeightRaw = asNumber(print.layer_height) ?? asNumber(print.layerHeight);
+  const layerHeightMm = layerHeightRaw != null && layerHeightRaw > 0 ? layerHeightRaw : undefined;
   const progress = asNumber(print.mc_percent);
   const spdMag = asNumber(print.spd_mag);
   const spdLvl = asNumber(print.spd_lvl);
@@ -244,6 +246,7 @@ export function parseBambuPrintReport(
       bedTargetC: asNumber(print.bed_target_temper),
       layer,
       totalLayers,
+      ...(layerHeightMm != null ? { layerHeightMm } : {}),
       progressPercent: progress,
       speedPercent: spdMag ?? bambuSpeedLevelToPercent(spdLvl),
       amsSlots: parseAmsSlots(print),

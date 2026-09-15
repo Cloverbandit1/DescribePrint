@@ -24,6 +24,8 @@ export type FilamentPreset = {
   retractionSpeedMms: number;
   fanPercent: number;
   flowPercent: number;
+  /** Advisory standard layer height for a 0.4 mm P2S nozzle. */
+  layerHeightMm: number;
   notes?: string;
 };
 
@@ -94,6 +96,7 @@ export const P2S_FILAMENT_PRESETS: Record<FilamentId, FilamentPreset> = {
     retractionSpeedMms: 30,
     fanPercent: 100,
     flowPercent: 98,
+    layerHeightMm: 0.2,
   },
   petg: {
     id: "petg",
@@ -106,6 +109,7 @@ export const P2S_FILAMENT_PRESETS: Record<FilamentId, FilamentPreset> = {
     retractionSpeedMms: 30,
     fanPercent: 40,
     flowPercent: 95,
+    layerHeightMm: 0.2,
     notes: "Dry the spool. PETG strings if wet or a few degrees too hot.",
   },
   pa: {
@@ -119,6 +123,7 @@ export const P2S_FILAMENT_PRESETS: Record<FilamentId, FilamentPreset> = {
     retractionSpeedMms: 30,
     fanPercent: 15,
     flowPercent: 96,
+    layerHeightMm: 0.2,
     notes:
       "Dry thoroughly — nylon is hygroscopic. P2S has no active chamber heater; keep the door closed. Advisory only, not a LAN command.",
   },
@@ -133,6 +138,7 @@ export const P2S_FILAMENT_PRESETS: Record<FilamentId, FilamentPreset> = {
     retractionSpeedMms: 30,
     fanPercent: 20,
     flowPercent: 96,
+    layerHeightMm: 0.2,
     notes: "P2S has no active chamber heater — keep the door closed and use internal circulation.",
   },
   tpu: {
@@ -146,6 +152,7 @@ export const P2S_FILAMENT_PRESETS: Record<FilamentId, FilamentPreset> = {
     retractionSpeedMms: 20,
     fanPercent: 100,
     flowPercent: 100,
+    layerHeightMm: 0.2,
     notes: "Print slowly. Soft TPU can struggle through AMS feed paths.",
   },
 };
@@ -259,6 +266,17 @@ export function filamentPickerLabel(preset: FilamentPreset): string {
 /** Auto-best settings table for the selected printer (P2S today). */
 export function filamentPreset(id: FilamentId, printer: PrinterProfile = defaultPrinter()): FilamentPreset {
   return printer.filamentPresets[id];
+}
+
+/** Layer height from a selected material preset. Omit when the material is unknown. */
+export function layerHeightMmFromPreset(
+  id: FilamentId | string | undefined | null,
+  printer: PrinterProfile = defaultPrinter(),
+): number | undefined {
+  const material = normalizeFilamentId(typeof id === "string" ? id : undefined);
+  if (!material) return undefined;
+  const height = filamentPreset(material, printer).layerHeightMm;
+  return height != null && Number.isFinite(height) && height > 0 ? height : undefined;
 }
 
 export function listFilamentPresets(printer: PrinterProfile = defaultPrinter()): FilamentPreset[] {

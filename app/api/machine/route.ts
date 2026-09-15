@@ -167,6 +167,8 @@ export async function POST(request: Request) {
       cameraDetect,
       status: await machine.status(),
       enabled: reshapeEnabled,
+      jobId: doctor.jobId,
+      material: doctor.material,
     });
     const nextStatus = await machine.status();
     let nextDiagnosis = patched ? withAutofix(patched, lastAutofix) : undefined;

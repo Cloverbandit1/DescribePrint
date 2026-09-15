@@ -1,6 +1,10 @@
-import { defaultPrinter, type PrinterId } from "../printers";
+import { defaultPrinter, layerHeightMmFromPreset, type PrinterId } from "../printers";
+import { parseStl } from "../stl";
+import type { Mesh } from "../types";
 import { mapDesignFilamentsToAms } from "./ams";
 import type { CommandResult, FilamentPlan, LiveMachineStatus, RemainingLayerReshapePlan } from "./types";
+
+const CUT_PLANE_EPS_MM = 1e-4;
 
 /** Print Control never resumes in this flow. CAD Core / the user resume by hand. */
 export const RESUME_IS_MANUAL = "Resume is manual";
@@ -109,6 +113,76 @@ export function isStumpCutPlaneBoundsMm(value: unknown): value is StumpCutPlaneB
   const maxX = typeof row.maxX === "number" && Number.isFinite(row.maxX) ? row.maxX : undefined;
   const maxY = typeof row.maxY === "number" && Number.isFinite(row.maxY) ? row.maxY : undefined;
   return minX !== undefined && minY !== undefined && maxX !== undefined && maxY !== undefined && maxX > minX && maxY > minY;
+}
+
+export function resolveHandoffPreviousCode(source?: { scad?: string; code?: string } | null): string | undefined {
+  const code = source?.scad ?? source?.code;
+  return typeof code === "string" && code.trim() ? code : undefined;
+}
+
+/**
+ * Live status wins. Else the selected (or last-job) material preset.
+ * Never derived from remaining layer count.
+ */
+export function resolveHandoffLayerHeightMm(input: {
+  statusLayerHeightMm?: number | null;
+  material?: string | null;
+  jobMaterial?: string | null;
+}): number | undefined {
+  const live = input.statusLayerHeightMm;
+  if (live != null && Number.isFinite(live) && live > 0) return live;
+  return layerHeightMmFromPreset(input.material ?? input.jobMaterial);
+}
+
+function addCutPlanePoint(
+  bounds: { minX: number; minY: number; maxX: number; maxY: number; count: number },
+  x: number,
+  y: number,
+): void {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+  bounds.minX = Math.min(bounds.minX, x);
+  bounds.minY = Math.min(bounds.minY, y);
+  bounds.maxX = Math.max(bounds.maxX, x);
+  bounds.maxY = Math.max(bounds.maxY, y);
+  bounds.count += 1;
+}
+
+/** XY of the mesh ∩ plane z = currentZ. Omit when the cut cannot be measured. */
+export function stumpCutPlaneBoundsFromMesh(mesh: Mesh, z: number | null | undefined): StumpCutPlaneBoundsMm | undefined {
+  if (z == null || !Number.isFinite(z) || !mesh.triangles.length) return undefined;
+  const bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity, count: 0 };
+
+  for (const tri of mesh.triangles) {
+    const verts = tri.vertices;
+    for (const v of verts) {
+      if (Math.abs(v[2] - z) <= CUT_PLANE_EPS_MM) addCutPlanePoint(bounds, v[0], v[1]);
+    }
+    for (let i = 0; i < 3; i++) {
+      const a = verts[i];
+      const b = verts[(i + 1) % 3];
+      const da = a[2] - z;
+      const db = b[2] - z;
+      if (da === 0 || db === 0) continue;
+      if (da * db >= 0) continue;
+      const t = da / (da - db);
+      addCutPlanePoint(bounds, a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]));
+    }
+  }
+
+  if (bounds.count < 2 || !(bounds.maxX > bounds.minX) || !(bounds.maxY > bounds.minY)) return undefined;
+  return { minX: bounds.minX, minY: bounds.minY, maxX: bounds.maxX, maxY: bounds.maxY };
+}
+
+export function stumpCutPlaneBoundsFromJobStl(
+  stl: Buffer | undefined,
+  z: number | null | undefined,
+): StumpCutPlaneBoundsMm | undefined {
+  if (!stl?.length || z == null || !Number.isFinite(z)) return undefined;
+  try {
+    return stumpCutPlaneBoundsFromMesh(parseStl(stl), z);
+  } catch {
+    return undefined;
+  }
 }
 
 export function buildCadReshapeHandoff(input: {

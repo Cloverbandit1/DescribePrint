@@ -5,10 +5,14 @@ import {
   buildReslicePlanStub,
   emptyReshapePlan,
   formatEmergencyReshapeMessage,
+  resolveHandoffLayerHeightMm,
+  resolveHandoffPreviousCode,
+  stumpCutPlaneBoundsFromJobStl,
   RESUME_IS_MANUAL,
   type EmergencyRemainingReshapePlan,
 } from "./reshape-plan";
 import type { LiveMachineStatus, RemainingLayerReshapePlan } from "./types";
+import { getJob, getLatestJob } from "../jobs";
 import { isEmergencyReshapeRequest } from "../print-doctor";
 
 export type ReshapePlannerInput = {
@@ -185,6 +189,11 @@ export async function maybeEmergencyReshapeRemaining(opts: {
   status?: LiveMachineStatus;
   enabled?: boolean;
   env?: ProcessEnvLike;
+  /** Current generate job when the client names one. Else the latest in-memory result. */
+  jobId?: string;
+  previousCode?: string;
+  /** Selected Machine-panel material. Not the doctor's inferred default. */
+  material?: string;
 }): Promise<EmergencyRemainingReshapePlan> {
   const enabled = opts.enabled ?? isReshapeRemainingEnabled(opts.env);
   const requested =
@@ -236,6 +245,14 @@ export async function maybeEmergencyReshapeRemaining(opts: {
   const remainingHeightMm = planner.remainingHeightMm;
   const currentZ = planner.currentZ ?? resolveCurrentZ(plannerInputFromStatus(after), remainingHeightMm);
   const remainingLayers = planner.remainingLayers;
+  const job = opts.jobId ? getJob(opts.jobId) : getLatestJob();
+  const previousCode = opts.previousCode ?? resolveHandoffPreviousCode(job);
+  const layerHeightMm = resolveHandoffLayerHeightMm({
+    statusLayerHeightMm: after.layerHeightMm,
+    material: opts.material,
+    jobMaterial: job?.printPreset.material,
+  });
+  const stumpCutPlaneBoundsMm = stumpCutPlaneBoundsFromJobStl(job?.stl, currentZ);
   const cadHandoff = buildCadReshapeHandoff({
     currentZ,
     remainingHeightMm,
@@ -243,6 +260,9 @@ export async function maybeEmergencyReshapeRemaining(opts: {
     layer: after.layer,
     totalLayers: after.totalLayers,
     printerId: after.printerId,
+    previousCode,
+    stumpCutPlaneBoundsMm,
+    layerHeightMm,
   });
   const reslice = buildReslicePlanStub(after, after.printerId);
   const message = formatEmergencyReshapeMessage({

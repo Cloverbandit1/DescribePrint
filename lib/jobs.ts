@@ -92,6 +92,20 @@ export function getJob(id: string): StoredJob | undefined {
   return jobs.get(id);
 }
 
+/** Most recently created in-memory generate result, if any. */
+export function getLatestJob(): StoredJob | undefined {
+  sweep();
+  let latest: StoredJob | undefined;
+  for (const job of jobs.values()) {
+    if (!latest || job.createdAt > latest.createdAt) latest = job;
+  }
+  return latest;
+}
+
+export function resetJobs(): void {
+  jobs.clear();
+}
+
 export function toGenerateResult(job: StoredJob): GenerateResult {
   return {
     jobId: job.id,

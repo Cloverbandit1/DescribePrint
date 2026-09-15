@@ -9,6 +9,7 @@ import {
   normalizeFilamentId,
   parseMaterialSession,
   printPresetSidecarJson,
+  layerHeightMmFromPreset,
   printPresetSummary,
   serializeMaterialSession,
   speedTierFor,
@@ -50,6 +51,7 @@ describe("printer profiles (P2S + AMS)", () => {
       expect(preset.bedC).toBeGreaterThanOrEqual(printer.minBedC);
       expect(preset.bedC).toBeLessThanOrEqual(printer.maxBedC);
       expect(preset.printSpeedMms).toBeGreaterThan(0);
+      expect(preset.layerHeightMm).toBeGreaterThan(0);
     }
 
     expect(filamentPreset("pla").nozzleC).toBe(220);
@@ -89,5 +91,8 @@ describe("printer profiles (P2S + AMS)", () => {
     expect(coolingHintFor(filamentPreset("pla"))).toBe("full cooling");
     expect(printPresetSidecarJson(pa)).toContain('"material": "pa"');
     expect(printPresetSidecarJson(pa)).toContain('"advisory": true');
+    expect(layerHeightMmFromPreset("petg")).toBeCloseTo(0.2);
+    expect(layerHeightMmFromPreset("unknown")).toBeUndefined();
+    expect(layerHeightMmFromPreset(undefined)).toBeUndefined();
   });
 });

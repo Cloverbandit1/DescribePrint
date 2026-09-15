@@ -70,6 +70,7 @@ export class MockMachineAdapter implements MachineAdapter {
   private currentHeightMm?: number;
   private objectHeightMm?: number;
   private remainingHeightMm?: number;
+  private layerHeightMm?: number;
   private speedPercent = 100;
   private slots: AmsSlotStatus[];
   private amsHint?: AmsHint;
@@ -90,17 +91,27 @@ export class MockMachineAdapter implements MachineAdapter {
     currentHeightMm?: number;
     objectHeightMm?: number;
     remainingHeightMm?: number;
+    layerHeightMm?: number;
+    /** Layer/total only — do not invent remainingHeightMm / currentZ. */
+    omitHeights?: boolean;
   }): void {
     this.print = "printing";
     this.layer = opts?.layer ?? 12;
     this.totalLayers = opts?.totalLayers ?? 40;
-    this.currentHeightMm = opts?.currentHeightMm ?? 2.4;
-    this.objectHeightMm = opts?.objectHeightMm ?? 8;
-    this.remainingHeightMm =
-      opts?.remainingHeightMm ??
-      (this.objectHeightMm != null && this.currentHeightMm != null
-        ? Math.max(0, this.objectHeightMm - this.currentHeightMm)
-        : undefined);
+    this.layerHeightMm = opts?.layerHeightMm;
+    if (opts?.omitHeights) {
+      this.currentHeightMm = undefined;
+      this.objectHeightMm = undefined;
+      this.remainingHeightMm = undefined;
+    } else {
+      this.currentHeightMm = opts?.currentHeightMm ?? 2.4;
+      this.objectHeightMm = opts?.objectHeightMm ?? 8;
+      this.remainingHeightMm =
+        opts?.remainingHeightMm ??
+        (this.objectHeightMm != null && this.currentHeightMm != null
+          ? Math.max(0, this.objectHeightMm - this.currentHeightMm)
+          : undefined);
+    }
     this.progressPercent = Math.round(((this.layer ?? 0) / (this.totalLayers ?? 1)) * 100);
     this.nozzleTempC = 220;
     this.nozzleTargetC = 220;
@@ -118,6 +129,7 @@ export class MockMachineAdapter implements MachineAdapter {
     remainingHeightMm: number;
     currentHeightMm?: number;
     objectHeightMm?: number;
+    layerHeightMm?: number;
   }): void {
     const currentHeightMm = opts.currentHeightMm ?? 2.4;
     this.simulatePrinting({
@@ -126,6 +138,7 @@ export class MockMachineAdapter implements MachineAdapter {
       currentHeightMm,
       objectHeightMm: opts.objectHeightMm ?? currentHeightMm + opts.remainingHeightMm,
       remainingHeightMm: opts.remainingHeightMm,
+      layerHeightMm: opts.layerHeightMm,
     });
   }
 
@@ -176,6 +189,7 @@ export class MockMachineAdapter implements MachineAdapter {
     this.currentHeightMm = undefined;
     this.objectHeightMm = undefined;
     this.remainingHeightMm = undefined;
+    this.layerHeightMm = undefined;
     this.speedPercent = 100;
     this.slots = emptyAmsSlots(getPrinter(this.printerId).ams.slotsPerUnit);
     this.amsHint = undefined;
@@ -294,6 +308,7 @@ export class MockMachineAdapter implements MachineAdapter {
       currentHeightMm: this.currentHeightMm,
       objectHeightMm: this.objectHeightMm,
       remainingHeightMm: this.remainingHeightMm,
+      ...(this.layerHeightMm != null ? { layerHeightMm: this.layerHeightMm } : {}),
       speedPercent: this.speedPercent,
       amsSlots: this.slots.map((slot) => ({ ...slot })),
       amsHint: this.amsHint ? { ...this.amsHint } : undefined,

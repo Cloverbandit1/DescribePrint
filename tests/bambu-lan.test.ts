@@ -201,6 +201,7 @@ describe("Bambu LAN MQTT protocol helpers", () => {
     expect(parsed?.statusPatch.bedTargetC).toBe(55);
     expect(parsed?.statusPatch.layer).toBe(12);
     expect(parsed?.statusPatch.totalLayers).toBe(40);
+    expect(parsed?.statusPatch.layerHeightMm).toBeUndefined();
     expect(parsed?.statusPatch.progressPercent).toBe(30);
     const slots = parsed?.statusPatch.amsSlots ?? [];
     expect(slots).toHaveLength(4);
@@ -213,6 +214,13 @@ describe("Bambu LAN MQTT protocol helpers", () => {
       remainingPercent: 80,
     });
     expect(slots[3]).toMatchObject({ slot: 4, present: false });
+  });
+
+  it("maps layer_height onto live status when the report includes it", () => {
+    const parsed = parseBambuPrintReport({
+      print: { gcode_state: "PAUSE", layer_num: 12, total_layer_num: 40, layer_height: 0.16 },
+    });
+    expect(parsed?.statusPatch.layerHeightMm).toBeCloseTo(0.16);
   });
 
   it("builds pause/resume/speed/temp payloads", () => {

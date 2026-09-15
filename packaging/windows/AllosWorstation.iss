@@ -1,11 +1,23 @@
 ; Optional Inno Setup wrapper around dist\AllosWorstation-portable\
-; Build the portable folder first (npm run pack:windows), then compile this
-; with Inno Setup 6. MSI / official signed installer is a follow-up.
+; Portable zip remains the supported path. MSI is a follow-up.
+;
+; Preferred compile:
+;   npm run pack:windows:installer
+;   or scripts\windows\Build-InnoInstaller.ps1
+; That helper builds the portable folder if needed and locates ISCC.exe.
+;
+; Manual: npm run pack:windows, then Inno Setup 6 (https://jrsoftware.org/isinfo.php).
 
-#define MyAppName "AllosWorstation DescribePrint"
+#ifndef MyAppVersion
 #define MyAppVersion "0.1.0"
+#endif
+#define MyAppName "AllosWorstation DescribePrint"
 #define MyAppPublisher "AllosWorstation"
 #define SourceDir "..\..\dist\AllosWorstation-portable"
+
+#ifnexist "..\..\dist\AllosWorstation-portable\Start-DescribePrint.cmd"
+  #error Portable folder missing. Run npm run pack:windows, or scripts\windows\Build-InnoInstaller.ps1. Inno Setup 6: https://jrsoftware.org/isinfo.php
+#endif
 
 [Setup]
 AppId={{A11C5A70-DE5C-41BE-9F01-A1105D35C21E}
@@ -25,11 +37,15 @@ PrivilegesRequired=lowest
 ArchitecturesInstallIn64BitMode=x64compatible
 LicenseFile=..\..\LICENSE
 InfoBeforeFile=README.md
-; Setup pack needs Node.js LTS on PATH — this installer does not bundle Node.
+InfoAfterFile=InfoAfter.txt
+; Setup pack needs Node.js LTS on PATH. This installer does not bundle Node.
 SetupLogging=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[Tasks]
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -37,6 +53,7 @@ Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs 
 [Icons]
 Name: "{group}\Start DescribePrint"; Filename: "{app}\Start-DescribePrint.cmd"; WorkingDir: "{app}"
 Name: "{group}\Setup DescribePrint"; Filename: "{app}\Setup-DescribePrint.cmd"; WorkingDir: "{app}"
+Name: "{userdesktop}\Start DescribePrint"; Filename: "{app}\Start-DescribePrint.cmd"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\Setup-DescribePrint.cmd"; Description: "Run first-time setup (npm, OpenSCAD, .env.local, health)"; Flags: postinstall skipifsilent

@@ -68,5 +68,6 @@ console.log(`  1. Unzip ${PORTABLE_DIR_NAME}.zip`);
 console.log("  2. Run Setup-DescribePrint.cmd  (or Install-AllosWorstation.ps1 -Layout Laptop|Smith)");
 console.log("  3. Start-DescribePrint.cmd  or Desktop \\ AllosWorstation \\ Start DescribePrint.bat");
 console.log("");
-console.log("Optional Inno Setup: compile packaging/windows/AllosWorstation.iss after this pack exists.");
+console.log("Optional Inno Setup: npm run pack:windows:installer");
+console.log("  (or scripts/windows/Build-InnoInstaller.ps1 after this pack exists)");
 console.log("MSI is a follow-up — zip + bootstrap is the supported path.");

@@ -1,0 +1,27 @@
+AllosWorstation / DescribePrint
+--------------------------------
+
+This installer does not bundle Node.js.
+Install Node.js LTS from https://nodejs.org if "node" is not on PATH.
+
+Local AI uses Ollama on the default port only:
+  127.0.0.1:11434
+Do not change Ollama's port, host, or global server config.
+
+Pull DescribePrint's dedicated model (leave other models installed):
+  ollama pull qwen2.5-coder:32b
+
+Lighter machines (less RAM):
+  ollama pull qwen2.5-coder:14b
+  ollama pull qwen2.5-coder:7b
+Then set MODEL=qwen2.5-coder:14b (or 7b) in .env.local.
+
+NEVER delete, replace, or retarget Agent Smith models
+(smith-minicpm5, openbmb/minicpm5-*, anything matching minicpm5).
+
+Start: Start Menu "Start DescribePrint", or Start-DescribePrint.cmd
+in the install folder. The optional Desktop shortcut points at that same cmd.
+
+The Desktop \ AllosWorstation \ Start DescribePrint.bat is a shared
+OneDrive-safe detector. This machine's repo path is stored in
+%LOCALAPPDATA%\AllosWorstation\repo-path.txt (not synced).

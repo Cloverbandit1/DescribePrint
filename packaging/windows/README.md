@@ -18,7 +18,7 @@ A **setup pack** (sources + scripts). `node_modules` and the OpenSCAD binary are
 | --- | --- |
 | `dist/AllosWorstation-portable/` | `npm run pack:windows` or `scripts/windows/Build-Portable.ps1` |
 | `dist/AllosWorstation-portable.zip` | same (omit `--skip-zip`) |
-| Optional `.exe` installer | Compile `AllosWorstation.iss` with Inno Setup 6 **after** the portable folder exists |
+| Optional `.exe` installer | `npm run pack:windows:installer` or `scripts/windows/Build-InnoInstaller.ps1` (needs Inno Setup 6) |
 | MSI | **Follow-up** — not in this slice |
 
 ## Machine layouts (do not break)
@@ -211,13 +211,28 @@ Ollama on these machines may already serve **Agent Smith**. DescribePrint **shar
 
 ## Optional Inno Setup
 
-After `npm run pack:windows`:
+Portable zip remains the **supported** path. Setup.exe is optional (no Node bundled; **MSI is out of scope**).
 
-1. Install [Inno Setup 6](https://jrsoftware.org/isinfo.php).
-2. Compile `packaging/windows/AllosWorstation.iss`.
-3. Output: `dist/AllosWorstation-DescribePrint-Setup.exe`.
+```bat
+npm run pack:windows:installer
+```
 
-The script installs to `%USERPROFILE%\AllosWorstation\DescribePrint`, runs `Setup-DescribePrint.cmd`, and writes the Desktop bat. It does **not** bundle Node. **MSI is out of scope** for this slice.
+or:
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\Build-InnoInstaller.ps1
+```
+
+The helper:
+
+1. Ensures `dist\AllosWorstation-portable\` exists (`npm run pack:windows -- --skip-zip` if missing).
+2. Locates Inno Setup 6 `ISCC.exe` (Program Files, `%LOCALAPPDATA%\Programs`, or PATH).
+3. Compiles `packaging/windows/AllosWorstation.iss`.
+4. Prints `dist/AllosWorstation-DescribePrint-Setup.exe`.
+
+If `ISCC.exe` is missing it fails with a link to [jrsoftware.org](https://jrsoftware.org/isinfo.php). The `.iss` also `#error`s at compile time when the portable `Start-DescribePrint.cmd` is absent.
+
+The installer keeps `PrivilegesRequired=lowest`, writes the shared OneDrive-safe Desktop detector bat (no machine-specific `{app}` path in that bat), and records `%LOCALAPPDATA%\AllosWorstation\repo-path.txt`. Start Menu always gets **Start DescribePrint** → `Start-DescribePrint.cmd`; a Desktop shortcut to the same cmd is optional. The finished-page tip covers Node LTS, `ollama pull qwen2.5-coder:32b` (or 14b/7b), Agent Smith model safety, and Ollama port **11434**.
 
 ## Scripts map
 
@@ -229,6 +244,7 @@ The script installs to `%USERPROFILE%\AllosWorstation\DescribePrint`, runs `Setu
 | `scripts/windows/health-preflight.ts` + `lib/health-preflight.ts` | `npm run health:preflight` (Start) |
 | `scripts/health-preflight.mjs` | Pack/setup Smith-model gate |
 | `scripts/install-openscad-portable.mjs` | Download official zip → `vendor/openscad` |
+| `scripts/windows/Build-InnoInstaller.ps1` | Optional Setup.exe (`npm run pack:windows:installer`) |
 | `scripts/windows/*.ps1` | Windows wrappers (same behavior) |
 | `Setup-DescribePrint.cmd` | First-run entry (portable zip + clone) |
 | `Start-DescribePrint.cmd` | One-click app start (unchanged contract) |

@@ -37,4 +37,10 @@ describe("imported-mesh edit intent", () => {
   it("starts over when the user wants a new part", () => {
     expect(parseMeshEditIntent("start over with something else").kind).toBe("new-design");
   });
+
+  it("routes complete-the-body chat to match-and-complete", () => {
+    expect(parseMeshEditIntent("complete the body").kind).toBe("complete-body");
+    expect(parseMeshEditIntent("match this head with a torso").kind).toBe("complete-body");
+    expect(parseMeshEditIntent("add an 8 mm hole").kind).not.toBe("complete-body");
+  });
 });

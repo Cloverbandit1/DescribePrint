@@ -21,7 +21,10 @@ import {
 } from "./fixtures";
 import { importedMeshStubScad, parseImportedMesh } from "./import-mesh";
 import { runCadReshapeUpper } from "./cad-reshape";
-import { buildImageSolidFromUpload, imageSolidStubScad, type ImageImportOptions } from "./image-import";
+import { designateMachineForSize } from "./alternate-machines";
+import { completeExistingSolid, completionNote, regionLabelsNote } from "./image-complete";
+import { buildImageSolidFromUpload, imageSolidStubScad, photoPlateHeadline, type ImageImportOptions } from "./image-import";
+import { noneSubjectIdentify } from "./image-subject";
 import { getLlmConfig, getPlanModel, isLocalOpenAiBaseUrl, isSmartPipelineEnabled } from "./llm-config";
 import {
   buildPlanPrompt,
@@ -453,6 +456,12 @@ export async function runImageImportPipeline(
         : "Identified a fragment vs the intended whole — keeping the photographed wear…",
     });
   }
+  if (built.completion.applied) {
+    emit(sink, {
+      step: "planning",
+      message: "Matching the photographed partial and completing a parametric body…",
+    });
+  }
   emit(sink, { step: "mesh-check", message: "Checking the solid against the P2S bed…" });
   emit(sink, { step: "export", message: "Writing STL and 3MF…" });
   const code = imageSolidStubScad({
@@ -464,6 +473,8 @@ export async function runImageImportPipeline(
     keepWear: built.keepWear,
     designation: built.designation,
     fragment: built.fragment,
+    subject: built.subject,
+    completion: built.completion,
   });
   const printPreset = presetFromRequest(input.filament);
   const artifacts = await artifactsFromMesh(built.mesh, code, built.fileName, undefined, printPreset);
@@ -492,11 +503,7 @@ export async function runImageImportPipeline(
     step: "done",
     message: built.designation.exceedsCurrentPrinter
       ? "Photo solid is on the plate — current printer is too small."
-      : built.fragment.looksLikeFragment
-        ? built.fragment.restoredMissingVolume
-          ? "Photo solid is on the plate — fragment identified, missing volume restored."
-          : "Photo solid is on the plate — fragment identified, wear kept."
-        : "Photo solid is on the plate — backside inferred.",
+      : `${photoPlateHeadline(built.meta)}.`,
   });
   return toGenerateResult(job);
 }
@@ -562,6 +569,10 @@ async function runImportedMeshEdit(
     return runOpenscadGenerate({ ...request, previousCode: null, previousPrompt: null, previousJobId: null, previousSource: null }, sink);
   }
 
+  if (intent.kind === "complete-body") {
+    return runCompleteBodyEdit(request, previous, prompt, printPreset, wearableCategory, intent, sink);
+  }
+
   emit(sink, { step: "import", message: "Loading the imported mesh…" });
   const previousObjects = await objectsFromJob(previous);
   const transformed = applyIntentToMeshes(
@@ -610,6 +621,8 @@ async function runImportedMeshEdit(
       notes,
       colorRegions: artifacts.colorRegions,
       printPreset,
+      imageImport: previous.imageImport ?? null,
+      machineDesignation: previous.machineDesignation ?? null,
     });
     emit(sink, { step: "done", message: "Updated the imported mesh on the plate." });
     return toGenerateResult(job);
@@ -735,8 +748,99 @@ async function runImportedMeshEdit(
     notes,
     colorRegions: artifacts.colorRegions ?? [defaultColorRegion()],
     printPreset,
+    imageImport: previous.imageImport ?? null,
+    machineDesignation: previous.machineDesignation ?? null,
   });
   emit(sink, { step: "done", message: "Updated the imported mesh on the plate." });
+  return toGenerateResult(job);
+}
+
+async function runCompleteBodyEdit(
+  _request: GenerateRequest,
+  previous: StoredJob,
+  prompt: string,
+  printPreset: PrintPresetSummary,
+  wearableCategory: WearableCategoryId,
+  intent: MeshEditIntent,
+  sink?: StatusSink,
+): Promise<GenerateResult> {
+  emit(sink, { step: "planning", message: "Matching the plate solid and completing a parametric body…" });
+  const previousObjects = await objectsFromJob(previous);
+  const combined = { triangles: previousObjects.flatMap((object) => object.mesh.triangles) };
+  const prior = previous.imageImport;
+  const subject = prior?.subject ?? noneSubjectIdentify();
+  if (prior?.completion?.applied) {
+    const notes = [
+      ...intent.notes,
+      "Match-and-complete already applied — the plate already has a completed figure.",
+      prior.completion.note || completionNote(prior.completion),
+      regionLabelsNote(prior.completion),
+      wearableChartNote(),
+      describeWearableSize(previous.wearableSize, wearableCategory),
+    ].filter(Boolean);
+    emit(sink, { step: "done", message: `${photoPlateHeadline(prior)}.` });
+    return toGenerateResult({
+      ...previous,
+      notes,
+    });
+  }
+  const completed = completeExistingSolid(combined, subject.class === "none" ? { ...subject, class: "head", confidence: 0.64, source: "chat" } : subject, {
+    prompt,
+  });
+  const designation = designateMachineForSize(checkMesh(completed.mesh).boundingBoxMm.size);
+  const imageImport = prior
+    ? { ...prior, subject: subject.class === "none" ? { ...subject, class: "head" as const, confidence: 0.64, source: "chat" as const } : subject, completion: completed.completion }
+    : null;
+  const fileName = previous.fileName ?? "imported.stl";
+  const code = prior
+    ? imageSolidStubScad({
+        fileName,
+        sizeMm: checkMesh(completed.mesh).boundingBoxMm.size,
+        triangleCount: completed.mesh.triangles.length,
+        format: prior.format,
+        repairApplied: prior.repairApplied,
+        keepWear: prior.keepWear,
+        designation,
+        fragment: prior.fragment,
+        subject: imageImport?.subject,
+        completion: completed.completion,
+      })
+    : importedMeshStubScad({
+        fileName,
+        sizeMm: checkMesh(completed.mesh).boundingBoxMm.size,
+        triangleCount: completed.mesh.triangles.length,
+      });
+  const notes = [
+    completionNote(completed.completion),
+    regionLabelsNote(completed.completion),
+    ...intent.notes,
+    wearableChartNote(),
+    describeWearableSize(previous.wearableSize, wearableCategory),
+  ].filter(Boolean);
+  if (designation.message) notes.push(designation.message);
+  emit(sink, { step: "mesh-check", message: "Checking the completed solid against the P2S bed…" });
+  emit(sink, { step: "export", message: "Writing STL and 3MF…" });
+  const artifacts = await artifactsFromMesh(completed.mesh, code, fileName, undefined, printPreset);
+  const job = createJob({
+    stl: artifacts.stl,
+    threemf: artifacts.threemf,
+    scad: artifacts.code,
+    report: artifacts.report,
+    usedFixture: true,
+    retried: false,
+    source: "imported-mesh",
+    fileName,
+    wearableSize: previous.wearableSize,
+    wearableCategory,
+    nativeSizeMm: artifacts.report.boundingBoxMm.size,
+    editMode: prior ? "image-import" : "transform",
+    notes,
+    colorRegions: artifacts.colorRegions,
+    printPreset,
+    imageImport,
+    machineDesignation: designation,
+  });
+  emit(sink, { step: "done", message: imageImport ? `${photoPlateHeadline(imageImport)}.` : "Completed a matching body on the plate." });
   return toGenerateResult(job);
 }
 

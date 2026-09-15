@@ -234,7 +234,7 @@ The first three match built-in single-body fixtures (used when `USE_FIXTURE` is 
 
 ## What V0 does
 
-1. Studio-style UI with a first-class **chat**: describe in Prepare, keep talking to iterate, then **Print** / **Update** (size/units and CAD details stay under More options / Details). Import an existing **STL** or **3MF**, or a **single photo** (PNG/JPG/WebP → silhouette solid stub), onto the same plate. The center plate previews the latest part; STL and 3MF download from the Print panel. Wearable **S/M/L/XL** measurement charts (helmet, torso, gauntlet, bracer) auto-scale whatever is on the plate.
+1. Studio-style UI with a first-class **chat**: describe in Prepare, keep talking to iterate, then **Print** / **Update** (size/units and CAD details stay under More options / Details). Import an existing **STL** or **3MF**, or a **single photo** (PNG/JPG/WebP → silhouette solid stub; a head/helmet/bust partial completes a matching body), onto the same plate. The center plate previews the latest part; STL and 3MF download from the Print panel. Wearable **S/M/L/XL** measurement charts (helmet, torso, gauntlet, bracer) auto-scale whatever is on the plate.
 2. Local AI (or fixture / optional cloud LLM) → optional plan JSON → OpenSCAD text.
 3. Sanitize / validate (no network, no filesystem escapes); run OpenSCAD in a subprocess with a timeout.
 4. Parse the STL; check non-empty, volume, triangle count, edge-manifold / watertight-ish.
@@ -281,7 +281,7 @@ Shipped as an in-app stub trio on top of the OpenSCAD create path. No Blender / 
 | Path | What works | What is stubbed |
 | --- | --- | --- |
 | **STL/3MF import** | Upload onto the plate, preview, mesh-check, sit on z=0, re-export STL/3MF. Colored 3MF objects / materials are preserved on re-export | No repair sculpt; build-item transforms still ignored. Hole wraps flatten color objects into one solid |
-| **Photo → solid** | Single PNG/JPG/WebP upload; silhouette + **luminance-depth / tapered-rounded backside** (full solid, sit-on-bed, not a front-only relief); **fragment identify** (crack / missing chunk / disconnected pieces vs the intended whole) with repair-by-default restoring missing volume unless Keep damage / wear is on; if the bbox exceeds the P2S 256³, the plate still exports and **designates** a stub alternate machine (K1 Max / H2D / Prusa XL) | Not photogrammetry or NeRF — backside is a loaf/luminance heuristic. WebP pixels are inferred from the file header (PNG/JPG decode the real silhouette). Not a machine farm or slicer picker |
+| **Photo → solid** | Single PNG/JPG/WebP upload; silhouette + **luminance-depth / tapered-rounded backside** (full solid, sit-on-bed, not a front-only relief); **fragment identify** (crack / missing chunk / disconnected pieces vs the intended whole) with repair-by-default restoring missing volume unless Keep damage / wear is on; **match-and-complete** for head / helmet / bust partials (photo loaf + parametric neck/torso); if the bbox exceeds the P2S 256³, the plate still exports and **designates** a stub alternate machine (K1 Max / H2D / Prusa XL) | Not photogrammetry, NeRF, or identity-accurate. Backside is a loaf/luminance heuristic; invented body is parametric proportions from wearable charts. WebP pixels are inferred from the file header (PNG/JPG decode the real silhouette). Not Style2Fab / neural pretty-up. Not a machine farm or slicer picker |
 | **Describe-to-edit (imported)** | Scale / rotate / sit-on-bed and S–XL edit the real triangles. “Add an 8 mm hole” (and similar) **differences** `import("imported.stl")` — through-holes by default, axis/offset inferred from the prompt, sit-on-bed + one-piece checks kept. Repair retries stay on the wrap (no from-scratch rewrite) | Full triangle sculpt / Style2Fab / organic remesh is **not** ready. Blind holes and multi-feature wraps are still CSG, not mesh sculpt |
 | **Wearable size** | Category + S/M/L/XL picker and chat (“helmet size L”) scale the current mesh from documented mm charts and show the assumed size + key measurements | Not a custom-fit / saved-body grade; scale is **uniform** from the category primary measurement (preserves walls and holes) |
 
@@ -295,6 +295,21 @@ Shipped as an in-app stub trio on top of the OpenSCAD create path. No Blender / 
 | Bracer / cuff | Wrist (forearm) | 152 (240) | 165 (265) | 178 (290) | 191 (315) | ISO 8559-1 wrist method; 13 mm wrist / 25 mm forearm adult grade |
 
 Scale is **uniform**: `primary(to) / primary(from)`. Native mesh is Medium. Not axis-aware (keeps holes circular and #11 printability).
+
+### Match-and-complete (honest stub)
+
+When a photo (or chat) looks like a **head / helmet / bust / fragment** partial, CAD Core completes a **plausible matching body** into one printable solid. Pretty-up / Style2Fab is deferred.
+
+| | Behavior |
+| --- | --- |
+| Detect | Silhouette heuristics (aspect, circularity, neck taper, shoulder flare, symmetry) plus file name and chat (`complete the body`, `match this head with a torso`) |
+| Matched | Photographed head / helmet / bust region stays the silhouette + luminance-depth loaf |
+| Invented | Parametric neck + torso from wearable chart proportions (Medium chest / head circ = 1000 / 575; waist / chest = 860 / 1000) |
+| Plate | One standing figurine-length solid (not a front-only relief). Chat notes list matched vs invented region labels |
+| Follow-up | “Complete the body” on a plate solid that was not auto-completed attaches the same invented body |
+| Still applies | Repair-by-default unless keep-wear; oversize → designate alternate machine; STL / 3MF export; wearable S–XL charts |
+
+**Remaining limits:** not identity-accurate, not photogrammetry / NeRF, not a full 7-head statue (bust-length torso), not neural pretty-up. A mug / bracket / generic object is not completed unless chat asks.
 
 Local AI stays **`qwen2.5-coder`** only (`32b` / `14b` / `7b`). Agent Smith models are never retargeted.
 
@@ -313,7 +328,7 @@ Run as a Node process (`next dev` / `next start`). V0 is not aimed at serverless
 npm test
 ```
 
-Covers local LLM config defaults, OpenSCAD path resolution, launch health (Ollama + MODEL + OpenSCAD), Start preflight exit codes (0 = pass, 2 = warn/soft fail and continue), code sanitization, mesh-check / STL / 3MF (including multi-object color / AMS-slot encoding), import, photo → solid (upload validation, luminance-depth backside, fragment identify, repair-by-default, oversize → machine designation), wearable measurement charts + size application, imported-mesh describe-edit (hole difference / placement / wrap repair / emboss-etch wrap), joint clearance helpers + plan parsing + hinge/pin/ball/snap fixtures, raised etchings / emboss plan fields + fixtures, the P2S profile, Print doctor, and machine adapters (mock + flagged LAN MQTT, no physical printer). If OpenSCAD is installed, an integration test compiles the default fixture, an imported-mesh hole wrap, the two-color plaque regions, the print-in-place hinge / pin / ball / snap fixtures, and the helmet-emboss / cube-etch fixtures (skipped if the binary is missing).
+Covers local LLM config defaults, OpenSCAD path resolution, launch health (Ollama + MODEL + OpenSCAD), Start preflight exit codes (0 = pass, 2 = warn/soft fail and continue), code sanitization, mesh-check / STL / 3MF (including multi-object color / AMS-slot encoding), import, photo → solid (upload validation, luminance-depth backside, fragment identify, match-and-complete head/helmet/bust, repair-by-default, oversize → machine designation), wearable measurement charts + size application, imported-mesh describe-edit (hole difference / placement / wrap repair / emboss-etch wrap / complete-the-body), joint clearance helpers + plan parsing + hinge/pin/ball/snap fixtures, raised etchings / emboss plan fields + fixtures, the P2S profile, Print doctor, and machine adapters (mock + flagged LAN MQTT, no physical printer). If OpenSCAD is installed, an integration test compiles the default fixture, an imported-mesh hole wrap, the two-color plaque regions, the print-in-place hinge / pin / ball / snap fixtures, and the helmet-emboss / cube-etch fixtures (skipped if the binary is missing).
 
 `GET /api/health` returns the same Local AI / OpenSCAD / P2S status the header chip shows. `npm run health:preflight` is the same check Start runs before `npm run dev`.
 
@@ -331,7 +346,7 @@ Owner-approved. **Do not treat this list as V0 scope.** The current Bambu-inspir
 2. **Raised etchings / emboss** — **Stub shipped:** plan fields + print-aware depth + region defaults (largest vertical / front) + helmet-crest / cube-initials fixtures + import-wrap CSG. Later: image-driven motifs. Not Style2Fab.
 3. **Articulated / functional assemblies** — **Joint family shipped:** plan fields + P2S clearances + hinge/pin/ball/snap print-in-place fixtures (captive ball; cantilever snap). Later: richer joint library, multi-part export packs, and material-aware thickness/strength so moving parts (e.g. robot arms) don’t break.
 4. **Print doctor** — user describes print defects (e.g. stringing with nylon PA); the system diagnoses likely causes for the **selected printer/material** (default **Bambu Lab P2S**) and proposes or auto-applies setting fixes; then a feedback loop (still bad vs perfect). In-app only — not a separate slicer or DCC.
-5. **Image import as starting point** — **Backside + fragment identify shipped:** user uploads a **single photo** (PNG/JPG/WebP); silhouette + luminance-depth tapered/rounded backside becomes a **full 3D printable solid** (not a front-only relief). If the photo looks like a broken fragment / missing chunk, the pipeline identifies fragment vs intended whole and repair-by-default restores the missing volume unless the user asked to keep wear. Keep damage / wear override, STL/3MF export, and oversize vs P2S designates a stub alternate machine. Later: photogrammetry / NeRF-quality unseen geometry (still in-app, no Blender).
+5. **Image import as starting point** — **Backside + fragment identify + match-and-complete shipped:** user uploads a **single photo** (PNG/JPG/WebP); silhouette + luminance-depth tapered/rounded backside becomes a **full 3D printable solid** (not a front-only relief). Head / helmet / bust partials complete a parametric matching body (neck/torso proportions). If the photo looks like a broken fragment / missing chunk, the pipeline identifies fragment vs intended whole and repair-by-default restores the missing volume unless the user asked to keep wear. Keep damage / wear override, STL/3MF export, and oversize vs P2S designates a stub alternate machine. Later: photogrammetry / NeRF-quality unseen geometry (still in-app, no Blender). Not identity-accurate.
 6. **Auto calibration assistant** — guided calibration for the **Bambu Lab P2S** and later machines (bed, flow, offset, and related checks) from the web UI.
 7. **Part library + remix** — save successful prints and remix them (change a dimension, restyle, reuse a proven fixture) instead of starting from a blank description.
 8. **Tolerance / fit wizard** — pick snap, press, loose, or hinge fit; the system applies print-aware clearances for the selected printer/material.

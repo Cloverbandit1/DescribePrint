@@ -2,7 +2,7 @@ import { wantsNewDesign } from "./printability";
 import { parseWearableCategoryFromPrompt, parseWearableSizeFromPrompt } from "./wearable-sizes";
 import type { WearableCategoryId, WearableSizeId } from "./types";
 
-export type MeshEditKind = "transform" | "describe-wrapper" | "new-design";
+export type MeshEditKind = "transform" | "describe-wrapper" | "new-design" | "complete-body";
 
 export type MeshEditIntent = {
   kind: MeshEditKind;
@@ -20,6 +20,9 @@ export type MeshEditIntent = {
 
 const GENERATIVE =
   /\b(hole|bore|cut|slot|slit|tab|thicken|fillet|chamfer|emboss|engrave|etch|add a|add an|difference|boolean|remesh|carve|pocket)\b/i;
+
+const COMPLETE_BODY =
+  /\b(complete(?:\s+the)?\s+body|match(?:\s+this)?\s+head|matching\s+(?:body|torso)|add(?:\s+a)?\s+(?:torso|body)|finish(?:\s+the)?\s+(?:figure|body)|full(?:\s+)?figure)\b/i;
 
 const BIGGER = /\b(larger|bigger|scale\s*up|increase (?:the )?size)\b/i;
 const SMALLER = /\b(smaller|scale\s*down|decrease (?:the )?size)\b/i;
@@ -55,6 +58,22 @@ export function parseMeshEditIntent(
       targetMaxMm: null,
       rotateZDeg: null,
       sitOnBed: false,
+      holeMm: null,
+      addTab: false,
+      notes,
+    };
+  }
+
+  if (COMPLETE_BODY.test(text) && !GENERATIVE.test(text)) {
+    notes.push("Match-and-complete will invent a parametric neck/torso. Not identity-accurate and not photogrammetry.");
+    return {
+      kind: "complete-body",
+      wearableSize: requestedSize ?? parseWearableSizeFromPrompt(text),
+      wearableCategory,
+      scale: 1,
+      targetMaxMm: null,
+      rotateZDeg: null,
+      sitOnBed: true,
       holeMm: null,
       addTab: false,
       notes,

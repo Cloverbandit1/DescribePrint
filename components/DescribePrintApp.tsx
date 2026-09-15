@@ -58,6 +58,11 @@ type ChatItem =
 type WorkspaceTab = "prepare" | "preview";
 
 function photoPlateHeadline(meta?: ImageImportMeta | null): string {
+  if (meta?.completion?.applied) {
+    const cls = meta.completion.subjectClass;
+    const matched = cls === "helmet" ? "helmet" : cls === "bust" ? "bust" : "head";
+    return `Photo solid on the plate — ${matched} matched, body completed`;
+  }
   const fragment = meta?.fragment;
   if (fragment?.looksLikeFragment) {
     return fragment.restoredMissingVolume
@@ -85,6 +90,7 @@ const FRIENDLY_STEP: Record<PipelineStep, string> = {
 
 const CAD_FOLLOW_UPS = ["Make the hole 8 mm", "Make it larger", "Start a new part"] as const;
 const IMPORTED_FOLLOW_UPS = ["Make it size L", "Add an 8 mm hole", "Sit it on the plate", "Start a new part"] as const;
+const PHOTO_FOLLOW_UPS = ["Complete the body", "Make it size L", "Add an 8 mm hole", "Start a new part"] as const;
 
 const THEME_KEY = "describeprint-theme";
 
@@ -351,6 +357,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       form.append("filament", material);
       form.append("repair", keepWear ? "0" : "1");
       form.append("keepWear", keepWear ? "1" : "0");
+      if (prompt.trim()) form.append("prompt", prompt.trim());
       if (sizeNumber) form.append("targetMaxMm", String(toMillimeters(sizeNumber, units)));
       const response = await fetch("/api/import", { method: "POST", body: form });
       if (!response.ok && !response.body) {
@@ -428,7 +435,15 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       onUnitsChange={setUnits}
       keepWear={keepWear}
       onKeepWearChange={setKeepWear}
-      followUps={result && !busy ? (result.source === "imported-mesh" ? IMPORTED_FOLLOW_UPS : CAD_FOLLOW_UPS) : null}
+      followUps={
+        result && !busy
+          ? result.editMode === "image-import"
+            ? PHOTO_FOLLOW_UPS
+            : result.source === "imported-mesh"
+              ? IMPORTED_FOLLOW_UPS
+              : CAD_FOLLOW_UPS
+          : null
+      }
       onFollowUp={(value) => {
         if (value.toLowerCase().includes("new part")) {
           setPrompt("");

@@ -114,11 +114,13 @@ Covers code sanitization and the mesh-check / STL / 3MF path. If OpenSCAD is ins
 
 ## Out of V0
 
-Style2Fab, neural organic mesh, FEA / MechStyle, multi-agent CAD, and full Bambu Studio / Orca slicer integration.
+Style2Fab, neural organic mesh, FEA / MechStyle, multi-agent CAD, full Bambu Studio / Orca slicer embedding, and the owner-approved extras below (profile, AMS-aware design, live P2S control, and the rest). Those extras are **approved**, not V0 work, and they must **not** block the Bambu-layout + chat-first PR.
 
-## Roadmap after V0
+## Roadmap
 
-Priority order from the product owner (not in V0):
+Owner-approved. **Do not treat this list as V0 scope.** The current Bambu-inspired layout and chat-first describe → Print path ships first; items below come later, still **in-app** (no Blender / Meshmixer / separate DCC). Default printer remains **Bambu Lab P2S**.
+
+### After V0 (existing)
 
 1. **Wearable / cosplay sizing** — S/M/L/XL plus measurement charts; auto-scale the model; show the assumed size.
 2. **Raised etchings / emboss** — from a description (and later images) that print as visible relief.
@@ -126,11 +128,28 @@ Priority order from the product owner (not in V0):
 4. **Print doctor** — user describes print defects (e.g. stringing with nylon PA); the system diagnoses likely causes for the **selected printer/material** (default **Bambu Lab P2S**) and proposes or auto-applies setting fixes; then a feedback loop (still bad vs perfect). In-app only — not a separate slicer or DCC.
 5. **Image import as starting point** — user uploads a **single photo**; the system infers/generates the **backside and unseen geometry** into a **full 3D printable solid** (not a front-only relief). Output is a clean, watertight-ish mesh ready to print. By default, use light intelligence to **repair** broken or damaged parts (fill cracks, restore missing chunks). Do **not** preserve wear unless the user asks to keep it.
 
-V0 stays **describe → CAD → STL/3MF**. Image import and Print doctor are after V0.
-
-All of the above ship **inside the web UI** (preview + printable export). None of them assume Blender or another DCC after the fact.
+V0 stays **describe → CAD → STL/3MF**. Image import, Print doctor, and the extras below are after V0.
 
 **Printer profiles (later, not a V0 blocker):** in-app picker to change printer and print settings (layer height, nozzle, material). Default remains Bambu Lab P2S. Long-term the core path slices in-app so users do not need a separate slicer; V0 only exports STL/3MF against the P2S stub profile. Print doctor uses that same selected profile.
+
+### Owner-approved extras (later)
+
+All approved. None of these block the Bambu-layout + chat-first PR.
+
+1. **User profile** — saved body/part sizes, filaments, and defaults (P2S + AMS slots).
+2. **Version history / undo** — step back through describe-edits and restore an earlier plate.
+3. **Time + filament + cost estimates** — show print time, filament use, and a simple cost before Print.
+4. **Design to what’s loaded on AMS** — prefer colors/materials that are actually in the AMS.
+5. **Learn from Print doctor** — remember fixes per machine and filament so later diagnoses get better.
+6. **Project pack export** — 3MF plus build steps and shopping links in one pack.
+7. **Smart plate packing** — arrange one or many parts on the P2S plate.
+8. **Strength preview heatmap** — show likely weak regions on the preview.
+9. **Assembly / explode mode** — inspect multi-part designs as assembled or exploded.
+10. **Optional voice describe** — talk instead of (or as well as) typing, same chat-first path.
+
+### Critical (later, not a V0 / layout-PR blocker)
+
+11. **Direct control of the user’s Bambu Lab P2S and attached AMS** — diagnose and autofix from plain language in the same chat (example: AMS #2 feed/unfeed loop). Use Bambu **local/network APIs** where possible; **safe pause** before risky moves; give simple physical steps when software cannot fix hardware. Keep the interaction **chat-first**.
 
 ## Extension points (later)
 

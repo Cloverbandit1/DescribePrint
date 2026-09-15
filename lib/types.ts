@@ -95,6 +95,10 @@ export type Mesh = {
  * 5. image import (single photo → full 3D solid including inferred backside
  *    and unseen geometry, not front-only; repair damage by default,
  *    keep cracks/missing chunks only if the user asks)
+ * Owner-approved extras (README Roadmap; later, do not block layout PR):
+ * profile, edit history/undo, time/filament/cost, AMS-aware design,
+ * print-doctor learning, project packs, plate packing, strength heatmap,
+ * assembly/explode, optional voice, and direct P2S+AMS control from chat.
  * All stay in-app; users never need Blender or another DCC afterward.
  * V0 stays describe → CAD → STL/3MF.
  * UX: everyday path is describe → clear options → Print; hide advanced CAD.

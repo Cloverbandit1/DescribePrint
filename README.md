@@ -96,8 +96,8 @@ Profile data lives in [`lib/printers.ts`](lib/printers.ts). V0 does not ship Bam
 
 In-app P2S + AMS control. Architecture: [`docs/machine-control.md`](docs/machine-control.md). Not send-to-printer, not a farm, not Bambu Cloud.
 
-- **LAN MQTT (off by default):** set `BAMBU_LAN_MQTT=1` plus `BAMBU_HOST`, `BAMBU_SERIAL`, and `BAMBU_ACCESS_CODE` in `.env.local`. On the P2S enable **LAN Only** and **Developer Mode**. The adapter uses TLS MQTT on port 8883 (`bblp` + access code). Never commit those values.
-- **Machine panel** (Print column): flag off keeps the disconnected stub. Flag + creds shows live connection, temps, layer/progress, AMS slots, and tiny pause / resume / speed / temp controls. CAD export still works with no printer.
+- **LAN MQTT (off by default):** in the Machine panel, turn **LAN MQTT** on and enter printer IP, serial, and the 8-digit LAN access code. Saved in the browser only. On the P2S enable **LAN Only** and **Developer Mode**. The adapter uses TLS MQTT on port 8883 (`bblp` + access code). Headless/dev can still set `BAMBU_LAN_MQTT=1` plus `BAMBU_HOST` / `BAMBU_SERIAL` / `BAMBU_ACCESS_CODE` in `.env.local` (overrides the panel). Never commit those values. Never log the access code.
+- **Machine panel** (Print column): LAN off stays disconnected / mock. Toggle + complete creds streams live connection, temps, layer/progress, and AMS slots (polls `/api/machine`). Connected printers keep the tiny pause / resume / speed / temp controls. CAD export still works with no printer.
 - **Print doctor:** type a defect or machine complaint in the existing chat (`stringing with PETG`, `AMS 2 keeps looping feed/unfeed`). A keyword stub returns a diagnosis plus proposed settings or physical steps. It does not call the CAD pipeline and does not need an LLM or a live printer.
 - **Mock adapter:** default and CI path — in-memory connection state, AMS mapping, pause-before-risky temp changes, remaining-layer reshape **planner** stub. An unhealthy LAN host fails safe (not connected, no crash, access code never logged).
 
@@ -191,13 +191,13 @@ xvfb-run -a npm run dev
 | `OPENSCAD_PATH` | no | Preferred OpenSCAD executable **or** folder (portable ZIP, custom install). |
 | `OPENSCAD_BIN` | no | Legacy executable override. Bare `openscad` still searches well-known locations. |
 | `OPENSCAD_TIMEOUT_MS` | no | Compile timeout (default `45000`) |
-| `MACHINE_ADAPTER` | no | Default `mock`. Forced `mock` always wins. `bambu-lan` is selected only with the flag + creds. |
-| `BAMBU_LAN_MQTT` | no | Default off. Set `1`/`true` to enable the live P2S LAN MQTT adapter. |
-| `BAMBU_HOST` / `BAMBU_SERIAL` / `BAMBU_ACCESS_CODE` | no | Printer LAN IP, serial, and LAN access code. Required together with `BAMBU_LAN_MQTT=1`. Never commit real values. |
+| `MACHINE_ADAPTER` | no | Default `mock`. Forced `mock` always wins (CI lock). `bambu-lan` is selected by the Machine panel or by the flag + env creds. |
+| `BAMBU_LAN_MQTT` | no | Default off. Optional headless override: set `1`/`true` with the three creds below. Everyday path is the Machine panel toggle. |
+| `BAMBU_HOST` / `BAMBU_SERIAL` / `BAMBU_ACCESS_CODE` | no | Optional env override for printer LAN IP, serial, and LAN access code. Prefer the Machine panel. Never commit real values. |
 | `BAMBU_MQTT_PORT` | no | Default `8883`. |
 | `BAMBU_MQTT_TIMEOUT_MS` | no | Connect timeout (default `8000`). |
 
-Secrets stay in the environment only. Do not commit `.env.local`.
+Secrets stay in the browser (Machine panel) or `.env.local`. Do not commit `.env.local`. The access code is never logged or returned by `/api/machine`.
 
 ## Example prompts
 

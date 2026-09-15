@@ -440,7 +440,9 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       } catch {
         // Keep the local diagnosis if the machine API is down.
       }
-      diagnosis = applyStoredDoctorMemory(readDoctorMemory(), diagnosis);
+      if (diagnosis.defectId !== "mid-print-control") {
+        diagnosis = applyStoredDoctorMemory(readDoctorMemory(), diagnosis);
+      }
       setPrompt("");
       const named = normalizeFilamentId(cleaned);
       if (named || diagnosis.appliedPreset) {
@@ -1351,6 +1353,18 @@ function ChatBubble({
         {result.autofix?.attempted ? (
           <div className="mt-2 text-[13px] text-muted">{result.autofix.message}</div>
         ) : null}
+        {result.midPrint ? (
+          <div className="mt-2 text-[13px] text-muted">
+            {result.midPrint.message}
+            {result.midPrint.physicalSteps?.length ? (
+              <ul className="mt-1 list-disc pl-4">
+                {result.midPrint.physicalSteps.map((step) => (
+                  <li key={step}>{step}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
         {result.reshape ? (
           <div className="mt-2 text-[13px] text-muted">
             {result.reshape.message}
@@ -1368,7 +1382,7 @@ function ChatBubble({
         {result.learned ? (
           <div className="mt-1 text-[11px] text-muted">Remembered for this printer + filament.</div>
         ) : null}
-        {onDoctorFeedback ? (
+        {onDoctorFeedback && result.defectId !== "mid-print-control" ? (
           <div className="mt-2 flex flex-wrap gap-1.5">
             <button
               type="button"
@@ -2163,6 +2177,7 @@ function MachinePanel({
           <div className="font-medium text-ink">{doctorHint.title}</div>
           <div className="mt-0.5">{doctorHint.diagnosis}</div>
           {doctorHint.autofix?.attempted ? <div className="mt-0.5">{doctorHint.autofix.message}</div> : null}
+          {doctorHint.midPrint ? <div className="mt-0.5">{doctorHint.midPrint.message}</div> : null}
           {doctorHint.reshape ? <div className="mt-0.5">{doctorHint.reshape.message}</div> : null}
         </div>
       ) : (

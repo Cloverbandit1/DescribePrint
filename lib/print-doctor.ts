@@ -4,8 +4,17 @@ import {
   selectAmsHelpGuideId,
   type AmsHelpGuide,
 } from "./machine/ams-help";
-import type { AmsHint } from "./machine/types";
+import type { AmsHint, CommandResult, MidPrintCommand } from "./machine/types";
 import type { EmergencyRemainingReshapePlan } from "./machine/reshape-plan";
+import { physicalStepsForCommand } from "./machine/bambu-protocol";
+import {
+  describeMidPrintIntent,
+  looksLikeMidPrintCommand,
+  MID_PRINT_CONTROL_ID,
+  midPrintSettingSummary,
+  parseMidPrintCommandPhrase,
+  type MidPrintIntent,
+} from "./machine/mid-print-commands";
 import {
   defaultPrinter,
   filamentPreset,
@@ -51,6 +60,16 @@ export type PrintDoctorAutofix = {
   physicalSteps?: string[];
 };
 
+export type PrintDoctorMidPrint = {
+  command: MidPrintCommand;
+  speedLevel?: 1 | 2 | 3 | 4;
+  attempted: boolean;
+  ok: boolean;
+  pausedFirst: boolean;
+  message: string;
+  physicalSteps?: string[];
+};
+
 export type PrintDoctorResult = {
   defectId: string;
   title: string;
@@ -64,6 +83,7 @@ export type PrintDoctorResult = {
   fixes: PrintDoctorFix[];
   physicalSteps: string[];
   autofix?: PrintDoctorAutofix;
+  midPrint?: PrintDoctorMidPrint;
   reshape?: EmergencyRemainingReshapePlan;
   /** True when chat asked to switch to a material's auto-best table. */
   appliedPreset?: boolean;
@@ -80,6 +100,26 @@ export function withAutofix(result: PrintDoctorResult, autofix: PrintDoctorAutof
 
 export function withReshape(result: PrintDoctorResult, reshape: EmergencyRemainingReshapePlan): PrintDoctorResult {
   return { ...result, reshape };
+}
+
+export function withMidPrint(result: PrintDoctorResult, midPrint: PrintDoctorMidPrint): PrintDoctorResult {
+  return { ...result, midPrint };
+}
+
+export function midPrintFromCommandResult(
+  intent: MidPrintIntent,
+  result: CommandResult,
+  attempted: boolean,
+): PrintDoctorMidPrint {
+  return {
+    command: intent.command,
+    ...(intent.speedLevel != null ? { speedLevel: intent.speedLevel } : {}),
+    attempted,
+    ok: result.ok,
+    pausedFirst: result.pausedFirst,
+    message: result.message,
+    ...(result.physicalSteps?.length ? { physicalSteps: result.physicalSteps } : {}),
+  };
 }
 
 const EMERGENCY_RESHAPE_RE =
@@ -275,6 +315,7 @@ export function looksLikePrintDoctorComplaint(text: string): boolean {
   const cleaned = text.trim();
   if (!cleaned) return false;
   return (
+    looksLikeMidPrintCommand(cleaned) ||
     DEFECT_RULES.some((rule) => rule.re.test(cleaned)) ||
     DOCTOR_HINT.test(cleaned) ||
     isEmergencyReshapeRequest(cleaned) ||
@@ -320,6 +361,7 @@ const NEXT_CAUSE: Record<string, string> = {
 
 export function defectTitle(defectId: string): string {
   if (defectId === "material-preset") return "Auto-best settings";
+  if (defectId === MID_PRINT_CONTROL_ID) return "Mid-print control";
   return DEFECT_RULES.find((rule) => rule.id === defectId)?.title ?? "Print problem";
 }
 
@@ -753,9 +795,44 @@ function diagnosisFor(defectId: string, material: FilamentId, amsSlot?: number):
         : "Updated the AMS slot plan. Advisory metadata only — not sent over LAN.";
     case "material-preset":
       return `Applied ${material.toUpperCase()} auto-best settings for the P2S (advisory — not sent over LAN).`;
+    case MID_PRINT_CONTROL_ID:
+      return "Chat mid-print control. Pause / resume / speed / temp go to the selected farm machine when LAN is connected.";
     default:
       return "I could not match a specific P2S defect. Describe the symptom (stringing, warp, AMS loop, first layer) and the filament.";
   }
+}
+
+function midPrintDiagnosis(
+  printerId: PrinterId,
+  material: FilamentId,
+  intent: MidPrintIntent,
+): PrintDoctorResult {
+  const commandKey =
+    intent.command.type === "set-speed"
+      ? "speedPercent"
+      : intent.command.type === "set-nozzle-temp"
+        ? "nozzleC"
+        : intent.command.type === "set-bed-temp"
+          ? "bedC"
+          : intent.command.type;
+  const commandValue =
+    intent.command.type === "set-speed"
+      ? intent.command.percent
+      : intent.command.type === "set-nozzle-temp" || intent.command.type === "set-bed-temp"
+        ? intent.command.celsius
+        : "now";
+  return {
+    defectId: MID_PRINT_CONTROL_ID,
+    title: defectTitle(MID_PRINT_CONTROL_ID),
+    diagnosis: describeMidPrintIntent(intent),
+    confidence: "high",
+    printerId,
+    material,
+    fixes: tagFixes(MID_PRINT_CONTROL_ID, [
+      setting(midPrintSettingSummary(intent), commandKey, commandValue, true),
+    ]),
+    physicalSteps: physicalStepsForCommand(intent.command),
+  };
 }
 
 export function diagnosisFromAmsHint(
@@ -799,6 +876,10 @@ export function diagnosePrintComplaint(request: PrintDoctorRequest): PrintDoctor
     : normalizeFilamentId(request.material);
   const fallback = sessionMaterial ?? printer.defaultFilament;
   const material = inferMaterial(`${request.material ?? ""} ${complaint}`, fallback);
+  const midPrint = parseMidPrintCommandPhrase(complaint);
+  if (midPrint) {
+    return midPrintDiagnosis(printerId, material, midPrint);
+  }
   const complaintSlot = extractAmsSlot(complaint);
   const slotAssignment = extractAmsSlotPlanAssignment(complaint);
   const amsSlot =

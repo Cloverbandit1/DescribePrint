@@ -18,6 +18,9 @@ describe("print-doctor NLP stub", () => {
     expect(looksLikeMaterialPresetRequest("a PETG phone stand")).toBe(false);
     expect(looksLikeDoctorFeedback("a perfect cube")).toBeUndefined();
     expect(looksLikePrintDoctorComplaint("perfect")).toBe(false);
+    expect(looksLikePrintDoctorComplaint("pause the hinge clearance")).toBe(false);
+    expect(looksLikePrintDoctorComplaint("continue the fillet on the lid")).toBe(false);
+    expect(looksLikePrintDoctorComplaint("slow the taper to 20mm")).toBe(false);
   });
 
   it("switches to PETG or PA auto-best tables from chat", () => {
@@ -113,6 +116,15 @@ describe("print-doctor NLP stub", () => {
     const result = diagnosePrintComplaint({ complaint: "emergency reshape remaining layers" });
     expect(result.defectId).toBe("emergency-reshape");
     expect(result.diagnosis).toMatch(/Resume is manual|CAD Core/i);
+  });
+
+  it("routes explicit mid-print phrases without treating CAD pause language as a defect", () => {
+    expect(looksLikePrintDoctorComplaint("pause now")).toBe(true);
+    expect(looksLikePrintDoctorComplaint("slow to 50%")).toBe(true);
+    const pause = diagnosePrintComplaint({ complaint: "pause the print" });
+    expect(pause.defectId).toBe("mid-print-control");
+    expect(pause.diagnosis).toMatch(/pause/i);
+    expect(pause.fixes.some((fix) => fix.key === "pause")).toBe(true);
   });
 
   it("returns a low-confidence fallback when the complaint is vague", () => {

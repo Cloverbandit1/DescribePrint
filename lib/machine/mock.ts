@@ -76,6 +76,8 @@ export class MockMachineAdapter implements MachineAdapter {
   private slots: AmsSlotStatus[];
   private amsHint?: AmsHint;
   private amsSoftwareFixable = true;
+  /** Commands that passed the connected gate. Disconnected send does not record. */
+  readonly sentCommands: MidPrintCommand[] = [];
 
   constructor(printerId: PrinterId = defaultPrinter().id, machineId?: string) {
     this.printerId = printerId;
@@ -196,6 +198,7 @@ export class MockMachineAdapter implements MachineAdapter {
     this.slots = emptyAmsSlots(getPrinter(this.printerId).ams.slotsPerUnit);
     this.amsHint = undefined;
     this.amsSoftwareFixable = true;
+    this.sentCommands.length = 0;
   }
 
   async status(): Promise<LiveMachineStatus> {
@@ -207,6 +210,7 @@ export class MockMachineAdapter implements MachineAdapter {
       return { ok: false, pausedFirst: false, message: "Printer is not connected." };
     }
 
+    this.sentCommands.push({ ...command });
     const printer = getPrinter(this.printerId);
     const risky = midPrintCommandRisk(command) === "risky";
     let pausedFirst = false;

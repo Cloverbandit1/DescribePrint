@@ -217,6 +217,30 @@ The plan is written into 3MF model metadata (`DescribePrint:ams_plan` / `Describ
 
 `pause`, `resume`, `set-speed`, `set-nozzle-temp`, `set-bed-temp` are typed commands. **Risky** commands (nozzle/bed temp while printing) must **pause first**. Mock and `bambu-lan` both enforce that. Safe commands do not pause.
 
+Chat uses the same adapter `send` path as the Machine-panel buttons ([`lib/machine/mid-print-commands.ts`](../lib/machine/mid-print-commands.ts)). Whole-utterance phrases only — CAD prompts such as “pause the hinge clearance” stay on generate.
+
+| Phrase | Command |
+| --- | --- |
+| `pause now` / `pause the print` / `pause` | safe `pause` |
+| `resume` / `continue printing` | `resume` (never sent from reshape / doctor autofix) |
+| `slow down` | Bambu level **1** (Silent, 50%) |
+| `slow to 50%` / `speed 50%` | nearest of the 1–4 tiers |
+| `speed 2` | Bambu level **2** (Standard, 100%) |
+| `nozzle 220` / `bed 60` | temp; pause-before-risky while printing |
+
+Bambu `print_speed` mapping (existing `BAMBU_SPEED_LEVELS`):
+
+| Level | Name | Percent |
+| --- | --- | --- |
+| 1 | silent | 50% |
+| 2 | standard | 100% |
+| 3 | sport | 124% |
+| 4 | ludicrous | 166% |
+
+A percent is snapped to the nearest row before `print.print_speed` is published. Result shows in chat and the Machine panel.
+
+**No surprise LAN.** Commands are sent only when the selected farm machine’s adapter is already connected (LAN MQTT on + connected). Disconnected chat returns “Connect LAN first” plus the on-printer physical tip — no `send`, no fake success. The mock adapter records commands that pass that connected gate so tests can assert phrase → command without a printer.
+
 ### Remaining-layer reshape (flagged stub, default OFF)
 
 Chat-first: “reshape the rest”, “emergency reshape remaining layers”, or a **confirmed** camera suspected-failure. Off unless `RESHAPE_REMAINING=1` **or** the Machine-panel **Reshape remaining** checkbox is on (also off by default; saved in `localStorage`).
@@ -281,7 +305,7 @@ Taken from Bambu’s published P2S specs / FAQ (see sources below):
 
 ## Tests
 
-`npm test` must pass **without** a physical printer. Coverage targets: profile tables (including PA), material session parse, doctor diagnoses + “use PETG settings” / “best for PA” / “use AMS 2 for accent”, 3MF preset metadata / sidecar fields, AMS mapping + **AMS slot plan** (disconnected → tray 0 = selected material, others omitted; live inject 2 slots → plan matches; 3MF metadata contains tray mapping), pause-before-risky, mock connection state machine, flag off = mock, UI toggle + incomplete creds = mock + hint, UI toggle + complete creds selects `bambu-lan` without setting the env flag, env override still works, live adapter + fake/unhealthy endpoint fails safe without leaking secrets, camera stub `detectFailure` (stub only), live poll + detect (flag off = no detect; flag on + mock `none` = `camera: ok`; injected spaghetti / scrape / empty-bed surfaces on the panel and doctor without auto-pause), AMS autofix flag off (no commands) vs flag on (pause then autofix or physical steps), remaining-layer reshape flag off (no pause, no live plan) vs flag on + injected remaining height (pause + plan, no resume, `remainingHeightMm` / `currentZ` present). Handoff optionals (`previousCode`, `stumpCutPlaneBoundsMm`, `layerHeightMm`) are present when a job / live layer height / selected preset exists and omitted when those sources are unknown. `remainingHeightMm` is still not derived from remaining layer count. Farm registry: default one P2S; add / select / remove; selected machine is what adapter `status()` uses; registry ops never perform LAN writes. Farm queue worker: enqueue → `queued`; tick → `active` then `done`; enqueue/tick never select `bambu-lan` or call connect/send. Plate pack: single part fits; two parts pack without overlap; oversized → `fitted: false` + rotate/split advice; placements stay inside the P2S 256×256 mm plate. Print estimate: known cube volume → ballpark grams; material switch changes density/cost; no mesh → null. Project pack: zip includes 3MF + steps + shopping links + `ams_slot_plan.json`; empty result fails cleanly; material name appears in the shopping stub. Print doctor memory: Perfect remembers a fix per printer + filament; Still bad skips that fix next time; PLA memory does not apply to PETG; empty entries omitted; no CAD history imports. AMS physical guides: each id selected from chat; slot interpolation (`AMS 2`); flag off never sends commands; Still bad keys the next guide id.
+`npm test` must pass **without** a physical printer. Coverage targets: profile tables (including PA), material session parse, doctor diagnoses + “use PETG settings” / “best for PA” / “use AMS 2 for accent”, chat mid-print phrases → mock commands (pause / resume / %→tier / temp) with disconnected = no send and CAD prompts not stolen, 3MF preset metadata / sidecar fields, AMS mapping + **AMS slot plan** (disconnected → tray 0 = selected material, others omitted; live inject 2 slots → plan matches; 3MF metadata contains tray mapping), pause-before-risky, mock connection state machine, flag off = mock, UI toggle + incomplete creds = mock + hint, UI toggle + complete creds selects `bambu-lan` without setting the env flag, env override still works, live adapter + fake/unhealthy endpoint fails safe without leaking secrets, camera stub `detectFailure` (stub only), live poll + detect (flag off = no detect; flag on + mock `none` = `camera: ok`; injected spaghetti / scrape / empty-bed surfaces on the panel and doctor without auto-pause), AMS autofix flag off (no commands) vs flag on (pause then autofix or physical steps), remaining-layer reshape flag off (no pause, no live plan) vs flag on + injected remaining height (pause + plan, no resume, `remainingHeightMm` / `currentZ` present). Handoff optionals (`previousCode`, `stumpCutPlaneBoundsMm`, `layerHeightMm`) are present when a job / live layer height / selected preset exists and omitted when those sources are unknown. `remainingHeightMm` is still not derived from remaining layer count. Farm registry: default one P2S; add / select / remove; selected machine is what adapter `status()` uses; registry ops never perform LAN writes. Farm queue worker: enqueue → `queued`; tick → `active` then `done`; enqueue/tick never select `bambu-lan` or call connect/send. Plate pack: single part fits; two parts pack without overlap; oversized → `fitted: false` + rotate/split advice; placements stay inside the P2S 256×256 mm plate. Print estimate: known cube volume → ballpark grams; material switch changes density/cost; no mesh → null. Project pack: zip includes 3MF + steps + shopping links + `ams_slot_plan.json`; empty result fails cleanly; material name appears in the shopping stub. Print doctor memory: Perfect remembers a fix per printer + filament; Still bad skips that fix next time; PLA memory does not apply to PETG; empty entries omitted; no CAD history imports. AMS physical guides: each id selected from chat; slot interpolation (`AMS 2`); flag off never sends commands; Still bad keys the next guide id.
 
 ## Sources
 

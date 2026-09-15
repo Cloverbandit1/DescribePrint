@@ -168,6 +168,93 @@ export function buildRepairPrompt(input: {
   return parts.join("\n\n");
 }
 
+export type ImportedMeshContext = {
+  fileName: string;
+  sizeMm: [number, number, number];
+  minMm: [number, number, number];
+  maxMm: [number, number, number];
+  triangleCount: number;
+  volumeMm3: number;
+};
+
+export function importedMeshSystemPrompt(): string {
+  return `You are a CAD assistant that wraps an already-imported triangle mesh in OpenSCAD for FDM 3D printing.
+
+Reply with ONLY OpenSCAD code (no markdown unless fenced as \`\`\`openscad). No commentary.
+
+The host solid is already on disk in the compile folder. You MUST use exactly:
+  import("imported.stl", convexity = 10)
+Do not import any other file. Do not use include, use <>, or surface().
+
+Units and output
+- Millimeters. 1 unit = 1 mm.
+- Keep a single printable solid. Sit the result on z=0.
+- Difference() cutters must fully pierce (overshoot 0.2–1 mm). Walls >= 1.6 mm. Through-holes >= 2.5 mm unless the user asks smaller.
+
+Edits
+- Scale, rotate, and translate the imported mesh to apply size / orientation requests.
+- Add holes, slots, or tabs with cube()/cylinder() unioned or differenced against the import.
+- Name parameters at the top (hole_d, scale_f, …).
+- Prefer the smallest change that matches the request. Do not replace the imported part with a new primitive-only model unless the user asked to start over.
+
+Safety
+- Do not design weapons or lock-defeat tools. If asked, emit a safe printable wrapper instead.
+
+${formatPrinterConstraints()}
+`;
+}
+
+export function buildImportedMeshPrompt(input: {
+  prompt: string;
+  sizeNote: string;
+  mesh: ImportedMeshContext;
+  previousError?: string;
+  previousCode?: string;
+  previousPrompt?: string;
+}): string {
+  const [sx, sy, sz] = input.mesh.sizeMm;
+  const [minx, miny, minz] = input.mesh.minMm;
+  const [maxx, maxy, maxz] = input.mesh.maxMm;
+  const cx = (minx + maxx) / 2;
+  const cy = (miny + maxy) / 2;
+  const meta = [
+    `Imported mesh: ${input.mesh.fileName}`,
+    `bbox_mm: ${sx.toFixed(2)} × ${sy.toFixed(2)} × ${sz.toFixed(2)}`,
+    `min: [${minx.toFixed(2)}, ${miny.toFixed(2)}, ${minz.toFixed(2)}] max: [${maxx.toFixed(2)}, ${maxy.toFixed(2)}, ${maxz.toFixed(2)}]`,
+    `center_xy: [${cx.toFixed(2)}, ${cy.toFixed(2)}]  height: ${sz.toFixed(2)}`,
+    `triangles: ${input.mesh.triangleCount}  volume_mm3: ${input.mesh.volumeMm3.toFixed(1)}`,
+  ].join("\n");
+
+  if (input.previousError) {
+    const parts = [
+      buildRepairPrompt({
+        error: input.previousError,
+        previousCode: input.previousCode,
+      }),
+      "Keep import(\"imported.stl\", convexity = 10) as the host solid.",
+      `User request:\n${input.prompt.trim()}`,
+      meta,
+    ];
+    if (input.sizeNote) parts.push(input.sizeNote);
+    if (input.previousPrompt) parts.push(`Earlier description:\n${input.previousPrompt.slice(0, 2000)}`);
+    return parts.join("\n\n");
+  }
+
+  const parts = [
+    "Wrap the imported mesh with OpenSCAD. Host solid MUST be import(\"imported.stl\", convexity = 10).",
+    `User request:\n${input.prompt.trim()}`,
+    meta,
+  ];
+  if (input.sizeNote) parts.push(input.sizeNote);
+  if (input.previousPrompt) {
+    parts.push(`Earlier description:\n${input.previousPrompt.slice(0, 2000)}`);
+  }
+  if (input.previousCode) {
+    parts.push(`Previous wrapper (revise; do not drop the import):\n${input.previousCode.slice(0, 6000)}`);
+  }
+  return parts.join("\n\n");
+}
+
 export function buildUserPrompt(input: {
   prompt: string;
   sizeNote: string;
@@ -175,7 +262,18 @@ export function buildUserPrompt(input: {
   previousCode?: string;
   previousPrompt?: string;
   plan?: CadPlan | null;
+  importedMesh?: ImportedMeshContext;
 }): string {
+  if (input.importedMesh) {
+    return buildImportedMeshPrompt({
+      prompt: input.prompt,
+      sizeNote: input.sizeNote,
+      mesh: input.importedMesh,
+      previousError: input.previousError,
+      previousCode: input.previousCode,
+      previousPrompt: input.previousPrompt,
+    });
+  }
   if (input.previousError) {
     const repair = buildRepairPrompt({
       error: input.previousError,

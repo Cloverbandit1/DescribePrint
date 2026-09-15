@@ -1,5 +1,11 @@
 export type Unit = "mm" | "in";
 
+export type PartSource = "openscad" | "imported-mesh";
+
+export type WearableSizeId = "S" | "M" | "L" | "XL";
+
+export type PlateEditMode = "create" | "import" | "transform" | "describe-wrapper";
+
 export type GenerateRequest = {
   prompt: string;
   sizeHint?: number | null;
@@ -10,6 +16,12 @@ export type GenerateRequest = {
   previousPrompt?: string | null;
   /** Last successful OpenSCAD, used so follow-ups can add/remove/change the design. */
   previousCode?: string | null;
+  /** Last plate job — required to edit an imported mesh. */
+  previousJobId?: string | null;
+  /** How the current plate part was produced. */
+  previousSource?: PartSource | null;
+  /** Wearable / cosplay size preset to apply (S–XL stub chart). */
+  wearableSize?: WearableSizeId | null;
 };
 
 export type PipelineStep =
@@ -21,6 +33,8 @@ export type PipelineStep =
   | "mesh-check"
   | "export"
   | "retry"
+  | "import"
+  | "transform"
   | "done";
 
 export type StatusEvent = {
@@ -71,6 +85,11 @@ export type GenerateResult = {
   threemfUrl: string;
   scadUrl: string;
   report: PrintabilityReport;
+  source: PartSource;
+  fileName?: string | null;
+  wearableSize?: WearableSizeId | null;
+  editMode: PlateEditMode;
+  notes: string[];
 };
 
 export type Triangle = {
@@ -83,31 +102,20 @@ export type Mesh = {
 };
 
 /**
- * V0 extension points (not implemented — reserved for later versions).
+ * Extension points.
  *
- * - describe-to-modify: follow-up "make the hole 8mm" using previous SCAD as context
- *   (V0 already sends previousPrompt/previousCode on chat follow-ups)
- * - Style2Fab-style edit: in-app stylization while preserving functional regions
- *   (not a Blender plugin or other DCC — preview + STL/3MF in the web UI is the full path)
- * - organic mesh: swap the OpenSCAD backend for a neural / implicit surface generator
+ * Shipped M2 foundations (in-app, no DCC):
+ * - STL/3MF import onto the plate
+ * - Wearable S/M/L/XL stub charts that scale the current mesh
+ * - Describe-to-edit on imported meshes: real triangle scale/rotate/sit-on-bed;
+ *   generative adds (holes, tabs) wrap import("imported.stl") in OpenSCAD.
+ *   Full triangle sculpt / Style2Fab is not implemented.
  *
- * Product roadmap after V0 (README; do not implement here):
- * 1. wearable/cosplay sizing  2. raised etchings/emboss  3. articulated assemblies
- * 4. print doctor (defect description → diagnose for selected printer/material,
- *    default P2S → propose/auto-apply settings → still-bad vs perfect feedback)
- * 5. image import (single photo → full 3D solid including inferred backside
- *    and unseen geometry, not front-only; repair damage by default,
- *    keep cracks/missing chunks only if the user asks)
- * Owner-approved extras (README Roadmap; later, do not block layout PR):
- * profile, edit history/undo, time/filament/cost, AMS-aware design,
- * print-doctor learning, project packs, plate packing, strength heatmap,
- * assembly/explode, optional voice, and direct P2S+AMS control from chat.
- * All stay in-app; users never need Blender or another DCC afterward.
- * V0 stays describe → CAD → STL/3MF.
- * UX: everyday path is describe → clear options → Print; hide advanced CAD.
+ * Still later:
+ * - describe-to-modify already sends previousPrompt/previousCode on CAD follow-ups
+ * - Style2Fab-style edit, organic mesh, image→3D, Print doctor, machine control
  *
- * Default printer: Bambu Lab P2S (see lib/printers.ts). In-app printer/settings
- * UI and full Bambu/Orca slice are later; V0 still exports STL/3MF.
+ * Default printer: Bambu Lab P2S (see lib/printers.ts).
  */
 export type FutureEditMode =
   | "create"

@@ -206,7 +206,7 @@ These three match built-in fixtures (used when `USE_FIXTURE` is on, or in tests)
 
 ## What V0 does
 
-1. Studio-style UI with a first-class **chat**: describe in Prepare, keep talking to iterate, then **Print** / **Update** (size/units and CAD details stay under More options / Details). The center plate previews the latest part; STL and 3MF download from the Print panel.
+1. Studio-style UI with a first-class **chat**: describe in Prepare, keep talking to iterate, then **Print** / **Update** (size/units and CAD details stay under More options / Details). Import an existing **STL** or **3MF** onto the same plate. The center plate previews the latest part; STL and 3MF download from the Print panel. Wearable **S/M/L/XL** stub charts can auto-scale whatever is on the plate.
 2. Local AI (or fixture / optional cloud LLM) → optional plan JSON → OpenSCAD text.
 3. Sanitize / validate (no network, no filesystem escapes); run OpenSCAD in a subprocess with a timeout.
 4. Parse the STL; check non-empty, volume, triangle count, edge-manifold / watertight-ish.
@@ -214,6 +214,18 @@ These three match built-in fixtures (used when `USE_FIXTURE` is on, or in tests)
 6. Download **STL** and **3MF** (plus the `.scad` source).
 
 Printability report: bounding box (mm), volume, triangle count, manifold flag, and issues (empty mesh, zero volume, huge triangle count, oversized vs the P2S 256 mm bed, undersized / thin walls vs the 0.4 mm nozzle, off-bed, disconnected solids). Soft printability issues are fed back into CAD retries. Plans are normalized to one-piece, 1.6 mm walls, and through-holes unless the user clearly asks otherwise.
+
+## M2 foundations (import + size + imported-mesh edit)
+
+Shipped as an in-app stub trio on top of the OpenSCAD create path. No Blender / DCC.
+
+| Path | What works | What is stubbed |
+| --- | --- | --- |
+| **STL/3MF import** | Upload onto the plate, preview, mesh-check, sit on z=0, re-export STL/3MF | No repair sculpt, no multi-body 3MF transforms |
+| **Describe-to-edit (imported)** | Scale / rotate / sit-on-bed and S–XL edit the real triangles. “Add an 8 mm hole” (and similar) wraps `import("imported.stl")` in OpenSCAD CSG | Full triangle sculpt / Style2Fab / organic remesh is **not** ready |
+| **Wearable size** | S/M/L/XL picker + chat (“make it size L”) scales the current mesh and shows the assumed size | Measurement chart is a placeholder (typical costume mm stubs), not a custom-fit grade |
+
+Local AI stays **`qwen2.5-coder`** only (`32b` / `14b` / `7b`). Agent Smith models are never retargeted.
 
 ## Success paths
 
@@ -230,7 +242,7 @@ Run as a Node process (`next dev` / `next start`). V0 is not aimed at serverless
 npm test
 ```
 
-Covers local LLM config defaults, OpenSCAD path resolution, launch health (Ollama + MODEL + OpenSCAD), Start preflight exit codes (0 = pass, 2 = warn/soft fail and continue), code sanitization, the mesh-check / STL / 3MF path, the P2S profile, Print doctor, and machine-adapter stubs (no physical printer). If OpenSCAD is installed, an integration test compiles the default fixture.
+Covers local LLM config defaults, OpenSCAD path resolution, launch health (Ollama + MODEL + OpenSCAD), Start preflight exit codes (0 = pass, 2 = warn/soft fail and continue), code sanitization, mesh-check / STL / 3MF, import, wearable size stubs, imported-mesh describe-edit, the P2S profile, Print doctor, and machine-adapter stubs (no physical printer). If OpenSCAD is installed, an integration test compiles the default fixture (and an imported-mesh wrapper when present).
 
 `GET /api/health` returns the same Local AI / OpenSCAD / P2S status the header chip shows. `npm run health:preflight` is the same check Start runs before `npm run dev`.
 
@@ -244,7 +256,7 @@ Owner-approved. **Do not treat this list as V0 scope.** The current Bambu-inspir
 
 ### After V0 (existing)
 
-1. **Wearable / cosplay sizing** — S/M/L/XL plus measurement charts; auto-scale the model; show the assumed size.
+1. **Wearable / cosplay sizing** — **M2 stub shipped:** S/M/L/XL plus a placeholder measurement chart; auto-scale the model; show the assumed size. Later: saved body measurements and better grading.
 2. **Raised etchings / emboss** — from a description (and later images) that print as visible relief.
 3. **Articulated / functional assemblies** — real joints with print clearances, multi-part export, and material-aware thickness/strength so moving parts (e.g. robot arms) don’t break.
 4. **Print doctor** — user describes print defects (e.g. stringing with nylon PA); the system diagnoses likely causes for the **selected printer/material** (default **Bambu Lab P2S**) and proposes or auto-applies setting fixes; then a feedback loop (still bad vs perfect). In-app only — not a separate slicer or DCC.

@@ -7,7 +7,13 @@ import type { HealthReport, HealthTone } from "@/lib/health-types";
 import { diagnosePrintComplaint, looksLikePrintDoctorComplaint, type PrintDoctorResult } from "@/lib/print-doctor";
 import { defaultPrinter, filamentPreset, type PrinterProfile } from "@/lib/printers";
 import { formatMm } from "@/lib/units";
-import type { GenerateResult, PipelineStep, StatusEvent, Unit } from "@/lib/types";
+import {
+  WEARABLE_SIZE_IDS,
+  WEARABLE_SIZE_PRESETS,
+  describeWearableSize,
+  wearableChartNote,
+} from "@/lib/wearable-sizes";
+import type { GenerateResult, PipelineStep, StatusEvent, Unit, WearableSizeId } from "@/lib/types";
 import type { CameraView, ViewerTheme } from "./Viewer";
 
 const Viewer = dynamic(() => import("./Viewer").then((m) => m.Viewer), {
@@ -36,10 +42,13 @@ const FRIENDLY_STEP: Record<PipelineStep, string> = {
   "mesh-check": "Making sure it can print…",
   export: "Preparing files…",
   retry: "Trying again…",
+  import: "Reading the file…",
+  transform: "Scaling the part…",
   done: "Ready",
 };
 
-const FOLLOW_UPS = ["Make the hole 8 mm", "Make it larger", "Start a new part"] as const;
+const CAD_FOLLOW_UPS = ["Make the hole 8 mm", "Make it larger", "Start a new part"] as const;
+const IMPORTED_FOLLOW_UPS = ["Make it size L", "Add an 8 mm hole", "Sit it on the plate", "Start a new part"] as const;
 
 const THEME_KEY = "describeprint-theme";
 
@@ -82,7 +91,9 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
   const [result, setResult] = useState<GenerateResult | null>(null);
   const [doctorResult, setDoctorResult] = useState<PrintDoctorResult | null>(null);
   const [designPrompt, setDesignPrompt] = useState<string | null>(null);
+  const [wearableSize, setWearableSize] = useState<WearableSizeId | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [workspace, setWorkspace] = useState<WorkspaceTab>("prepare");
   const [cameraView, setCameraView] = useState<CameraView>("iso");
@@ -128,14 +139,16 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
     setResult(null);
     setDoctorResult(null);
     setDesignPrompt(null);
+    setWearableSize(null);
     setPrompt("");
     setShowDetails(false);
     setWorkspace("prepare");
   }
 
-  async function printPart(text: string) {
+  async function printPart(text: string, options?: { wearableSize?: WearableSizeId | null }) {
     const cleaned = text.trim();
     if (!cleaned || busy) return;
+    const sizeForRequest = options?.wearableSize !== undefined ? options.wearableSize : wearableSize;
 
     if (looksLikePrintDoctorComplaint(cleaned)) {
       const diagnosis = diagnosePrintComplaint({ complaint: cleaned, printerId: printer.id });
@@ -153,6 +166,8 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
     const startFresh = /\b(new part|start over|something else|different part|forget that|scratch)\b/i.test(cleaned);
     const previousPrompt = startFresh ? null : designPrompt;
     const previousCode = startFresh ? null : result?.code;
+    const previousJobId = startFresh ? null : result?.jobId;
+    const previousSource = startFresh ? null : result?.source;
 
     setBusy(true);
     setPrompt("");
@@ -175,6 +190,9 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
           units,
           previousPrompt,
           previousCode,
+          previousJobId,
+          previousSource,
+          wearableSize: sizeForRequest,
           fixture: process.env.NODE_ENV === "test" ? true : undefined,
         }),
       });
@@ -215,6 +233,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       const generated: GenerateResult = latest;
 
       setResult(generated);
+      setWearableSize(generated.wearableSize ?? wearableSize);
       setDesignPrompt(startFresh || !previousPrompt ? cleaned : `${previousPrompt}. ${cleaned}`);
       setShowDetails(false);
       setItems((prev) => [
@@ -229,6 +248,67 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       ]);
     } finally {
       setBusy(false);
+      scrollToEnd();
+    }
+  }
+
+  async function importMeshFile(file: File) {
+    if (busy) return;
+    setBusy(true);
+    const statusId = nid();
+    setItems((prev) => [
+      ...prev,
+      { id: nid(), kind: "user", text: `Import ${file.name}` },
+      { id: statusId, kind: "status", steps: [], active: true },
+    ]);
+    scrollToEnd();
+    setWorkspace("prepare");
+
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const response = await fetch("/api/import", { method: "POST", body: form });
+      if (!response.ok && !response.body) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      let latest: GenerateResult | null = null;
+      let lastError: string | null = null;
+      await consumeSse(response, (event, data) => {
+        if (event === "status") {
+          const status = data as StatusEvent;
+          setItems((prev) =>
+            prev.map((item) =>
+              item.id === statusId && item.kind === "status"
+                ? { ...item, steps: [...item.steps, status] }
+                : item,
+            ),
+          );
+          scrollToEnd();
+        }
+        if (event === "result") latest = data as GenerateResult;
+        if (event === "error") lastError = (data as { message?: string }).message ?? "Could not import this file";
+      });
+      if (lastError) throw new Error(lastError);
+      if (!latest) throw new Error("No model was returned");
+      const generated: GenerateResult = latest;
+      setResult(generated);
+      setWearableSize(generated.wearableSize ?? null);
+      setDesignPrompt(`Imported ${file.name}`);
+      setShowDetails(false);
+      setItems((prev) => [
+        ...prev.map((item) => (item.id === statusId && item.kind === "status" ? { ...item, active: false } : item)),
+        { id: nid(), kind: "result", result: generated },
+      ]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not import this file";
+      setItems((prev) => [
+        ...prev.map((item) => (item.id === statusId && item.kind === "status" ? { ...item, active: false } : item)),
+        { id: nid(), kind: "error", text: message },
+      ]);
+    } finally {
+      setBusy(false);
+      if (fileInput.current) fileInput.current.value = "";
       scrollToEnd();
     }
   }
@@ -248,9 +328,11 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       canSubmit={canPrint}
       actionLabel={actionLabel}
       placeholder={
-        result
-          ? "Keep talking — change it, add or remove a feature, or start a new part…"
-          : "A phone stand, or a 20 mm cube with a hole…"
+        result?.source === "imported-mesh"
+          ? "Describe an edit — size S–XL, scale, sit on the plate, or add a hole…"
+          : result
+            ? "Keep talking — change it, add or remove a feature, or start a new part…"
+            : "A phone stand, a 20 mm cube with a hole, or import an STL/3MF…"
       }
       showAdvanced={showAdvanced}
       onToggleAdvanced={() => setShowAdvanced((v) => !v)}
@@ -258,21 +340,33 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
       onSizeHintChange={setSizeHint}
       units={units}
       onUnitsChange={setUnits}
-      followUps={result && !busy ? FOLLOW_UPS : null}
+      followUps={result && !busy ? (result.source === "imported-mesh" ? IMPORTED_FOLLOW_UPS : CAD_FOLLOW_UPS) : null}
       onFollowUp={(value) => {
         if (value.toLowerCase().includes("new part")) {
           setPrompt("");
           setDesignPrompt(null);
+          setWearableSize(null);
           setResult(null);
           return;
         }
         setPrompt(value);
       }}
+      onImport={() => fileInput.current?.click()}
     />
   );
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-bg text-ink">
+      <input
+        ref={fileInput}
+        type="file"
+        accept=".stl,.3mf,model/stl,application/vnd.ms-package.3dmanufacturing-3dmodel+xml"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void importMeshFile(file);
+        }}
+      />
       <header className="z-20 flex h-11 shrink-0 items-center gap-3 border-b border-line bg-panel px-3">
         <div className="flex min-w-0 items-center gap-2.5">
           <StudioMark />
@@ -419,15 +513,26 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
               {actionLabel}
             </button>
             <p className="text-[11px] leading-relaxed text-muted">
-              The chat is the editor. Keep describing changes; Print puts the latest part on the plate.
+              The chat is the editor. Keep describing changes, or import an STL/3MF onto the plate.
             </p>
+
+            <WearableSizePicker
+              selected={wearableSize}
+              applied={result?.wearableSize ?? null}
+              disabled={busy}
+              canApply={Boolean(result) && !busy}
+              onSelect={(size) => {
+                setWearableSize(size);
+                if (result) void printPart(`Apply wearable size ${size}`, { wearableSize: size });
+              }}
+            />
 
             {result ? (
               <ResultPanel result={result} showDetails={showDetails} onToggleDetails={() => setShowDetails((v) => !v)} />
             ) : (
               <p className="rounded-md border border-dashed border-line px-2.5 py-2 text-[11px] text-muted">
-                Nothing on the plate yet. Describe a part, use More options if you want a size, then Print. Files are
-                sized for the P2S.
+                Nothing on the plate yet. Describe a part, import STL/3MF, or pick a wearable size, then Print. Files
+                are sized for the P2S.
               </p>
             )}
           </div>
@@ -457,6 +562,7 @@ function ChatComposer({
   onUnitsChange,
   followUps,
   onFollowUp,
+  onImport,
 }: {
   prompt: string;
   onPromptChange: (value: string) => void;
@@ -473,6 +579,7 @@ function ChatComposer({
   onUnitsChange: (value: Unit) => void;
   followUps: readonly string[] | null;
   onFollowUp: (value: string) => void;
+  onImport: () => void;
 }) {
   return (
     <form
@@ -523,6 +630,14 @@ function ChatComposer({
           className="text-[11px] text-muted underline-offset-2 hover:underline"
         >
           {showAdvanced ? "Hide options" : "More options"}
+        </button>
+        <button
+          type="button"
+          onClick={onImport}
+          disabled={busy}
+          className="ml-auto text-[11px] text-muted underline-offset-2 hover:underline disabled:opacity-40"
+        >
+          Import STL/3MF
         </button>
       </div>
       {showAdvanced ? (
@@ -615,12 +730,16 @@ function ChatBubble({ item }: { item: ChatItem }) {
     );
   }
   const { report } = item.result;
+  const imported = item.result.source === "imported-mesh";
   return (
     <div className="mr-4 rounded-md border border-ok/35 bg-ok/5 px-2.5 py-2 text-sm">
-      <div className="font-medium">On the plate — keep talking to change it</div>
+      <div className="font-medium">
+        {imported ? "Imported mesh on the plate — describe an edit" : "On the plate — keep talking to change it"}
+      </div>
       <div className="mt-1 text-muted">
         {formatMm(report.boundingBoxMm.size[0])} × {formatMm(report.boundingBoxMm.size[1])} ×{" "}
         {formatMm(report.boundingBoxMm.size[2])} mm
+        {item.result.fileName ? ` · ${item.result.fileName}` : ""}
       </div>
     </div>
   );
@@ -680,9 +799,20 @@ function ResultPanel({
 }) {
   const { report } = result;
   const issues = report.issues;
+  const imported = result.source === "imported-mesh";
 
   return (
     <div className="space-y-3 border-t border-line pt-3">
+      {result.notes.length > 0 ? (
+        <div className="rounded-md border border-line bg-panel-2 p-2.5 text-[11px] leading-relaxed text-muted">
+          <div className="studio-label mb-1">{imported ? "Imported mesh" : "Size"}</div>
+          {result.notes.map((note) => (
+            <p key={note} className="mt-1">
+              {note}
+            </p>
+          ))}
+        </div>
+      ) : null}
       <div className="studio-label">Exports</div>
       <div className="flex flex-wrap items-center gap-2">
         <a href={result.stlUrl} className="studio-btn studio-btn-ghost inline-flex h-8 px-3">
@@ -717,7 +847,7 @@ function ResultPanel({
           </p>
           <div className="flex flex-wrap gap-2">
             <a href={result.scadUrl} className="text-[11px] text-muted underline-offset-2 hover:underline">
-              OpenSCAD source
+              {imported ? "Mesh notes / wrapper" : "OpenSCAD source"}
             </a>
           </div>
           <pre className="scrollbar-thin max-h-40 overflow-auto font-mono text-[11px] leading-relaxed text-muted">
@@ -733,9 +863,10 @@ function EmptyState({ onPick }: { onPick: (value: string) => void }) {
   return (
     <div className="space-y-3">
       <p className="text-sm leading-relaxed text-muted">
-        Describe a part in plain language. Open <span className="text-ink">More options</span> only if you need a size.
-        Then <span className="text-ink">Print</span> — the plate is a Bambu Lab P2S (256 × 256 × 256 mm) by default. A
-        print defect (stringing, AMS loop) goes to Print doctor instead of CAD.
+        Describe a part in plain language, or <span className="text-ink">import an STL/3MF</span>. Open{" "}
+        <span className="text-ink">More options</span> only if you need a size. Then <span className="text-ink">Print</span>{" "}
+        — the plate is a Bambu Lab P2S (256 × 256 × 256 mm) by default. A print defect (stringing, AMS loop) goes to
+        Print doctor instead of CAD.
       </p>
       <div className="studio-label">Try saying</div>
       <div className="space-y-1.5">
@@ -750,6 +881,73 @@ function EmptyState({ onPick }: { onPick: (value: string) => void }) {
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+function WearableSizePicker({
+  selected,
+  applied,
+  disabled,
+  canApply,
+  onSelect,
+}: {
+  selected: WearableSizeId | null;
+  applied: WearableSizeId | null;
+  disabled: boolean;
+  canApply: boolean;
+  onSelect: (size: WearableSizeId) => void;
+}) {
+  const assumed = applied ?? selected;
+  return (
+    <div className="rounded-md border border-line bg-panel-2 p-2.5">
+      <div className="studio-label">Wearable size</div>
+      <p className="mt-1 text-[11px] leading-relaxed text-muted">{wearableChartNote()}</p>
+      <p className="mt-1 text-[11px] text-ink">{describeWearableSize(assumed)}</p>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {WEARABLE_SIZE_IDS.map((id) => {
+          const active = (applied ?? selected) === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              disabled={disabled || (!canApply && Boolean(applied))}
+              onClick={() => onSelect(id)}
+              className={`h-7 min-w-8 rounded-md border px-2 text-[11px] font-semibold ${
+                active ? "border-accent bg-accent text-accent-ink" : "border-line bg-panel text-muted hover:text-ink"
+              }`}
+            >
+              {id}
+            </button>
+          );
+        })}
+      </div>
+      <table className="mt-2 w-full text-left text-[10px] text-muted">
+        <thead>
+          <tr>
+            <th className="font-medium">Size</th>
+            <th className="font-medium">× M</th>
+            <th className="font-medium">Head</th>
+            <th className="font-medium">Chest</th>
+            <th className="font-medium">Wrist</th>
+          </tr>
+        </thead>
+        <tbody>
+          {WEARABLE_SIZE_IDS.map((id) => {
+            const preset = WEARABLE_SIZE_PRESETS[id];
+            return (
+              <tr key={id} className={assumed === id ? "text-ink" : undefined}>
+                <td>{preset.id}</td>
+                <td>{preset.scaleFromM.toFixed(2)}</td>
+                <td>{preset.measurementsMm.headCirc}</td>
+                <td>{preset.measurementsMm.chest}</td>
+                <td>{preset.measurementsMm.wrist}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <p className="mt-1 text-[10px] text-muted">Measurements are mm stubs. Select a size to scale the plate mesh.</p>
     </div>
   );
 }

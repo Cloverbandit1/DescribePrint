@@ -3,6 +3,7 @@ import {
   buildPlanPrompt,
   buildRepairPrompt,
   buildUserPrompt,
+  importedMeshSystemPrompt,
   classifyCompileIssue,
   completeChat,
   LOCAL_AI_START_MESSAGE,
@@ -143,6 +144,27 @@ describe("LLM prompt", () => {
     expect(repair).toMatch(/Define every variable/i);
     expect(repair).toContain("size=20");
     expect(repair).toContain("hole_d=5");
+  });
+
+  it("builds an imported-mesh wrapper prompt without retargeting Agent Smith", () => {
+    const prompt = buildUserPrompt({
+      prompt: "add an 8mm hole",
+      sizeNote: "",
+      importedMesh: {
+        fileName: "mask.stl",
+        sizeMm: [40, 20, 10],
+        minMm: [0, 0, 0],
+        maxMm: [40, 20, 10],
+        triangleCount: 12,
+        volumeMm3: 8000,
+      },
+    });
+    expect(prompt).toMatch(/import\("imported\.stl"/);
+    expect(prompt).toContain("mask.stl");
+    expect(prompt).toContain("8mm hole");
+    expect(importedMeshSystemPrompt()).toMatch(/imported triangle mesh/i);
+    expect(importedMeshSystemPrompt()).toMatch(/256 × 256 × 256 mm/);
+    expect(importedMeshSystemPrompt()).not.toMatch(/minicpm5|smith-/i);
   });
 
   it("builds a short planning prompt for follow-up edits", () => {

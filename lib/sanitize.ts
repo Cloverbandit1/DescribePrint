@@ -2,6 +2,24 @@ export type SanitizeOk = { ok: true; code: string };
 export type SanitizeErr = { ok: false; errors: string[] };
 export type SanitizeResult = SanitizeOk | SanitizeErr;
 
+export type SanitizeOptions = {
+  /**
+   * Allow a single server-written mesh: import("imported.stl") with optional
+   * convexity. Used for describe-to-edit on an imported STL/3MF. All other
+   * filesystem calls stay blocked.
+   */
+  allowImportedMesh?: boolean;
+};
+
+/** Filename written into the OpenSCAD work dir for imported-mesh wrappers. */
+export const IMPORTED_MESH_FILENAME = "imported.stl";
+
+const ALLOWED_IMPORTED_MESH_CALL_G =
+  /import\s*\(\s*"imported\.stl"(?:\s*,\s*convexity\s*=\s*\d+)?\s*\)/gi;
+
+export const ALLOWED_IMPORTED_MESH_CALL =
+  /import\s*\(\s*"imported\.stl"(?:\s*,\s*convexity\s*=\s*\d+)?\s*\)/i;
+
 const MAX_CODE_BYTES = 80_000;
 
 const FORBIDDEN: { pattern: RegExp; reason: string }[] = [
@@ -26,13 +44,15 @@ export function extractOpenScad(raw: string): string {
   return trimmed;
 }
 
-export function sanitizeOpenScad(raw: string): SanitizeResult {
+export function sanitizeOpenScad(raw: string, options: SanitizeOptions = {}): SanitizeResult {
   const errors: string[] = [];
   if (typeof raw !== "string" || raw.trim().length === 0) {
     return { ok: false, errors: ["Generated code is empty"] };
   }
 
   const code = extractOpenScad(raw);
+  const allowImported = Boolean(options.allowImportedMesh);
+  const scanned = allowImported ? code.replace(ALLOWED_IMPORTED_MESH_CALL_G, "IMPORTED_MESH") : code;
 
   if (code.length > MAX_CODE_BYTES) {
     errors.push(`Generated code exceeds ${MAX_CODE_BYTES} bytes`);
@@ -45,16 +65,21 @@ export function sanitizeOpenScad(raw: string): SanitizeResult {
   }
 
   for (const { pattern, reason } of FORBIDDEN) {
-    if (pattern.test(code)) {
+    if (pattern.test(scanned)) {
       errors.push(reason);
     }
   }
 
-  if (/(?:^|[\s;])(?:import|include|use)\b/i.test(code) && /\.\.\//.test(code)) {
+  if (/(?:^|[\s;])(?:import|include|use)\b/i.test(scanned) && /\.\.\//.test(scanned)) {
     errors.push("Path traversal is blocked");
   }
 
-  if (!HAS_SOLID.test(code)) {
+  if (allowImported && /import\s*\(/i.test(scanned)) {
+    errors.push('Only import("imported.stl") is allowed for imported-mesh edits');
+  }
+
+  const hasSolid = HAS_SOLID.test(code) || (allowImported && ALLOWED_IMPORTED_MESH_CALL.test(code));
+  if (!hasSolid) {
     errors.push("Code does not contain a recognized OpenSCAD solid primitive");
   }
 

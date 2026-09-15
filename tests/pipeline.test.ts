@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CompileError } from "@/lib/compile";
 import { completeChat } from "@/lib/llm";
 import { compileOpenScad } from "@/lib/compile";
-import { MAX_COMPILE_ATTEMPTS, MAX_COMPILE_RETRIES, runGeneratePipeline } from "@/lib/pipeline";
+import { MAX_COMPILE_ATTEMPTS, MAX_COMPILE_RETRIES, runGeneratePipeline, runImportPipeline } from "@/lib/pipeline";
 import { makeAxisAlignedBoxMesh, writeBinaryStl } from "@/lib/stl";
 import type { StatusEvent } from "@/lib/types";
 
@@ -263,6 +263,55 @@ describe("generate pipeline (local AI + fixtures)", () => {
       expect(messages[1]?.content).toContain("follow-up");
       expect(messages[1]?.content).toContain("cube(20);");
       expect(messages[1]?.content).toContain("make the hole 8mm");
+    });
+  });
+
+  it("wraps an imported mesh with OpenSCAD for a described hole", async () => {
+    mockedCompile.mockResolvedValue(compileOk());
+    const imported = await runImportPipeline({
+      buffer: writeBinaryStl(makeAxisAlignedBoxMesh([40, 20, 10])),
+      fileName: "part.stl",
+    });
+    const result = await runGeneratePipeline({
+      prompt: "add an 8mm hole through the center",
+      previousJobId: imported.jobId,
+      previousSource: "imported-mesh",
+      previousPrompt: "Imported part.stl",
+      fixture: true,
+    });
+    expect(result.source).toBe("imported-mesh");
+    expect(result.editMode).toBe("describe-wrapper");
+    expect(result.code).toMatch(/import\("imported\.stl"/);
+    expect(result.code).toMatch(/hole_d = 8/);
+    expect(mockedChat).not.toHaveBeenCalled();
+    expect(mockedCompile).toHaveBeenCalled();
+    const compiledCode = mockedCompile.mock.calls[0]?.[0] as string;
+    expect(compiledCode).toMatch(/import\("imported\.stl"/);
+  });
+
+  it("asks the live model for an imported-mesh wrapper, not a from-scratch part", async () => {
+    await withEnv({ SMART_PIPELINE: "0" }, async () => {
+      mockedChat.mockResolvedValue(
+        'difference() { import("imported.stl", convexity = 10); cylinder(h=12, d=8); }',
+      );
+      mockedCompile.mockResolvedValue(compileOk());
+      const imported = await runImportPipeline({
+        buffer: writeBinaryStl(makeAxisAlignedBoxMesh([40, 20, 10])),
+        fileName: "part.stl",
+      });
+      await runGeneratePipeline({
+        prompt: "add an 8mm hole",
+        previousJobId: imported.jobId,
+        previousSource: "imported-mesh",
+        previousPrompt: "Imported part.stl",
+      });
+      expect(mockedChat).toHaveBeenCalledTimes(1);
+      const [messages] = mockedChat.mock.calls[0] as unknown as [{ role: string; content: string }[]];
+      expect(messages[0]?.content).toMatch(/imported triangle mesh/i);
+      expect(messages[0]?.content).toMatch(/import\("imported\.stl"/);
+      expect(messages[0]?.content).not.toMatch(/minicpm5|smith-/i);
+      expect(messages[1]?.content).toMatch(/Host solid MUST/i);
+      expect(messages[1]?.content).toContain("40.00");
     });
   });
 });

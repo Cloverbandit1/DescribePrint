@@ -5,7 +5,6 @@
  * Never a LAN write, farm enqueue, or slicer.
  */
 
-import { boundingBoxMm, signedVolumeMm3 } from "../mesh-check";
 import {
   defaultPrinter,
   filamentPreset,
@@ -13,7 +12,7 @@ import {
   type FilamentId,
   type PrinterProfile,
 } from "../printers";
-import type { BoundingBoxMm, Mesh, PrintabilityReport } from "../types";
+import type { BoundingBoxMm, Mesh, PrintabilityReport, Triangle } from "../types";
 
 export type PrintEstimateVolumeSource = "mesh" | "aabb";
 
@@ -143,12 +142,42 @@ export function serializeCostPerKgMap(map: Partial<Record<FilamentId, number>>):
   return JSON.stringify(clean);
 }
 
+function cross(a: [number, number, number], b: [number, number, number]): [number, number, number] {
+  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+}
+
+function dot(a: [number, number, number], b: [number, number, number]): number {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+/** Local signed volume so this module stays browser-safe (no mesh-check / Node crypto). */
+function meshSignedVolumeMm3(mesh: Mesh): number {
+  let volume = 0;
+  for (const tri of mesh.triangles) {
+    const [a, b, c] = tri.vertices as Triangle["vertices"];
+    volume += dot(a, cross(b, c)) / 6;
+  }
+  return volume;
+}
+
+function meshAabbVolumeMm3(mesh: Mesh): number {
+  let min: [number, number, number] = [Infinity, Infinity, Infinity];
+  let max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+  for (const tri of mesh.triangles) {
+    for (const v of tri.vertices) {
+      min = [Math.min(min[0], v[0]), Math.min(min[1], v[1]), Math.min(min[2], v[2])];
+      max = [Math.max(max[0], v[0]), Math.max(max[1], v[1]), Math.max(max[2], v[2])];
+    }
+  }
+  if (!Number.isFinite(min[0])) return 0;
+  return aabbVolumeMm3({ size: [max[0] - min[0], max[1] - min[1], max[2] - min[2]] });
+}
+
 function resolveSolidVolume(input: PrintEstimateInput): { volumeMm3: number; source: PrintEstimateVolumeSource } | null {
   if (input.mesh && input.mesh.triangles.length > 0) {
-    const meshVolume = Math.abs(signedVolumeMm3(input.mesh));
+    const meshVolume = Math.abs(meshSignedVolumeMm3(input.mesh));
     if (meshVolume > VOLUME_EPS) return { volumeMm3: meshVolume, source: "mesh" };
-    const box = boundingBoxMm(input.mesh);
-    const aabb = aabbVolumeMm3(box);
+    const aabb = meshAabbVolumeMm3(input.mesh);
     if (aabb > VOLUME_EPS) return { volumeMm3: aabb, source: "aabb" };
     return null;
   }

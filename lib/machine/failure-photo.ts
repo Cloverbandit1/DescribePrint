@@ -6,7 +6,7 @@
  * the keyword table — do not invent a cause from bytes here.
  *
  * CAD repair is a suggestion only. This module never imports fit-wizard,
- * reshape/CAD generate, etch, or lattice.
+ * part-library, reshape/CAD generate, etch, or lattice.
  */
 
 import { defaultPrinter } from "../printers";
@@ -183,7 +183,7 @@ export function formatFailurePhotoUserLine(input: FailurePhotoInput): string {
   return "Failed photo (stub)";
 }
 
-/** Compile-time / test helper — this stub must not pull CAD fit-wizard or generate. */
+/** Compile-time / test helper — this stub must not pull CAD fit-wizard, part-library, or generate. */
 export function failurePhotoOwnsPrintControlOnly(): true {
   return true;
 }

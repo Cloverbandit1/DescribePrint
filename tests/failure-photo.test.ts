@@ -132,7 +132,7 @@ describe("failure-photo invokes the existing doctor path", () => {
 });
 
 describe("failure-photo stays on Print Control", () => {
-  it("does not import CAD fit-wizard, reshape generate, etch, or lattice", () => {
+  it("does not import CAD fit-wizard, part-library, reshape generate, etch, or lattice", () => {
     expect(failurePhotoOwnsPrintControlOnly()).toBe(true);
     const src = readFileSync(join(process.cwd(), "lib/machine/failure-photo.ts"), "utf8");
     const imports = src
@@ -140,7 +140,7 @@ describe("failure-photo stays on Print Control", () => {
       .filter((line) => /^\s*import\b/.test(line))
       .join("\n");
     expect(imports).not.toMatch(
-      /fits|fit-wizard|fitWizard|cad-reshape|lattice|openscad|assembly|etch|ollama|plate-pack|project-pack/i,
+      /fits|fit-wizard|fitWizard|part-library|partLibrary|remix|cad-reshape|lattice|openscad|assembly|etch|ollama|plate-pack|project-pack/i,
     );
     expect(src).toMatch(/later classifier|no pixel|not invent/i);
   });

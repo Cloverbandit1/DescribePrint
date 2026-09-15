@@ -2,9 +2,11 @@
  * Print Control → CAD Core remaining-upper consumer.
  *
  * Calls the same `runCadReshapeUpper` entry the generate pipeline early-returns
- * to when `cadHandoff` is set. Does not rewrite CAD, etch, or send resume/gcode.
+ * to when `cadHandoff` is set (`POST /api/generate`). After a GenerateResult,
+ * `cadFeedForReslice` attaches jobId/STL/3MF onto the reslice stub
+ * (`sendGcode: false`). Does not rewrite CAD, etch, or send resume/gcode.
  */
-import { runCadReshapeUpper } from "../cad-reshape";
+import { cadFeedForReslice, runCadReshapeUpper } from "../cad-reshape";
 import type { CadReshapeHandoff, CadReshapeUpperOutcome, ReslicePlanStub } from "./reshape-plan";
 import type { GenerateResult } from "../types";
 
@@ -50,7 +52,8 @@ export async function invokeCadReshapeUpperConsumer(
   try {
     const consume = consumerOverride ?? defaultConsumeCadReshapeUpper;
     const result = await consume(input);
-    return { invoked: true, ok: true, result };
+    const resliceFeed = cadFeedForReslice(input.handoff, result, input.reslice);
+    return { invoked: true, ok: true, result, resliceFeed };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     return { invoked: true, ok: false, error };

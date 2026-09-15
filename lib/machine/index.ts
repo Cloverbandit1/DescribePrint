@@ -336,6 +336,8 @@ export {
   CAD_RESHAPE_INSTRUCTION,
   buildCadReshapeHandoff,
   buildReslicePlanStub,
+  formatCadUpperStatus,
+  formatResliceFeedStatus,
   isStumpCutPlaneBoundsMm,
   resolveHandoffLayerHeightMm,
   resolveHandoffPreviousCode,

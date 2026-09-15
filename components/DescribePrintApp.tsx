@@ -163,6 +163,17 @@ function cadUpperStatusLine(upper?: { invoked?: boolean; ok?: boolean; error?: s
   return ` CAD refused: ${error}.`;
 }
 
+function resliceFeedStatusLine(reslice?: {
+  sendGcode?: boolean;
+  cad?: { jobId?: string; stlUrl?: string; threemfUrl?: string };
+}): string {
+  if (!reslice) return "";
+  if (reslice.cad?.jobId) {
+    return ` Reslice feed: ${reslice.cad.jobId} (STL/3MF, send gcode off).`;
+  }
+  return reslice.sendGcode === false ? " Reslice stub (send gcode off)." : "";
+}
+
 /** Everyday status only — pipeline jargon stays out of the main view. */
 const FRIENDLY_STEP: Record<PipelineStep, string> = {
   queued: "Starting…",
@@ -1496,6 +1507,7 @@ function ChatBubble({
                 {result.reshape.currentZ != null ? ` above Z ${result.reshape.currentZ.toFixed(2)}` : ""}. Resume is
                 manual.
                 {cadUpperStatusLine(result.reshape.cadUpper)}
+                {resliceFeedStatusLine(result.reshape.reslice)}
               </div>
             ) : null}
           </div>
@@ -2183,6 +2195,7 @@ function MachinePanel({
             : "remaining height unknown"}
           {reshapePlan.currentZ != null ? ` above Z ${reshapePlan.currentZ.toFixed(2)}` : ""}. Resume is manual.
           {cadUpperStatusLine(reshapePlan.cadUpper)}
+          {resliceFeedStatusLine(reshapePlan.reslice)}
         </div>
       ) : reshapeOn ? (
         <div className="mt-1">reshape: stub · resume is manual</div>

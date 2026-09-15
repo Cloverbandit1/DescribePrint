@@ -7,6 +7,7 @@ import {
   emptyReshapePlan,
   formatCadUpperStatus,
   formatEmergencyReshapeMessage,
+  formatResliceFeedStatus,
   resolveHandoffLayerHeightMm,
   resolveHandoffPreviousCode,
   stumpCutPlaneBoundsFromJobStl,
@@ -123,9 +124,7 @@ export function planRemainingLayerReshape(input: ReshapePlannerInput): Remaining
     Number.isFinite(input.totalLayers)
   ) {
     remainingLayers = Math.max(0, input.totalLayers - input.currentLayer);
-    if (remainingHeightMm == null && input.layerHeightMm && Number.isFinite(input.layerHeightMm)) {
-      remainingHeightMm = remainingLayers * input.layerHeightMm;
-    }
+    // Never invent remainingHeightMm from remainingLayers × layerHeightMm.
   }
 
   const currentZ = resolveCurrentZ(input, remainingHeightMm);
@@ -266,16 +265,18 @@ export async function maybeEmergencyReshapeRemaining(opts: {
     stumpCutPlaneBoundsMm,
     layerHeightMm,
   });
-  const reslice = buildReslicePlanStub(after, after.printerId);
+  const resliceStub = buildReslicePlanStub(after, after.printerId);
   const cadUpper = await invokeCadReshapeUpperConsumer({
     handoff: cadHandoff,
     prompt: opts.complaint,
     previousCode,
     previousPrompt: opts.previousPrompt,
     previousJobId: opts.jobId ?? job?.id,
-    reslice,
+    reslice: resliceStub,
   });
+  const reslice = cadUpper.ok && cadUpper.resliceFeed ? cadUpper.resliceFeed : resliceStub;
   const cadStatus = formatCadUpperStatus(cadUpper);
+  const feedStatus = formatResliceFeedStatus(reslice);
   const message = [
     formatEmergencyReshapeMessage({
       paused,
@@ -285,6 +286,7 @@ export async function maybeEmergencyReshapeRemaining(opts: {
       remainingLayers,
     }),
     cadStatus,
+    feedStatus,
   ]
     .filter(Boolean)
     .join(" ");

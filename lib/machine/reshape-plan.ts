@@ -25,8 +25,8 @@ export type StumpCutPlaneBoundsMm = {
 
 /**
  * Typed handoff for Allos CAD Core (Bella).
- * Allos Print Control emits this; CAD Core consumes it later to generate a
- * new OpenSCAD/mesh for the unprinted region only. Do not rewrite geometry here.
+ * Allos Print Control emits this and invokes `runCadReshapeUpper` (or
+ * `POST /api/generate` with `cadHandoff`). Do not rewrite geometry here.
  */
 export type CadReshapeHandoff = {
   owner: "allos-cad-core";
@@ -49,6 +49,18 @@ export type CadReshapeHandoff = {
   layerHeightMm?: number;
 };
 
+/** CAD Core `cadFeedForReslice` attachment — job / mesh URLs only. */
+export type ResliceCadAttachment = {
+  jobId: string;
+  language: "openscad";
+  scadUrl: string;
+  stlUrl: string;
+  threemfUrl: string;
+  remainingHeightMm: number | null;
+  currentZ: number | null;
+  sitOnCutPlane: true;
+};
+
 /** Reslice stub — printer profile + AMS mapping. Never send gcode. */
 export type ReslicePlanStub = {
   kind: "reslice-remaining-stub";
@@ -57,6 +69,8 @@ export type ReslicePlanStub = {
   amsMapping: FilamentPlan;
   sendGcode: false;
   note: string;
+  /** Present after CAD Core attaches the remaining-upper job via `cadFeedForReslice`. */
+  cad?: ResliceCadAttachment;
 };
 
 /** Print Control surfaces this; CAD Core (`runCadReshapeUpper`) owns the mesh. */
@@ -66,6 +80,8 @@ export type CadReshapeUpperOutcome = {
   error?: string;
   /** Existing generate-result shape for the plate / preview path. */
   result?: GenerateResult;
+  /** Reslice stub with CAD job/STL/3MF attached. `sendGcode` stays false. */
+  resliceFeed?: ReslicePlanStub & { cad: ResliceCadAttachment };
 };
 
 export type EmergencyRemainingReshapePlan = {
@@ -282,4 +298,13 @@ export function formatCadUpperStatus(upper?: CadReshapeUpperOutcome): string | u
   if (upper.ok) return "CAD upper is on the plate.";
   const error = (upper.error ?? "unknown error").replace(/\.+$/, "");
   return `CAD refused: ${error}.`;
+}
+
+/** Compact reslice-stub line after `cadFeedForReslice` (or the empty stub on refusal). */
+export function formatResliceFeedStatus(reslice?: ReslicePlanStub): string | undefined {
+  if (!reslice) return undefined;
+  if (reslice.cad) {
+    return `Reslice feed attached (${reslice.cad.jobId}; STL/3MF; send gcode off).`;
+  }
+  return "Reslice stub ready (send gcode off).";
 }

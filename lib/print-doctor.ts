@@ -683,7 +683,7 @@ function buildFixes(
         steps: [
           "Pause the live job.",
           "Hand remaining height H and current Z to CAD Core — redesign unprinted upper above Z.",
-          "CAD Core emits the remaining upper (or a clear refusal). Reslice stub stays sendGcode: false.",
+          "CAD Core emits the remaining upper (or a clear refusal). cadFeedForReslice attaches jobId/STL/3MF onto the reslice stub (sendGcode: false).",
           "Resume is manual.",
         ],
       };

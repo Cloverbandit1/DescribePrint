@@ -19,7 +19,7 @@ The Print column shows a compact **Machine** panel. Everyday path: toggle **LAN 
 
 ## What this slice does not ship
 
-- Bambu Cloud, a real camera stream, send-to-printer FTPS, or remaining-layer CAD mesh generation (Print Control emits a CAD-handoff plan only)
+- Bambu Cloud, a real camera stream, send-to-printer FTPS, or remaining-layer CAD internals (Print Control invokes `runCadReshapeUpper` / `POST /api/generate` with `cadHandoff`; it does not rewrite CAD)
 - Changes to Ollama host/port or Agent Smith models
 - M1 Desktop Pack files (`Start-DescribePrint.cmd`, `scripts/windows/`, `packaging/windows/`, `/api/health`, OpenSCAD path discovery)
 
@@ -48,7 +48,7 @@ MachineAdapter (interface)
         remaining-layer reshape stub (RESHAPE_REMAINING, default OFF)
                  │
                  ▼
-        pause → CAD-handoff plan → reslice stub (never resume)
+        pause → CAD-handoff → runCadReshapeUpper → cadFeedForReslice → reslice stub (never resume)
 ```
 
 ### Pluggable adapter
@@ -251,9 +251,9 @@ When **on**:
 1. Safe **pause** the live adapter (or record pause-needed on a disconnected mock). **Never resume.**
 2. Read live layer / height remaining. The mock can `injectRemainingHeight({ layer, totalLayers, remainingHeightMm })`.
 3. Emit a reshape **plan**: remaining height H, current Z, pause confirmed, “redesign unprinted upper above Z”.
-4. Include a typed **CAD Core handoff** ([`lib/machine/reshape-plan.ts`](../lib/machine/reshape-plan.ts) — `CadReshapeHandoff`) and a **reslice stub** (P2S profile, AMS mapping, `sendGcode: false`).
-5. **Invoke CAD Core’s existing remaining-upper consumer** (`runCadReshapeUpper` / generate `cadHandoff` early-return). Print Control does not rewrite OpenSCAD. A refusal (for example missing `remainingHeightMm`) is shown as a clear error.
-6. Show the new upper on the existing generate plate / preview path when CAD succeeds. Compact plan in chat + Machine panel includes whether CAD succeeded. **Resume is manual.**
+4. Include a typed **CAD Core handoff** ([`lib/machine/reshape-plan.ts`](../lib/machine/reshape-plan.ts) — `CadReshapeHandoff`) and a **reslice stub** (P2S profile, AMS mapping, `sendGcode: false`). Fill optional `previousCode` / `stumpCutPlaneBoundsMm` / `layerHeightMm` when known; omit when unknown.
+5. **Invoke CAD Core’s existing remaining-upper consumer** (`runCadReshapeUpper` / generate `cadHandoff` early-return). Print Control does not rewrite OpenSCAD. A refusal (for example missing `remainingHeightMm`) is shown as a clear error. Never invent `remainingHeightMm` from `remainingLayers`.
+6. On success, `cadFeedForReslice` attaches `jobId` / STL / 3MF onto that stub (`sendGcode` stays `false`). Show the new upper on the existing generate plate / preview path. Compact plan in chat + Machine panel includes whether CAD succeeded and whether the feed attached. **Resume is manual.**
 
 When **off**, Print doctor may still mention reshape as a later option (spaghetti / layer-shift / the reshape phrase). It must **not** pause, call CAD, or emit a live plan (`remainingHeightMm` / `currentZ` / CAD handoff stay empty).
 

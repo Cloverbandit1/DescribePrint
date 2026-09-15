@@ -1,6 +1,6 @@
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
-import { checkMesh, countSolidComponents, signedVolumeMm3 } from "@/lib/mesh-check";
+import { checkMesh, countSolidComponents, signedVolumeMm3, splitSolidComponents } from "@/lib/mesh-check";
 import { makeAxisAlignedBoxMesh, parseStl, writeBinaryStl } from "@/lib/stl";
 import { meshTo3mf } from "@/lib/threemf";
 
@@ -101,6 +101,7 @@ describe("mesh-check", () => {
       true,
     );
     expect(countSolidComponents(makeAxisAlignedBoxMesh([10, 10, 10]))).toBe(1);
+    expect(splitSolidComponents(mesh)).toHaveLength(2);
   });
 
   it("writes a 3MF zip with millimeter units", async () => {

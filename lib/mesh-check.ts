@@ -60,6 +60,8 @@ function edgeKey(a: number, b: number): string {
 
 type WeldedMesh = {
   triangles: [number, number, number][];
+  /** Parallel to `triangles` — source index in the input mesh. */
+  sources: number[];
   edges: Map<string, number[]>;
 };
 
@@ -80,15 +82,18 @@ function weldMesh(mesh: Mesh): WeldedMesh {
   };
 
   const triangles: [number, number, number][] = [];
+  const sources: number[] = [];
   const edges = new Map<string, number[]>();
 
-  for (const tri of mesh.triangles) {
+  for (let source = 0; source < mesh.triangles.length; source++) {
+    const tri = mesh.triangles[source]!;
     const i0 = indexOf(tri.vertices[0]);
     const i1 = indexOf(tri.vertices[1]);
     const i2 = indexOf(tri.vertices[2]);
     if (i0 === i1 || i1 === i2 || i2 === i0) continue;
     const local = triangles.length;
     triangles.push([i0, i1, i2]);
+    sources.push(source);
     for (const key of [edgeKey(i0, i1), edgeKey(i1, i2), edgeKey(i2, i0)]) {
       const list = edges.get(key);
       if (list) list.push(local);
@@ -96,7 +101,32 @@ function weldMesh(mesh: Mesh): WeldedMesh {
     }
   }
 
-  return { triangles, edges };
+  return { triangles, sources, edges };
+}
+
+function connectedComponentRoots(welded: WeldedMesh): number[] {
+  const n = welded.triangles.length;
+  const parent = Array.from({ length: n }, (_, i) => i);
+  const find = (i: number): number => {
+    while (parent[i] !== i) {
+      parent[i] = parent[parent[i]];
+      i = parent[i];
+    }
+    return i;
+  };
+  const union = (a: number, b: number) => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent[rb] = ra;
+  };
+
+  for (const tris of welded.edges.values()) {
+    for (let i = 1; i < tris.length; i++) {
+      union(tris[0]!, tris[i]!);
+    }
+  }
+
+  return parent.map((_, i) => find(i));
 }
 
 /**
@@ -120,32 +150,35 @@ export function isEdgeManifold(mesh: Mesh): boolean {
 export function countSolidComponents(mesh: Mesh): number {
   if (mesh.triangles.length === 0) return 0;
   const welded = weldMesh(mesh);
-  const n = welded.triangles.length;
-  if (n === 0) return 0;
+  if (welded.triangles.length === 0) return 0;
+  return new Set(connectedComponentRoots(welded)).size;
+}
 
-  const parent = Array.from({ length: n }, (_, i) => i);
-  const find = (i: number): number => {
-    while (parent[i] !== i) {
-      parent[i] = parent[parent[i]];
-      i = parent[i];
-    }
-    return i;
-  };
-  const union = (a: number, b: number) => {
-    const ra = find(a);
-    const rb = find(b);
-    if (ra !== rb) parent[rb] = ra;
-  };
-
-  for (const tris of welded.edges.values()) {
-    for (let i = 1; i < tris.length; i++) {
-      union(tris[0], tris[i]);
+/**
+ * Split a mesh into edge-connected solids (same islands `countSolidComponents` counts).
+ * Order is stable: first-seen triangle, then remaining islands by volume descending.
+ */
+export function splitSolidComponents(mesh: Mesh): Mesh[] {
+  if (mesh.triangles.length === 0) return [];
+  const welded = weldMesh(mesh);
+  if (welded.triangles.length === 0) return [];
+  const roots = connectedComponentRoots(welded);
+  const groups = new Map<number, Mesh["triangles"]>();
+  const order: number[] = [];
+  for (let i = 0; i < roots.length; i++) {
+    const root = roots[i]!;
+    const source = mesh.triangles[welded.sources[i]!]!;
+    const list = groups.get(root);
+    if (list) {
+      list.push(source);
+    } else {
+      groups.set(root, [source]);
+      order.push(root);
     }
   }
-
-  const roots = new Set<number>();
-  for (let i = 0; i < n; i++) roots.add(find(i));
-  return roots.size;
+  return order
+    .map((root) => ({ triangles: groups.get(root) ?? [] }))
+    .filter((part) => part.triangles.length > 0);
 }
 
 export function checkMesh(mesh: Mesh, printer: PrinterProfile = defaultPrinter()): PrintabilityReport {

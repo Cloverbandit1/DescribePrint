@@ -283,35 +283,72 @@ describe("generate pipeline (local AI + fixtures)", () => {
     expect(result.editMode).toBe("describe-wrapper");
     expect(result.code).toMatch(/import\("imported\.stl"/);
     expect(result.code).toMatch(/hole_d = 8/);
+    expect(result.code).toMatch(/difference\(\)/);
+    expect(result.code).toMatch(/cylinder\(h = 12, d = hole_d\)/);
+    expect(result.notes.join(" ")).toMatch(/through-hole/i);
     expect(mockedChat).not.toHaveBeenCalled();
     expect(mockedCompile).toHaveBeenCalled();
     const compiledCode = mockedCompile.mock.calls[0]?.[0] as string;
     expect(compiledCode).toMatch(/import\("imported\.stl"/);
+    expect(compiledCode.indexOf("import")).toBeLessThan(compiledCode.indexOf("cylinder"));
   });
 
-  it("asks the live model for an imported-mesh wrapper, not a from-scratch part", async () => {
+  it("uses the engineering wrap for a simple live hole without calling the model", async () => {
     await withEnv({ SMART_PIPELINE: "0" }, async () => {
-      mockedChat.mockResolvedValue(
-        'difference() { import("imported.stl", convexity = 10); cylinder(h=12, d=8); }',
-      );
+      mockedCompile.mockResolvedValue(compileOk());
+      const imported = await runImportPipeline({
+        buffer: writeBinaryStl(makeAxisAlignedBoxMesh([20, 20, 20])),
+        fileName: "cube.stl",
+      });
+      const result = await runGeneratePipeline({
+        prompt: "add an 8 mm hole through the center",
+        previousJobId: imported.jobId,
+        previousSource: "imported-mesh",
+        previousPrompt: "Imported cube.stl",
+      });
+      expect(mockedChat).not.toHaveBeenCalled();
+      expect(result.code).toMatch(/difference\(\)/);
+      expect(result.code).toMatch(/hole_d = 8/);
+      expect(result.code).toMatch(/import\("imported\.stl"/);
+    });
+  });
+
+  it("asks the live model for a complex imported-mesh wrap and repairs without starting over", async () => {
+    await withEnv({ SMART_PIPELINE: "0" }, async () => {
+      mockedChat
+        .mockResolvedValueOnce("cube(20);")
+        .mockResolvedValueOnce(
+          'difference() { import("imported.stl", convexity = 10); cylinder(h=12, d=8); }',
+        );
       mockedCompile.mockResolvedValue(compileOk());
       const imported = await runImportPipeline({
         buffer: writeBinaryStl(makeAxisAlignedBoxMesh([40, 20, 10])),
         fileName: "part.stl",
       });
-      await runGeneratePipeline({
-        prompt: "add an 8mm hole",
-        previousJobId: imported.jobId,
-        previousSource: "imported-mesh",
-        previousPrompt: "Imported part.stl",
-      });
-      expect(mockedChat).toHaveBeenCalledTimes(1);
-      const [messages] = mockedChat.mock.calls[0] as unknown as [{ role: string; content: string }[]];
-      expect(messages[0]?.content).toMatch(/imported triangle mesh/i);
-      expect(messages[0]?.content).toMatch(/import\("imported\.stl"/);
-      expect(messages[0]?.content).not.toMatch(/minicpm5|smith-/i);
-      expect(messages[1]?.content).toMatch(/Host solid MUST/i);
-      expect(messages[1]?.content).toContain("40.00");
+      const events: StatusEvent[] = [];
+      await runGeneratePipeline(
+        {
+          prompt: "fillet the edges and add an 8mm hole",
+          previousJobId: imported.jobId,
+          previousSource: "imported-mesh",
+          previousPrompt: "Imported part.stl",
+        },
+        (event) => events.push(event),
+      );
+      expect(mockedChat).toHaveBeenCalledTimes(2);
+      const [first] = mockedChat.mock.calls[0] as unknown as [{ role: string; content: string }[]];
+      expect(first[0]?.content).toMatch(/imported triangle mesh/i);
+      expect(first[0]?.content).toMatch(/import\("imported\.stl"/);
+      expect(first[0]?.content).not.toMatch(/minicpm5|smith-/i);
+      expect(first[1]?.content).toMatch(/Host solid MUST/i);
+      expect(first[1]?.content).toContain("40.00");
+      expect(first[1]?.content).toMatch(/Hole spec/i);
+
+      const [retry] = mockedChat.mock.calls[1] as unknown as [{ role: string; content: string }[]];
+      expect(retry[1]?.content).toMatch(/must keep import/i);
+      expect(retry[1]?.content).toMatch(/do not start over/i);
+      expect(retry[1]?.content).not.toMatch(/rebuild with cube\/cylinder\/sphere/i);
+      expect(events.some((e) => e.step === "retry")).toBe(true);
     });
   });
 });

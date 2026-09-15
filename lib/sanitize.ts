@@ -78,7 +78,12 @@ export function sanitizeOpenScad(raw: string, options: SanitizeOptions = {}): Sa
     errors.push('Only import("imported.stl") is allowed for imported-mesh edits');
   }
 
-  const hasSolid = HAS_SOLID.test(code) || (allowImported && ALLOWED_IMPORTED_MESH_CALL.test(code));
+  const hasImportedHost = allowImported && ALLOWED_IMPORTED_MESH_CALL.test(code);
+  if (allowImported && !hasImportedHost) {
+    errors.push('Imported-mesh edits must keep import("imported.stl") as the host solid');
+  }
+
+  const hasSolid = HAS_SOLID.test(code) || hasImportedHost;
   if (!hasSolid) {
     errors.push("Code does not contain a recognized OpenSCAD solid primitive");
   }

@@ -67,6 +67,12 @@ describe("sanitizeOpenScad", () => {
 
     const otherFile = sanitizeOpenScad('import("evil.stl"); cube(1);', { allowImportedMesh: true });
     expect(otherFile.ok).toBe(false);
+
+    const fromScratch = sanitizeOpenScad("cube(20);", { allowImportedMesh: true });
+    expect(fromScratch.ok).toBe(false);
+    if (!fromScratch.ok) {
+      expect(fromScratch.errors.join(" ")).toMatch(/imported\.stl/i);
+    }
   });
 
   it("rejects oversized payloads", () => {

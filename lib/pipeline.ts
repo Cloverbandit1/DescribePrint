@@ -25,6 +25,14 @@ import {
   type CadPlan,
   type ImportedMeshContext,
 } from "./llm";
+import {
+  buildImportedMeshWrapper,
+  canBuildDeterministicImportWrap,
+  formatHoleSpecForPrompt,
+  importedWrapErrors,
+  parseImportHoleSpec,
+  type ImportHoleSpec,
+} from "./import-hole";
 import { parseMeshEditIntent, type MeshEditIntent } from "./mesh-edit";
 import { rotateMeshZ, scaleMeshToMaxMm, scaleMeshUniform, sitMeshOnBed } from "./mesh-transform";
 import { formatPrintabilityFeedback, shouldRetryPrintability, wantsNewDesign } from "./printability";
@@ -134,6 +142,7 @@ async function codeFromLlm(
   previous?: { code: string; error: string },
   plan?: CadPlan | null,
   imported?: ImportedMeshContext,
+  wrapHint?: { holeSpecNote?: string; suggestedWrap?: string },
 ): Promise<string> {
   const sizeNote = requestSizeNote(request);
   try {
@@ -149,6 +158,8 @@ async function codeFromLlm(
           previousPrompt: request.previousPrompt ?? undefined,
           plan: imported ? undefined : plan,
           importedMesh: imported,
+          holeSpecNote: wrapHint?.holeSpecNote,
+          suggestedWrap: wrapHint?.suggestedWrap,
         }),
       },
     ]);
@@ -171,53 +182,18 @@ function codeFromFixture(request: GenerateRequest): { code: string; usedFixture:
   return { code: match.code, usedFixture: true };
 }
 
-function heuristicImportedWrapper(intent: MeshEditIntent, mesh: Mesh): string {
-  const report = checkMesh(mesh);
-  const [sx, sy, sz] = report.boundingBoxMm.size;
-  const [minx, miny] = report.boundingBoxMm.min;
-  const cx = minx + sx / 2;
-  const cy = miny + sy / 2;
-  const hole = intent.holeMm && intent.holeMm > 0 ? intent.holeMm : 5;
-  const lines = [
-    "// DescribePrint imported-mesh wrapper (mm)",
-    "$fn = 64;",
-    `hole_d = ${hole};`,
-    `tab_w = 12;`,
-    `tab_d = 16;`,
-    `tab_h = 3;`,
-  ];
-
-  if (intent.addTab && intent.holeMm) {
-    lines.push(`union() {
-  difference() {
-    import("${IMPORTED_MESH_FILENAME}", convexity = 10);
-    translate([${cx.toFixed(3)}, ${cy.toFixed(3)}, -1])
-      cylinder(h = ${sz + 2}, d = hole_d);
-  }
-  translate([${(minx + sx).toFixed(3)}, ${(cy - 8).toFixed(3)}, 0])
-    cube([tab_w, tab_d, tab_h]);
-}`);
-  } else if (intent.addTab) {
-    lines.push(`union() {
-  import("${IMPORTED_MESH_FILENAME}", convexity = 10);
-  translate([${(minx + sx).toFixed(3)}, ${(cy - 8).toFixed(3)}, 0])
-    cube([tab_w, tab_d, tab_h]);
-}`);
-  } else if (intent.holeMm) {
-    lines.push(`difference() {
-  import("${IMPORTED_MESH_FILENAME}", convexity = 10);
-  translate([${cx.toFixed(3)}, ${cy.toFixed(3)}, -1])
-    cylinder(h = ${sz + 2}, d = hole_d);
-}`);
-  } else {
-    lines.push(`import("${IMPORTED_MESH_FILENAME}", convexity = 10);`);
-  }
-  return lines.join("\n");
+function importedWrapHint(hole: ImportHoleSpec | null, mesh: Mesh, addTab: boolean) {
+  const box = checkMesh(mesh).boundingBoxMm;
+  return {
+    holeSpecNote: hole ? formatHoleSpecForPrompt(hole, box) : undefined,
+    suggestedWrap: hole || addTab ? buildImportedMeshWrapper({ mesh, hole, addTab }) : undefined,
+  };
 }
 
 async function compileAndCheck(
   code: string,
   importedStl?: Buffer,
+  opts: { sitOnBed?: boolean } = {},
 ): Promise<{
   stl: Buffer;
   threemf: Buffer;
@@ -228,7 +204,10 @@ async function compileAndCheck(
       await writeFile(path.join(dir, IMPORTED_MESH_FILENAME), importedStl);
     }
     const compiled = await compileOpenScad(code, dir);
-    const mesh = parseStl(compiled.stl);
+    let mesh = parseStl(compiled.stl);
+    if (opts.sitOnBed) {
+      mesh = sitMeshOnBed(mesh);
+    }
     const report = checkMesh(mesh);
     if (hasHardMeshFailure(report)) {
       const summary = report.issues
@@ -237,8 +216,9 @@ async function compileAndCheck(
         .join("; ");
       throw new Error(`Mesh check failed: ${summary}`);
     }
+    const stl = opts.sitOnBed ? writeBinaryStl(mesh, "DescribePrint") : compiled.stl;
     const threemf = await meshTo3mf(mesh, "DescribePrint");
-    return { stl: compiled.stl, threemf, report };
+    return { stl, threemf, report };
   });
 }
 
@@ -403,15 +383,24 @@ async function runImportedMeshEdit(
   const useFixture = shouldUseFixture(request.fixture);
   const importedStl = writeBinaryStl(mesh, fileName);
   const importedCtx = meshContext(mesh, fileName);
-  let retried = false;
-  let lastCode = useFixture
-    ? heuristicImportedWrapper(intent, mesh)
-    : await codeFromLlm({ ...request, prompt }, undefined, null, importedCtx);
+  const box = importedCtx;
+  const hole = parseImportHoleSpec(prompt, {
+    min: box.minMm,
+    max: box.maxMm,
+    size: box.sizeMm,
+  }, intent.holeMm);
+  const deterministic = canBuildDeterministicImportWrap(prompt, hole, intent.addTab);
+  const wrapHint = importedWrapHint(hole, mesh, intent.addTab);
+  const engineered = wrapHint.suggestedWrap ?? buildImportedMeshWrapper({ mesh, hole, addTab: intent.addTab });
+  if (hole) notes.push(...hole.notes);
 
-  if (useFixture) {
-    emit(sink, { step: "codegen", message: "Using a fixture wrapper around the imported mesh…" });
+  let retried = false;
+  let lastCode = engineered;
+  if (useFixture || deterministic) {
+    emit(sink, { step: "codegen", message: "Using an engineering difference() wrap around the imported mesh…" });
   } else {
     emit(sink, { step: "codegen", message: "Asking local AI to wrap the imported mesh…" });
+    lastCode = await codeFromLlm({ ...request, prompt }, undefined, null, importedCtx, wrapHint);
   }
 
   const attempt = async (source: string, attemptNo: number) => {
@@ -420,10 +409,14 @@ async function runImportedMeshEdit(
     if (!sanitized.ok) {
       throw new Error(sanitized.errors.join("; "));
     }
+    const wrapErrors = importedWrapErrors(sanitized.code, { requireHoleDifference: Boolean(hole) });
+    if (wrapErrors.length) {
+      throw new Error(wrapErrors.join("; "));
+    }
     emit(sink, { step: "compile", message: "Compiling OpenSCAD wrapper → STL…", attempt: attemptNo });
     emit(sink, { step: "mesh-check", message: "Checking mesh printability…", attempt: attemptNo });
     emit(sink, { step: "export", message: "Writing STL and 3MF…", attempt: attemptNo });
-    const compiled = await compileAndCheck(sanitized.code, importedStl);
+    const compiled = await compileAndCheck(sanitized.code, importedStl, { sitOnBed: true });
     return { code: sanitized.code, ...compiled };
   };
 
@@ -433,8 +426,9 @@ async function runImportedMeshEdit(
       artifacts = await attempt(lastCode, attemptNo);
       if (
         !useFixture &&
+        !deterministic &&
         attemptNo < MAX_COMPILE_ATTEMPTS &&
-        shouldRetryPrintability(artifacts.report)
+        shouldRetryPrintability(artifacts.report, undefined, { importedWrap: true })
       ) {
         retried = true;
         const feedback = formatPrintabilityFeedback(artifacts.report);
@@ -443,7 +437,13 @@ async function runImportedMeshEdit(
           message: `Printability issues — retrying wrapper (${attemptNo + 1}/${MAX_COMPILE_ATTEMPTS})…`,
           attempt: attemptNo + 1,
         });
-        lastCode = await codeFromLlm(request, { code: artifacts.code, error: feedback }, null, importedCtx);
+        lastCode = await codeFromLlm(
+          request,
+          { code: artifacts.code, error: feedback },
+          null,
+          importedCtx,
+          wrapHint,
+        );
         continue;
       }
       break;
@@ -452,13 +452,21 @@ async function runImportedMeshEdit(
       if (useFixture || attemptNo === MAX_COMPILE_ATTEMPTS) {
         throw err;
       }
+      if (deterministic && /must keep import|inverted|floating cylinder|must difference/i.test(message)) {
+        lastCode = engineered;
+        if (attemptNo === 1) {
+          retried = true;
+          continue;
+        }
+        throw err;
+      }
       retried = true;
       emit(sink, {
         step: "retry",
         message: `Compile failed — retrying wrapper (${attemptNo + 1}/${MAX_COMPILE_ATTEMPTS})…`,
         attempt: attemptNo + 1,
       });
-      lastCode = await codeFromLlm(request, { code: lastCode, error: message }, null, importedCtx);
+      lastCode = await codeFromLlm(request, { code: lastCode, error: message }, null, importedCtx, wrapHint);
     }
   }
 

@@ -24,6 +24,10 @@ describe("imported-mesh edit intent", () => {
     expect(hole.kind).toBe("describe-wrapper");
     expect(hole.holeMm).toBe(8);
     expect(hole.notes.join(" ")).toMatch(/partial/i);
+
+    const tab = parseMeshEditIntent("add a mounting tab");
+    expect(tab.kind).toBe("describe-wrapper");
+    expect(tab.addTab).toBe(true);
   });
 
   it("starts over when the user wants a new part", () => {

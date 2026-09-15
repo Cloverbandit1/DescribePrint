@@ -114,7 +114,8 @@ export type Mesh = {
  * - Wearable S/M/L/XL measurement charts that scale the current mesh
  * - Describe-to-edit on imported meshes: real triangle scale/rotate/sit-on-bed;
  *   generative adds (holes, tabs) wrap import("imported.stl") in OpenSCAD.
- *   Full triangle sculpt / Style2Fab is not implemented.
+ *   Holes difference the import (through by default). Full triangle sculpt /
+ *   Style2Fab is not implemented.
  *
  * Still later:
  * - describe-to-modify already sends previousPrompt/previousCode on CAD follow-ups

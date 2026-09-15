@@ -408,7 +408,7 @@ Pick **snap**, **press**, **sliding/loose**, **wearable**, or **hinge**. Grades 
 
 Snap M and hinge S/L reuse `joints.ts`. Sliding M/L reuse hinge PIP / multi-part. Press L matches `printRules.clearanceMm`. Verify with `20mm cube with press-fit 8mm pin hole` (`hole_d = 8.4` at Medium PLA) or `press-fit 8mm pin, 0.25 mm clearance` (explicit override). Mid-design chips ask kind when the prompt is “which fit?”, and grade when a kind is named without S/M/L.
 
-**Remaining stubs:** not ISO / GD&T tolerance classes, not a measured first-article loop, not material-shrinkage compensation beyond the small filament delta. Part library + remix is a separate localStorage stub (`lib/part-library.ts`).
+**Remaining stubs:** not ISO / GD&T tolerance classes, not a measured first-article loop, not material-shrinkage compensation beyond the small filament delta, not a part library (that comes after).
 
 ## M2 foundations (import + size + imported-mesh edit)
 

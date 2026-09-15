@@ -14,7 +14,6 @@
 import { useSyncExternalStore } from "react";
 import type { AppliedDesignChoice } from "./design-options";
 import { defaultColorRegion } from "./color-regions";
-import { inferFitKind } from "./fits";
 import { promptHasPrettyUp } from "./pretty-up";
 import { printPresetSummary } from "./printers";
 import type {
@@ -356,6 +355,9 @@ const SCALE_RE =
   /\b(?:make (?:it|this|the \w+) )?(?:\d+(?:\.\d+)?\s*%|\d+(?:\.\d+)?\s+percent)\s+(?:larger|smaller|bigger|scale)|(?:scale|enlarge|shrink)(?:\s+(?:it|this|the \w+))?(?:\s+by)?\s+\d+(?:\.\d+)?\s*%|\b(?:10|5|20)\s*%\s+(?:larger|bigger|smaller)\b|\bmake (?:it|this) (?:10% )?larger\b/i;
 const DIM_RE =
   /\b(?:make|change|set|widen|narrow)\s+(?:the\s+)?(?:hole|bore|pin|width|height|depth|length|wall|gap|slot)\b|\bhole\s+\d+(?:\.\d+)?\s*mm\b|\b\d+(?:\.\d+)?\s*mm\s+hole\b/i;
+/** Local remix classifier only — do not import lib/fits.ts (fit-wizard #59). */
+const FIT_RE =
+  /\bpress(?:\s|-)?fit\b|\bsnap(?:\s|-)?fit\b|\b(?:sliding|loose|wearable|hinge)\s+fit\b|\btight\s+fit\b|\binterference\s+fit\b|\bfriction\s+fit\b/i;
 
 export function classifyRemixIntent(text: string): RemixKind {
   const prompt = text.trim();
@@ -363,7 +365,7 @@ export function classifyRemixIntent(text: string): RemixKind {
   if (parseWearableSizeFromPrompt(prompt) || /\b(?:make it )?size\s+[smlx]{1,2}\b/i.test(prompt)) {
     return "size";
   }
-  if (inferFitKind(prompt)) return "fit";
+  if (FIT_RE.test(prompt)) return "fit";
   if (promptHasPrettyUp(prompt)) return "pretty-up";
   if (SCALE_RE.test(prompt)) return "scale";
   if (DIM_RE.test(prompt)) return "dimension";

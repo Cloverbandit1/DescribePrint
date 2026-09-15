@@ -81,6 +81,9 @@ export type Mesh = {
  * - describe-to-modify: follow-up "make the hole 8mm" using previous SCAD as context
  * - Style2Fab-style edit: stylize a mesh while preserving functional regions
  * - organic mesh: swap the OpenSCAD backend for a neural / implicit surface generator
+ *
+ * Product roadmap after V0 (README; do not implement here):
+ * 1. wearable/cosplay sizing  2. raised etchings/emboss  3. articulated assemblies
  */
 export type FutureEditMode =
   | "create"

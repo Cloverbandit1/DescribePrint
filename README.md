@@ -91,6 +91,14 @@ Covers code sanitization and the mesh-check / STL / 3MF path. If OpenSCAD is ins
 
 Style2Fab, neural organic mesh, FEA / MechStyle, multi-agent CAD, slicer integration.
 
+## Roadmap after V0
+
+Priority order from the product owner (not in V0):
+
+1. **Wearable / cosplay sizing** — S/M/L/XL plus measurement charts; auto-scale the model; show the assumed size.
+2. **Raised etchings / emboss** — from a description (and later images) that print as visible relief.
+3. **Articulated / functional assemblies** — real joints with print clearances, multi-part export, and material-aware thickness/strength so moving parts (e.g. robot arms) don’t break.
+
 ## Extension points (later)
 
 - **Describe-to-modify** — send the previous OpenSCAD plus “make the hole 8 mm”.

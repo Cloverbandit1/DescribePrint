@@ -1,7 +1,9 @@
 import type { MachineDesignation } from "./alternate-machines";
 import type { ColorRegion } from "./color-regions";
+import type { CadReshapeHandoff } from "./machine/reshape-plan";
 
 export type { ColorRegion, MachineDesignation };
+export type { CadReshapeHandoff };
 
 export type ImageRasterFormat = "png" | "jpeg" | "webp";
 
@@ -25,7 +27,7 @@ export type WearableSizeId = "S" | "M" | "L" | "XL";
 
 export type WearableCategoryId = "helmet_mask" | "torso_armor" | "gauntlet" | "bracer";
 
-export type PlateEditMode = "create" | "import" | "image-import" | "transform" | "describe-wrapper";
+export type PlateEditMode = "create" | "import" | "image-import" | "transform" | "describe-wrapper" | "reshape-upper";
 
 export type GenerateRequest = {
   prompt: string;
@@ -45,6 +47,8 @@ export type GenerateRequest = {
   wearableSize?: WearableSizeId | null;
   /** Wearable category chart (helmet, torso, gauntlet, bracer). */
   wearableCategory?: WearableCategoryId | null;
+  /** Print Control emergency-reshape handoff. When set, CAD generates the unprinted upper only. */
+  cadHandoff?: CadReshapeHandoff | null;
 };
 
 export type PipelineStep =

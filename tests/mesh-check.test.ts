@@ -1,6 +1,6 @@
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
-import { checkMesh, signedVolumeMm3 } from "@/lib/mesh-check";
+import { checkMesh, countSolidComponents, signedVolumeMm3 } from "@/lib/mesh-check";
 import { makeAxisAlignedBoxMesh, parseStl, writeBinaryStl } from "@/lib/stl";
 import { meshTo3mf } from "@/lib/threemf";
 
@@ -15,6 +15,7 @@ describe("mesh-check", () => {
     expect(report.manifold).toBe(true);
     expect(report.watertight).toBe(true);
     expect(report.issues.filter((i) => i.severity === "error")).toHaveLength(0);
+    expect(report.issues).toHaveLength(0);
   });
 
   it("round-trips binary STL and still measures volume", () => {
@@ -69,6 +70,37 @@ describe("mesh-check", () => {
     const triangles = Array.from({ length: 250_000 }, () => cube.triangles[0]);
     const report = checkMesh({ triangles });
     expect(report.issues.some((i) => i.code === "huge-triangles")).toBe(true);
+  });
+
+  it("flags a part larger than the P2S 256 mm bed", () => {
+    const report = checkMesh(makeAxisAlignedBoxMesh([300, 40, 20]));
+    const oversized = report.issues.find((i) => i.code === "oversized");
+    expect(oversized?.severity).toBe("warning");
+    expect(oversized?.message).toMatch(/256/);
+    expect(oversized?.message).toMatch(/300/);
+  });
+
+  it("flags thin walls relative to the 0.4 mm nozzle", () => {
+    const report = checkMesh(makeAxisAlignedBoxMesh([30, 20, 1.2]));
+    expect(report.issues.some((i) => i.code === "thin-wall" && /1\.6 mm/.test(i.message))).toBe(true);
+    expect(report.issues.some((i) => i.code === "undersized")).toBe(false);
+  });
+
+  it("flags a solid that does not sit on the build plate", () => {
+    const report = checkMesh(makeAxisAlignedBoxMesh([10, 10, 10], [0, 0, 8]));
+    expect(report.issues.some((i) => i.code === "off-bed" && /8\.0 mm/.test(i.message))).toBe(true);
+  });
+
+  it("flags disconnected solids as floating islands", () => {
+    const a = makeAxisAlignedBoxMesh([10, 10, 10], [0, 0, 0]);
+    const b = makeAxisAlignedBoxMesh([10, 10, 10], [40, 0, 0]);
+    const mesh = { triangles: [...a.triangles, ...b.triangles] };
+    expect(countSolidComponents(mesh)).toBe(2);
+    const report = checkMesh(mesh);
+    expect(report.issues.some((i) => i.code === "disconnected" && /2 disconnected/.test(i.message))).toBe(
+      true,
+    );
+    expect(countSolidComponents(makeAxisAlignedBoxMesh([10, 10, 10]))).toBe(1);
   });
 
   it("writes a 3MF zip with millimeter units", async () => {

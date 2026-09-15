@@ -53,12 +53,30 @@ const PLAN_JSON = JSON.stringify({
   sit_on_z0: true,
 });
 
+const WEAK_PLAN_JSON = JSON.stringify({
+  object: "tray",
+  one_piece: false,
+  units: "mm",
+  overall_mm: { x: 400, y: 400, z: 8 },
+  features: [{ name: "wall", kind: "shell", dims_mm: { wall: 0.4 } }],
+  holes: [{ d: 1, purpose: "pilot" }],
+  min_wall_mm: 0.4,
+  clearance_mm: 0.3,
+  sit_on_z0: false,
+});
+
 const GOOD_SCAD = `$fn = 64;
 cube(20);
 `;
 
 function validStl() {
   return writeBinaryStl(makeAxisAlignedBoxMesh([20, 20, 20]));
+}
+
+function disconnectedStl() {
+  const a = makeAxisAlignedBoxMesh([10, 10, 10], [0, 0, 0]);
+  const b = makeAxisAlignedBoxMesh([10, 10, 10], [40, 0, 0]);
+  return writeBinaryStl({ triangles: [...a.triangles, ...b.triangles] });
 }
 
 function compileOk() {
@@ -132,6 +150,21 @@ describe("generate pipeline (local AI + fixtures)", () => {
     });
   });
 
+  it("normalizes a weak plan to one-piece printable dims before codegen", async () => {
+    await withEnv({ SMART_PIPELINE: "1" }, async () => {
+      mockedChat.mockResolvedValueOnce(WEAK_PLAN_JSON).mockResolvedValueOnce(GOOD_SCAD);
+      mockedCompile.mockResolvedValue(compileOk());
+      await runGeneratePipeline({ prompt: "a sturdy tray" });
+      const [codeMessages] = mockedChat.mock.calls[1] as unknown as [{ role: string; content: string }[]];
+      const user = codeMessages[1]?.content ?? "";
+      expect(user).toContain("Design plan");
+      expect(user).toMatch(/"one_piece":true/);
+      expect(user).toMatch(/"min_wall_mm":1\.6/);
+      expect(user).not.toMatch(/"wall":0\.4/);
+      expect(user).toMatch(/"d":2\.5/);
+    });
+  });
+
   it("falls back to single codegen when the plan JSON is unusable", async () => {
     await withEnv({ SMART_PIPELINE: "1" }, async () => {
       mockedChat.mockResolvedValueOnce("I refuse to plan this").mockResolvedValueOnce(GOOD_SCAD);
@@ -189,6 +222,31 @@ describe("generate pipeline (local AI + fixtures)", () => {
       expect(retry2[1]?.content).toMatch(/closed solid/i);
       expect(events.filter((e) => e.step === "retry")).toHaveLength(2);
       expect(events.some((e) => e.step === "retry" && e.attempt === 3)).toBe(true);
+    });
+  });
+
+  it("retries when the mesh is disconnected even if compile succeeded", async () => {
+    await withEnv({ SMART_PIPELINE: "0" }, async () => {
+      mockedChat.mockResolvedValueOnce("cube(20);").mockResolvedValueOnce(GOOD_SCAD);
+      mockedCompile
+        .mockResolvedValueOnce({
+          stl: disconnectedStl(),
+          stderr: "",
+          stdout: "",
+          workDir: "/tmp/describeprint-test",
+        })
+        .mockResolvedValue(compileOk());
+
+      const events: StatusEvent[] = [];
+      const result = await runGeneratePipeline({ prompt: "20mm cube with 5mm hole" }, (event) =>
+        events.push(event),
+      );
+      expect(result.retried).toBe(true);
+      expect(mockedChat).toHaveBeenCalledTimes(2);
+      const retry = mockedChat.mock.calls[1][0] as { role: string; content: string }[];
+      expect(retry[1]?.content).toMatch(/disconnected/i);
+      expect(retry[1]?.content).toMatch(/one connected solid/i);
+      expect(events.some((e) => e.step === "retry" && /Printability/i.test(e.message))).toBe(true);
     });
   });
 

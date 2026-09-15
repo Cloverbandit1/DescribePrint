@@ -6,6 +6,7 @@ import {
   classifyCompileIssue,
   completeChat,
   LOCAL_AI_START_MESSAGE,
+  normalizeCadPlan,
   parseCadPlan,
   planSystemPrompt,
   REPAIR_INSTRUCTIONS,
@@ -56,6 +57,19 @@ describe("LLM prompt", () => {
     expect(prompt).toContain("follow-up");
     expect(prompt).toContain("cube(20);");
     expect(prompt).toContain("20mm cube with 5mm hole");
+    expect(prompt).toMatch(/only the user's latest change/i);
+  });
+
+  it("preserves named OpenSCAD parameters on a follow-up edit", () => {
+    const prompt = buildUserPrompt({
+      prompt: "make the hole 8mm",
+      sizeNote: "",
+      previousPrompt: "20mm cube with 5mm hole",
+      previousCode: "size = 20;\nhole_d = 5;\ncube(size);",
+    });
+    expect(prompt).toContain("size=20");
+    expect(prompt).toContain("hole_d=5");
+    expect(prompt).toMatch(/Preserve these named parameters/i);
   });
 
   it("strengthens the CAD system prompt for printable engineering", () => {
@@ -69,6 +83,10 @@ describe("LLM prompt", () => {
     expect(prompt).toMatch(/safe/i);
     expect(planSystemPrompt()).toMatch(/ONLY compact JSON/i);
     expect(planSystemPrompt()).toMatch(/min_wall_mm/i);
+    expect(prompt).toMatch(/256 × 256 × 256 mm/);
+    expect(prompt).toMatch(/0\.4 mm/);
+    expect(planSystemPrompt()).toMatch(/256 × 256 × 256 mm/);
+    expect(planSystemPrompt()).toMatch(/through-holes fully pierce/i);
   });
 
   it("embeds a design plan in the codegen prompt", () => {
@@ -109,14 +127,22 @@ describe("LLM prompt", () => {
     expect(classifyCompileIssue("Mesh check failed: non-manifold")).toEqual(
       expect.arrayContaining([expect.stringMatching(/closed solid/i)]),
     );
+    expect(classifyCompileIssue("Floating island: 2 disconnected solids")).toEqual(
+      expect.arrayContaining([expect.stringMatching(/one connected solid/i)]),
+    );
+    expect(classifyCompileIssue("Part does not sit on z=0 (lowest Z is 12.0 mm)")).toEqual(
+      expect.arrayContaining([expect.stringMatching(/z=0/i)]),
+    );
     expect(classifyCompileIssue("OpenSCAD timed out after 45000ms")).toEqual(
       expect.arrayContaining([expect.stringMatching(/Simplify geometry/i)]),
     );
     const repair = buildRepairPrompt({
       error: "unknown variable 'hole_d'",
-      previousCode: "cube(20);",
+      previousCode: "size = 20;\nhole_d = 5;\ncube(size);",
     });
     expect(repair).toMatch(/Define every variable/i);
+    expect(repair).toContain("size=20");
+    expect(repair).toContain("hole_d=5");
   });
 
   it("builds a short planning prompt for follow-up edits", () => {
@@ -129,6 +155,7 @@ describe("LLM prompt", () => {
     expect(prompt).toContain("compact JSON");
     expect(prompt).toContain("follow-up");
     expect(prompt).toContain("cube(20);");
+    expect(prompt).toMatch(/Keep one_piece true/i);
   });
 
   it("parses a CAD plan from raw or fenced JSON and rejects junk", () => {
@@ -139,9 +166,45 @@ describe("LLM prompt", () => {
     expect(raw?.units).toBe("mm");
     expect(raw?.features[0]?.dims_mm?.d).toBe(40);
     expect(raw?.holes[0]?.d).toBe(5);
+    expect(raw?.holes[0]?.through).toBe(true);
     expect(raw?.sit_on_z0).toBe(true);
     expect(parseCadPlan("not json at all")).toBeNull();
     expect(parseCadPlan('{"hello":true}')).toBeNull();
+  });
+
+  it("normalizes plans to one-piece, printable walls, through-holes, and bed fit", () => {
+    const raw = parseCadPlan(
+      JSON.stringify({
+        object: "tray",
+        one_piece: false,
+        overall_mm: { x: 400, y: 400, z: 20 },
+        features: [{ name: "wall", dims_mm: { wall: 0.4 } }],
+        holes: [{ d: 1.2, purpose: "screw" }],
+        min_wall_mm: 0.4,
+        clearance_mm: 0.3,
+        sit_on_z0: false,
+      }),
+    );
+    expect(raw).not.toBeNull();
+    const plan = normalizeCadPlan(raw!, { prompt: "a sturdy tray" });
+    expect(plan.one_piece).toBe(true);
+    expect(plan.sit_on_z0).toBe(true);
+    expect(plan.min_wall_mm).toBe(1.6);
+    expect(plan.features[0]?.dims_mm?.wall).toBe(1.6);
+    expect(plan.holes[0]?.d).toBe(2.5);
+    expect(plan.holes[0]?.through).toBe(true);
+    expect(Math.max(plan.overall_mm!.x, plan.overall_mm!.y, plan.overall_mm!.z)).toBeLessThanOrEqual(256);
+
+    const assembly = normalizeCadPlan(raw!, { prompt: "print as an assembly with two pieces" });
+    expect(assembly.one_piece).toBe(false);
+
+    const userSized = normalizeCadPlan(raw!, { prompt: "400mm square tray" });
+    expect(userSized.overall_mm?.x).toBe(400);
+    expect(userSized.min_wall_mm).toBe(1.6);
+
+    const thin = normalizeCadPlan(raw!, { prompt: "0.8mm wall clip" });
+    expect(thin.min_wall_mm).toBe(0.8);
+    expect(thin.features[0]?.dims_mm?.wall).toBe(0.8);
   });
 });
 

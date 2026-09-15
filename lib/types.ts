@@ -37,6 +37,9 @@ export type MeshIssue = {
     | "non-manifold"
     | "oversized"
     | "undersized"
+    | "thin-wall"
+    | "off-bed"
+    | "disconnected"
     | "no-triangles";
   severity: "error" | "warning";
   message: string;

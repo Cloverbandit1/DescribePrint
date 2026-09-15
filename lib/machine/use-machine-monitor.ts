@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { MachineApiResponse } from "./api";
 import {
   MACHINE_LAN_STORAGE_KEY,
@@ -44,9 +44,17 @@ export function useMachineMonitor() {
   const [hydrated, setHydrated] = useState(false);
   const [machine, setMachine] = useState<MachineApiResponse | null>(null);
   const [busy, setBusy] = useState(false);
+  const prefsRef = useRef(prefs);
+  prefsRef.current = prefs;
 
   useEffect(() => {
-    setPrefs(readStoredPrefs());
+    const stored = readStoredPrefs();
+    setPrefs((current) => {
+      if (current.enabled || current.host || current.serial || current.accessCode) {
+        return current;
+      }
+      return stored;
+    });
     setHydrated(true);
   }, []);
 
@@ -73,18 +81,23 @@ export function useMachineMonitor() {
   }, []);
 
   const poll = useCallback(async () => {
+    const current = prefsRef.current;
+    if (current.enabled) {
+      await configure(current);
+      return;
+    }
     const response = await fetch("/api/machine", { cache: "no-store" });
     if (!response.ok) return;
     const data = await readMachineResponse(response);
     if (data) setMachine(data);
-  }, []);
+  }, [configure]);
 
   useEffect(() => {
     if (!hydrated) return;
     let cancelled = false;
     const delay = prefs.enabled && credentialsComplete(prefs) ? CONFIGURE_DEBOUNCE_MS : 0;
     const timer = window.setTimeout(() => {
-      void configure(prefs).catch(() => {
+      void (prefs.enabled ? configure(prefs) : poll()).catch(() => {
         if (!cancelled) void poll();
       });
     }, delay);
@@ -105,10 +118,19 @@ export function useMachineMonitor() {
   const sendCommand = async (command: MidPrintCommand) => {
     setBusy(true);
     try {
+      const current = prefsRef.current;
       const response = await fetch("/api/machine", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ command }),
+        body: JSON.stringify({
+          command,
+          lan: current.enabled,
+          credentials: {
+            host: current.host,
+            serial: current.serial,
+            accessCode: current.accessCode,
+          },
+        }),
       });
       const data = await readMachineResponse(response);
       if (response.ok && data) setMachine(data);

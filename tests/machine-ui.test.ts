@@ -216,6 +216,26 @@ describe("machine API UI configure", () => {
     assertNoSecret(body);
   });
 
+  it("POST command can carry the UI session in the same body", async () => {
+    process.env.BAMBU_MQTT_PORT = "1";
+    process.env.BAMBU_MQTT_TIMEOUT_MS = "800";
+    const response = await POST(
+      new Request("http://localhost/api/machine", {
+        method: "POST",
+        body: JSON.stringify({
+          lan: true,
+          credentials: { ...CREDS, host: "127.0.0.1" },
+          command: { type: "pause" },
+        }),
+      }),
+    );
+    expect(response.status).not.toBe(404);
+    const body = (await response.json()) as { live: boolean; lastCommand?: { ok: boolean } };
+    expect(body.live).toBe(true);
+    expect(body.lastCommand?.ok).toBe(false);
+    assertNoSecret(body);
+  });
+
   it("POST configure lan:false returns to mock", async () => {
     setMachineUiSession({ enabled: true, credentials: CREDS });
     const response = await POST(

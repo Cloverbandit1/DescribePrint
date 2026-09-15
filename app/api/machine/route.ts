@@ -58,6 +58,14 @@ export async function POST(request: Request) {
     return Response.json({ error: "Invalid JSON." }, { status: 400 });
   }
 
+  const configure = parseMachineConfigure(body);
+  if (configure) {
+    setMachineUiSession({
+      enabled: configure.lan,
+      credentials: configure.credentials,
+    });
+  }
+
   const command = commandFromBody(body);
   if (command) {
     if (!isLiveMachineOn()) {
@@ -79,12 +87,7 @@ export async function POST(request: Request) {
     });
   }
 
-  const configure = parseMachineConfigure(body);
   if (configure) {
-    setMachineUiSession({
-      enabled: configure.lan,
-      credentials: configure.credentials,
-    });
     return snapshot();
   }
 

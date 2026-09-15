@@ -280,11 +280,13 @@ export type Mesh = {
  *   Not photogrammetry / NeRF / identity-accurate.
  * - Wearable S/M/L/XL measurement charts that scale the current mesh
  * - Describe-to-edit on imported meshes: real triangle scale/rotate/sit-on-bed;
- *   generative adds (holes, tabs, emboss/etch, pretty-up) wrap import("imported.stl") in
+ *   generative adds (holes, tabs, emboss/etch, pretty-up, lattice) wrap import("imported.stl") in
  *   OpenSCAD. Holes difference the import (through by default). Relief is an
  *   honest CSG stub (primitive / block initials). Pretty-up is heuristic CSG
  *   (fillet/chamfer/ribs/panels) that keeps functional holes/joints/walls —
- *   not neural Style2Fab. Full triangle sculpt is not implemented.
+ *   not neural Style2Fab. Lattice is heuristic infill-as-geometry (honeycomb /
+ *   cubic / gyroid-ish / diagonal) inside a ≥ 1.6 mm shell — not FEA.
+ *   Full triangle sculpt is not implemented.
  * - Multi-filament 3MF: describe or paint named color regions → separate 3MF
  *   objects with displaycolor + extruder/AMS slot metadata. Chat follow-ups
  *   ("paint the letters black") recolor existing objects without remeshing.
@@ -292,6 +294,8 @@ export type Mesh = {
  *   Import preserves 3MF colors when present. Not live AMS / machine control.
  * - Heuristic strength preview heatmap (thickness / concave / overhang /
  *   tiny-section). Not FEA.
+ * - Generative lattice / lightweighting stub (honeycomb / cubic / gyroid-ish /
+ *   diagonal). Not MechStyle FEA.
  * - Assembly / explode stub: detect joints / named modules / 3MF regions /
  *   mesh islands; Assembled vs Exploded viewer offset; per-part STL + named
  *   multi-object 3MF. Explode is a one-axis heuristic, not kinematics.

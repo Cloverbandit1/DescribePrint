@@ -36,6 +36,10 @@ describe("imported-mesh edit intent", () => {
     const pretty = parseMeshEditIntent("make it look steampunk");
     expect(pretty.kind).toBe("describe-wrapper");
     expect(pretty.notes.join(" ")).toMatch(/pretty-up|partial/i);
+
+    const lattice = parseMeshEditIntent("honeycomb lattice the interior");
+    expect(lattice.kind).toBe("describe-wrapper");
+    expect(lattice.notes.join(" ")).toMatch(/lattice|partial/i);
   });
 
   it("starts over when the user wants a new part", () => {

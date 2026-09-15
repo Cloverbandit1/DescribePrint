@@ -30,6 +30,20 @@ import {
   type PrettyUpStyle,
 } from "./pretty-up";
 import {
+  CUBE_GYROID_PROMPT,
+  CUBE_HONEYCOMB_PROMPT,
+  PHONE_HONEYCOMB_PROMPT,
+  inferLatticePattern,
+  isCubeLatticePrompt,
+  isLatticeFollowUp,
+  isPhoneStandLatticePrompt,
+  latticeFixtureId,
+  latticeFixtureScad,
+  latticeFixtureTitle,
+  latticeRefusalReason,
+  type LatticePattern,
+} from "./lattice";
+import {
   CUBE_ETCH_PROMPT,
   HELMET_EMBOSS_PROMPT,
   chestPlateEmbossFixtureScad,
@@ -220,6 +234,9 @@ export function matchFixture(
     };
   }
 
+  const lattice = matchLatticeFixture(prompt, hinted);
+  if (lattice) return lattice;
+
   const pretty = matchPrettyUpFixture(prompt, hinted);
   if (pretty) return pretty;
 
@@ -261,7 +278,7 @@ export function defaultFixture(): FixtureMatch {
 const NEW_DESIGN =
   /\b(new part|start over|something else|different part|instead make|forget that|scratch)\b/i;
 const EDIT_CUE =
-  /\b(make|change|update|add|remove|delete|bigger|smaller|wider|taller|shorter|without|more|less|hole|tilt|diameter|emboss|etch|engrave|recess|raised|initials|crest|pretty|restyle|steampunk|fillet|chamfer|rib|panel|round|paint|recolor|re-colou?r|tint|dye|colou?r)\b/i;
+  /\b(make|change|update|add|remove|delete|bigger|smaller|wider|taller|shorter|without|more|less|hole|tilt|diameter|emboss|etch|engrave|recess|raised|initials|crest|pretty|restyle|steampunk|fillet|chamfer|rib|panel|round|paint|recolor|re-colou?r|tint|dye|colou?r|lattice|honeycomb|gyroid|lightweight|lighten|lighter)\b/i;
 
 function prettyUpFixtureId(style: PrettyUpStyle): string {
   if (style === "chamfer") return "cube-pretty-chamfer";
@@ -275,6 +292,31 @@ function prettyUpFixtureTitle(style: PrettyUpStyle): string {
   if (style === "steampunk") return "Steampunk cube (keep hole)";
   if (style === "ribs" || style === "panels") return "Cube with decorative ribs";
   return "Cube with rounded edges";
+}
+
+function matchLatticeFixture(prompt: string, sizeHint?: number | null, holeHint?: number): FixtureMatch | null {
+  if (latticeRefusalReason({ prompt })) return null;
+  const text = prompt.toLowerCase();
+  const size = sizeHint && sizeHint > 0 ? sizeHint : numberAt(text, /(\d+(?:\.\d+)?)\s*mm\s+cube/, 20);
+  const hole = holeHint ?? numberAt(text, /(\d+(?:\.\d+)?)\s*mm\s+(?:hole|bore)/, Number.NaN);
+  const tilt = numberAt(text, /(\d+(?:\.\d+)?)\s*degree/, 60);
+  if (isPhoneStandLatticePrompt(prompt)) {
+    return {
+      id: latticeFixtureId("honeycomb", "phone-stand"),
+      title: latticeFixtureTitle("honeycomb", "phone-stand"),
+      code: latticeFixtureScad("honeycomb", "phone-stand", size, undefined, tilt),
+    };
+  }
+  if (isCubeLatticePrompt(prompt)) {
+    const pattern = inferLatticePattern(prompt) ?? "honeycomb";
+    const keepHole = Number.isFinite(hole) || /\bhole\b/.test(text);
+    return {
+      id: latticeFixtureId(pattern, "cube"),
+      title: latticeFixtureTitle(pattern, "cube"),
+      code: latticeFixtureScad(pattern, "cube", size, keepHole ? (Number.isFinite(hole) ? hole : 5) : undefined),
+    };
+  }
+  return null;
 }
 
 function matchPrettyUpFixture(prompt: string, sizeHint?: number | null, holeHint?: number): FixtureMatch | null {
@@ -369,6 +411,16 @@ export function matchConversationFixture(
             ? "helmet-multi-relief"
             : /module\s+helmet_shell\s*\(/.test(previousCode ?? "")
             ? "helmet-emboss-crest"
+            : /latticed_box\s*\(/.test(previousCode ?? "")
+            ? "phone-stand-honeycomb"
+            : /module\s+lattice_voids\s*\(/.test(previousCode ?? "") && /hole_d\s*=/.test(previousCode ?? "") && /gyroid/.test(previousCode ?? "")
+            ? "cube-lattice-gyroid"
+            : /module\s+lattice_voids\s*\(/.test(previousCode ?? "") && /hole_d\s*=/.test(previousCode ?? "") && /cubic/.test(previousCode ?? "")
+            ? "cube-lattice-cubic"
+            : /module\s+lattice_voids\s*\(/.test(previousCode ?? "") && /hole_d\s*=/.test(previousCode ?? "") && /diagonal/.test(previousCode ?? "")
+            ? "cube-lattice-diagonal"
+            : /module\s+lattice_voids\s*\(/.test(previousCode ?? "")
+            ? "cube-lattice-honeycomb"
             : /steampunk_disc\s*\(/.test(previousCode ?? "")
               ? "cube-pretty-steampunk"
               : /module\s+decorative_ribs\s*\(/.test(previousCode ?? "")
@@ -424,6 +476,35 @@ export function matchConversationFixture(
         id: "cube-etched-initials",
         title: "Cube with etched initials",
         code: cubeEtchFixtureScad(nextSize, initials, nextHole),
+      };
+    }
+    if (isLatticeFollowUp(prompt)) {
+      const refuse = latticeRefusalReason({
+        prompt,
+        previousPrompt,
+        previousCode,
+      });
+      if (refuse) {
+        const nextHole = Number.isFinite(hole)
+          ? hole
+          : Number.isFinite(fromCode.hole)
+            ? fromCode.hole
+            : 5;
+        return { id: "cube-with-hole", title: "Cube with hole", code: CUBE_WITH_HOLE(nextSize, nextHole) };
+      }
+      const pattern = inferLatticePattern(prompt) ?? "honeycomb";
+      const keepHole = baseId === "cube-with-hole" && !( /\bremove\b/.test(text) && /\bhole\b/.test(text) );
+      const nextHole = keepHole
+        ? Number.isFinite(hole)
+          ? hole
+          : Number.isFinite(fromCode.hole)
+            ? fromCode.hole
+            : 5
+        : undefined;
+      return {
+        id: latticeFixtureId(pattern, "cube"),
+        title: latticeFixtureTitle(pattern, "cube"),
+        code: latticeFixtureScad(pattern, "cube", nextSize, nextHole),
       };
     }
     if (isPrettyUpFollowUp(prompt)) {
@@ -597,12 +678,72 @@ export function matchConversationFixture(
     };
   }
 
+  if (
+    baseId === "cube-lattice-honeycomb" ||
+    baseId === "cube-lattice-gyroid" ||
+    baseId === "cube-lattice-cubic" ||
+    baseId === "cube-lattice-diagonal"
+  ) {
+    const nextSize = Number.isFinite(size)
+      ? size
+      : Number.isFinite(fromCode.size)
+        ? fromCode.size
+        : 20;
+    const nextHole = Number.isFinite(hole)
+      ? hole
+      : Number.isFinite(fromCode.hole)
+        ? fromCode.hole
+        : 5;
+    if (latticeRefusalReason({ prompt, previousPrompt, previousCode })) {
+      return { id: "cube-with-hole", title: "Cube with hole", code: CUBE_WITH_HOLE(nextSize, nextHole) };
+    }
+    if (/\bremove\b/.test(text) && /\b(lattice|honeycomb|gyroid)\b/.test(text)) {
+      return { id: "cube-with-hole", title: "Cube with hole", code: CUBE_WITH_HOLE(nextSize, nextHole) };
+    }
+    const pattern = (inferLatticePattern(prompt) ??
+      (baseId === "cube-lattice-gyroid"
+        ? "gyroid"
+        : baseId === "cube-lattice-cubic"
+          ? "cubic"
+          : baseId === "cube-lattice-diagonal"
+            ? "diagonal"
+            : "honeycomb")) as LatticePattern;
+    return {
+      id: latticeFixtureId(pattern, "cube"),
+      title: latticeFixtureTitle(pattern, "cube"),
+      code: latticeFixtureScad(pattern, "cube", nextSize, nextHole),
+    };
+  }
+
+  if (baseId === "phone-stand-honeycomb") {
+    const nextTilt = Number.isFinite(tilt)
+      ? tilt
+      : Number.isFinite(fromCode.tilt)
+        ? fromCode.tilt
+        : 60;
+    if (latticeRefusalReason({ prompt, previousPrompt, previousCode })) {
+      return { id: "phone-stand", title: "Phone stand", code: PHONE_STAND(nextTilt) };
+    }
+    return {
+      id: "phone-stand-honeycomb",
+      title: latticeFixtureTitle("honeycomb", "phone-stand"),
+      code: latticeFixtureScad("honeycomb", "phone-stand", 20, undefined, nextTilt),
+    };
+  }
+
   if (baseId === "phone-stand") {
     const nextTilt = Number.isFinite(tilt)
       ? tilt
       : Number.isFinite(fromCode.tilt)
         ? fromCode.tilt
         : numberAt(previousPrompt ?? "", /(\d+(?:\.\d+)?)\s*degree/, 60);
+    if (isLatticeFollowUp(prompt) && !latticeRefusalReason({ prompt, previousPrompt, previousCode })) {
+      return {
+        id: "phone-stand-honeycomb",
+        title: latticeFixtureTitle("honeycomb", "phone-stand"),
+        code: latticeFixtureScad("honeycomb", "phone-stand", 20, undefined, nextTilt),
+      };
+    }
     return { id: "phone-stand", title: "Phone stand", code: PHONE_STAND(nextTilt) };
   }
 
@@ -650,5 +791,8 @@ export const EXAMPLE_PROMPTS = [
   CUBE_FILLET_PROMPT,
   CUBE_STEAMPUNK_PROMPT,
   CUBE_RIBS_PROMPT,
+  PHONE_HONEYCOMB_PROMPT,
+  CUBE_HONEYCOMB_PROMPT,
+  CUBE_GYROID_PROMPT,
   "stormtrooper helmet",
 ] as const;

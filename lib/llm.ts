@@ -37,6 +37,13 @@ import {
   type CadPrettyUp,
 } from "./pretty-up";
 import {
+  formatLatticePromptHint,
+  inferCadLattice,
+  normalizeCadLattice,
+  parseCadLattice,
+  type CadLattice,
+} from "./lattice";
+import {
   formatReliefPromptHint,
   normalizeCadReliefs,
   parseCadReliefs,
@@ -98,6 +105,8 @@ export type CadPlan = {
   reliefs?: CadRelief[];
   /** Present only when the user asked to pretty-up / restyle (not a structural edit). */
   pretty_up?: CadPrettyUp;
+  /** Present only when the user asked to lighten / lattice / honeycomb / gyroid. */
+  lattice?: CadLattice;
   /** Present only when the prompt names a curated character or tech keyword. */
   knowledge?: CadKnowledge;
   /** True only for a known ambiguous fork — never a settings wall. */
@@ -133,6 +142,7 @@ OpenSCAD best practices
 - If the user names colors or materials (e.g. red body, black letters): emit one module per region named region_<name>(), wrap each call in color("#RRGGBB"), and union them for the preview solid. Prefer raised cubes/bars for letters — avoid text() (no fonts). color() is preview metadata; each region_* module must render alone.
 - Raised etchings / emboss only when asked: union a primitive motif onto the named face (emboss / raised) or difference it into that face (etch / engrave). Motifs: text / crest / disc / bar / chevron / shield / star / cross / ring / stripe / grid / diamond, or an uploaded-logo silhouette (not neural). Multiple reliefs when they ask for more than one. Wearable phrases (“back of helmet”, “chest plate”, “gauntlet cuff”) pick a face. Default region is the largest vertical face, ties to front (+Y). Default raised height 0.8 mm, recessed depth 0.6 mm. Etch must leave ≥ 1.6 mm remaining wall. One piece first. Do not close holes or fuse PIP joints. Keep the host solid — do not rebuild a new part. No Style2Fab / fonts / text().
 - Pretty-up / restyle only when asked (pretty-up, restyle, fillet, chamfer, decorative ribs/panels, steampunk). Stylistic CSG only — primitive fillets (hull of cylinders), chamfers (inset-cube hull), ribs/panels/rivets. Keep planned holes, PIP joint gaps, mating faces, and ≥ 1.6 mm walls. Refuse pretty-up that would fuse print-in-place joints or close through-holes. Not neural Style2Fab.
+- Lattice / lightweighting only when asked (lighten, lattice, honeycomb, gyroid, cubic grid, diagonal lattice). Heuristic infill-as-geometry: difference hex/cube/cylinder voids from the inset interior and keep a ≥ 1.6 mm outer shell (4× nozzle). Do not lattice through functional holes, PIP joints, or mating faces. Re-cut bores after the lattice. One piece first. Not FEA / MechStyle.
 - Knowledge pack: only when the user names a curated character/prop (stormtrooper / vader / iron man / master chief / saber hilt) or tech keyword (PLA/PETG/PA/ABS/TPU, 0.4 mm nozzle, 0.2 mm layer, joint clearance, P2S volume, print-in-place, split-for-bed). Use pack millimeters. Unknown names: ignore and design from the description. Curated stub — not a live web crawl.
 - Mid-design options: if the user already picked a chip (1:1 wearable, size L, PETG, print-in-place, a named face), honor that choice. Do not re-ask.
 - Never use import(), include, use <>, surface(), or any file/network access.
@@ -147,7 +157,7 @@ Safety
 const PLAN_SYSTEM_PROMPT = `You are a CAD planner for FDM 3D printing. Reply with ONLY compact JSON (no markdown, no prose).
 
 Schema:
-{"object":string,"one_piece":true,"units":"mm","overall_mm":{"x":n,"y":n,"z":n},"features":[{"name":string,"kind":string,"dims_mm":{"…":n},"notes":string}],"holes":[{"d":n,"purpose":string,"through":true}],"min_wall_mm":n,"clearance_mm":n,"sit_on_z0":true,"safety_notes":string,"joints":[{"type":"hinge|pin|ball|snap","intent":"print-in-place|multi-part","radial_mm":n,"axial_mm":n,"notes":string}],"clearance_intent":"print-in-place","color_regions":[{"name":string,"color":string,"hex":"#RRGGBB","filament":"pla","ams_slot":1}],"reliefs":[{"kind":"emboss|etch","motif":"text|crest|disc|bar|chevron|shield|star|cross|ring|stripe|grid|diamond|image","text":"DP","region":"front|back|left|right|top|bottom","target":"chest plate","height_mm":0.8,"depth_mm":0.6}],"pretty_up":{"applied":true,"refused":false,"style":"fillet|chamfer|ribs|panels|steampunk|motif","ops":[{"kind":"fillet","mm":2}],"functional_regions":[{"kind":"functional","role":"hole","note":"keep through-hole"}],"decorative_regions":[{"kind":"decorative","role":"fillet","note":"2 mm rounds"}]},"knowledge":{"pack_version":"1.0.0","curated":true,"live_web_crawl":false,"characters":[{"id":"stormtrooper-helmet","name":"stormtrooper helmet"}],"tech":[{"id":"petg","name":"PETG"}],"notes":["curated stub"]},"needs_user_choice":false,"options":[{"id":"scale_mode","label":"Scale","prompt":"Fit P2S or 1:1?","options":[{"id":"scale_mode:display","label":"Fit P2S","value":"display"}]}]}
+{"object":string,"one_piece":true,"units":"mm","overall_mm":{"x":n,"y":n,"z":n},"features":[{"name":string,"kind":string,"dims_mm":{"…":n},"notes":string}],"holes":[{"d":n,"purpose":string,"through":true}],"min_wall_mm":n,"clearance_mm":n,"sit_on_z0":true,"safety_notes":string,"joints":[{"type":"hinge|pin|ball|snap","intent":"print-in-place|multi-part","radial_mm":n,"axial_mm":n,"notes":string}],"clearance_intent":"print-in-place","color_regions":[{"name":string,"color":string,"hex":"#RRGGBB","filament":"pla","ams_slot":1}],"reliefs":[{"kind":"emboss|etch","motif":"text|crest|disc|bar|chevron|shield|star|cross|ring|stripe|grid|diamond|image","text":"DP","region":"front|back|left|right|top|bottom","target":"chest plate","height_mm":0.8,"depth_mm":0.6}],"pretty_up":{"applied":true,"refused":false,"style":"fillet|chamfer|ribs|panels|steampunk|motif","ops":[{"kind":"fillet","mm":2}],"functional_regions":[{"kind":"functional","role":"hole","note":"keep through-hole"}],"decorative_regions":[{"kind":"decorative","role":"fillet","note":"2 mm rounds"}]},"lattice":{"applied":true,"refused":false,"pattern":"honeycomb|cubic|gyroid|diagonal","shell_mm":1.6,"cell_mm":8,"strut_mm":1.6,"keep_holes":true,"keep_joints":true,"keep_mating":true,"one_piece":true,"fea":false},"knowledge":{"pack_version":"1.0.0","curated":true,"live_web_crawl":false,"characters":[{"id":"stormtrooper-helmet","name":"stormtrooper helmet"}],"tech":[{"id":"petg","name":"PETG"}],"notes":["curated stub"]},"needs_user_choice":false,"options":[{"id":"scale_mode","label":"Scale","prompt":"Fit P2S or 1:1?","options":[{"id":"scale_mode:display","label":"Fit P2S","value":"display"}]}]}
 
 Rules:
 - Millimeters only. Real-world dimensions. One piece first unless the user clearly asks for an assembly / multi-part kit or a moving joint.
@@ -155,6 +165,7 @@ Rules:
 - If the user names colors or materials, fill color_regions (named body or painted feature, hex, optional pla/petg/pa/abs/tpu). Follow-ups like "paint the letters black" or "make the base red" recolor those named regions — do not invent new geometry. ams_slot is 1–4 export metadata, not a live printer. Omit color_regions when no color is mentioned.
 - Reliefs: omit the reliefs array unless the user asks to emboss, etch, engrave, raise a crest/logo, or cut initials. kind is emboss (raised, union) or etch (recessed, difference). motif is text (block initials), crest, disc, bar, chevron, shield, star, cross, ring, stripe, grid, diamond, or image (uploaded silhouette — not Style2Fab). region is a face hint (front/back/left/right/top/bottom). target may name a wearable region (back of helmet, chest plate, gauntlet cuff). Multiple entries when they ask for more than one relief. Default region: largest vertical face, ties to front. Default height_mm 0.8, depth_mm 0.6. Etch must leave 1.6 mm walls. One piece first; do not close holes or fuse joints. Honest CSG stub — not Style2Fab.
 - Pretty-up: omit pretty_up unless the user asks to pretty-up, restyle, fillet, chamfer, add decorative ribs/panels, or make it look steampunk. Separate from structural edits. Mark functional vs decorative regions. Refuse (applied=false, refused=true) if pretty-up would fuse PIP joints or close through-holes. Heuristic CSG only — not neural Style2Fab.
+- Lattice: omit lattice unless the user asks to lighten, lattice, honeycomb, gyroid, cubic grid, or diagonal lattice. pattern is honeycomb / cubic / gyroid / diagonal. shell_mm and strut_mm ≥ 1.6 (4× nozzle). Apply to the internal volume only. Keep holes, PIP joints, and mating faces. Refuse if they ask to lattice through those. Heuristic infill-as-geometry — not FEA / MechStyle. One piece first.
 - Knowledge: omit the knowledge object unless the user names a curated character/prop or tech keyword. Use pack millimeters when present. Unknown names: omit knowledge and plan from the description alone. Curated in-repo stub — not a live web crawl.
 - Options: omit needs_user_choice and options unless a known fork is still open (character scale P2S vs 1:1, wearable S–XL, material, PIP vs multi-part, emboss face, vague color regions, incomplete region paint). Never set needs_user_choice for an ordinary sized part. Do not dump advanced settings.
 - Every feature must attach to the main solid unless it is a planned joint member. Through-holes fully pierce (overshoot 0.2–1 mm).
@@ -302,7 +313,7 @@ Units and output
 
 Edits
 - Scale, rotate, and translate the imported mesh to apply size / orientation requests.
-- Add holes, slots, tabs, relief, or pretty-up (fillet nubs / chamfer cuts / decorative ribs) with cube()/cylinder() differenced (holes / etch / chamfer) or unioned (tabs / emboss / ribs) against the import. Image logos become silhouette/heightfield cubes on the named face. Keep import() as the host. Never close existing through-holes or fuse PIP gaps for style. No neural Style2Fab / text().
+- Add holes, slots, tabs, relief, pretty-up (fillet nubs / chamfer cuts / decorative ribs), or lattice (hex/cube/cylinder voids inside a ≥ 1.6 mm shell) with cube()/cylinder() differenced (holes / etch / chamfer / lattice) or unioned (tabs / emboss / ribs) against the import. Image logos become silhouette/heightfield cubes on the named face. Keep import() as the host. Never close existing through-holes or fuse PIP gaps. Do not lattice through holes or mating faces. No neural Style2Fab / FEA / text().
 - Name parameters at the top (hole_d, scale_f, …).
 - Prefer the smallest change that matches the request. Do not replace the imported part with a new primitive-only model unless the user asked to start over.
 
@@ -429,6 +440,9 @@ export function buildUserPrompt(input: {
     if (input.plan.pretty_up) {
       parts.push(formatPrettyUpPromptHint(input.plan.pretty_up));
     }
+    if (input.plan.lattice) {
+      parts.push(formatLatticePromptHint(input.plan.lattice));
+    }
     if (input.plan.knowledge) {
       parts.push(formatKnowledgeCodegenHint(input.plan.knowledge));
     }
@@ -473,7 +487,7 @@ export function buildPlanPrompt(input: {
       parts.push(`The user wants a new object. Plan from scratch.`);
     } else {
       parts.push(
-        `This is a follow-up edit. Update only the requested dimensions/features. Keep one_piece true unless they asked for an assembly or a moving joint. Keep joints only if they still want motion. Keep reliefs only if they still want emboss/etch. Keep pretty_up only if they still want restyle. Keep knowledge only if they still name a curated character or tech keyword. Do not start over.`,
+        `This is a follow-up edit. Update only the requested dimensions/features. Keep one_piece true unless they asked for an assembly or a moving joint. Keep joints only if they still want motion. Keep reliefs only if they still want emboss/etch. Keep pretty_up only if they still want restyle. Keep lattice only if they still want lightweighting. Keep knowledge only if they still name a curated character or tech keyword. Do not start over.`,
       );
     }
     if (input.previousPrompt) {
@@ -620,6 +634,7 @@ export function parseCadPlan(raw: string): CadPlan | null {
       return parsed.length ? parsed : undefined;
     })(),
     pretty_up: parseCadPrettyUp(rec.pretty_up ?? rec.prettyup ?? rec.style),
+    lattice: parseCadLattice(rec.lattice ?? rec.lightweight ?? rec.honeycomb),
     needs_user_choice: rec.needs_user_choice === true,
     options: (() => {
       const parsed = parseDesignOptionGroups(rec.options);
@@ -853,6 +868,19 @@ export function normalizeCadPlan(
     sizeMm,
     reliefs,
   });
+  const lattice = normalizeCadLattice(plan.lattice ?? inferCadLattice({
+    prompt: input.prompt,
+    previousCode: input.previousCode,
+    holes: plan.holes,
+    joints,
+    sizeMm,
+  }), {
+    prompt: input.prompt,
+    previousCode: input.previousCode,
+    holes: plan.holes,
+    joints,
+    sizeMm,
+  });
 
   let one_piece = true;
   if (intent === "print-in-place") {
@@ -889,6 +917,7 @@ export function normalizeCadPlan(
     color_regions,
     reliefs: reliefs.length ? reliefs : undefined,
     pretty_up,
+    lattice,
     knowledge,
     needs_user_choice: designOptions.needs_user_choice,
     options: designOptions.options.length ? designOptions.options : undefined,

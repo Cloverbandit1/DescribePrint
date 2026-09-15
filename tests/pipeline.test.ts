@@ -155,6 +155,19 @@ describe("generate pipeline (local AI + fixtures)", () => {
     expect(result.notes.join(" ")).toMatch(/Functional preserve/i);
   });
 
+  it("notes lattice functional preserve on the fixture path", async () => {
+    mockedCompile.mockResolvedValue(compileOk());
+    const result = await runGeneratePipeline({
+      prompt: "lightweight phone stand with honeycomb",
+      fixture: true,
+    });
+    expect(result.usedFixture).toBe(true);
+    expect(result.code).toMatch(/latticed_box/);
+    expect(result.code).toMatch(/cable = 14/);
+    expect(result.notes.join(" ")).toMatch(/Lattice stub/i);
+    expect(result.notes.join(" ")).toMatch(/not FEA/i);
+  });
+
   it("refuses a pretty-up that would fuse a print-in-place hinge", async () => {
     mockedCompile.mockResolvedValue(compileOk());
     const result = await runGeneratePipeline({

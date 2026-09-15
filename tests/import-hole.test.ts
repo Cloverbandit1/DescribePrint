@@ -91,6 +91,7 @@ describe("imported-mesh wrap generation", () => {
     expect(canBuildDeterministicImportWrap("fillet the edges and add a hole", spec, false)).toBe(true);
     expect(canBuildDeterministicImportWrap("slot the side and remesh", spec, false)).toBe(false);
     expect(canBuildDeterministicImportWrap("etch initials on the front", null, false)).toBe(true);
+    expect(canBuildDeterministicImportWrap("honeycomb lattice the interior", null, false)).toBe(true);
   });
 });
 

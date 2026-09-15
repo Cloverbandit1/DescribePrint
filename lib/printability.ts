@@ -3,6 +3,7 @@
  * Defaults come from the V0 P2S stub in printers.ts (256³ mm, 0.4 mm nozzle).
  */
 import { formatJointConstraints } from "./joints";
+import { formatLatticeConstraints } from "./lattice";
 import { formatPrettyUpConstraints } from "./pretty-up";
 import { formatReliefConstraints } from "./relief";
 import { defaultPrinter, type PrinterProfile } from "./printers";
@@ -132,6 +133,7 @@ export function formatPrinterConstraints(rules: PrintRules = printRules()): stri
     formatJointConstraints(),
     formatReliefConstraints(),
     formatPrettyUpConstraints(),
+    formatLatticeConstraints(),
   ].join("\n");
 }
 

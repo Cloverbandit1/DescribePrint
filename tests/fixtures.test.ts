@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { matchConversationFixture, matchFixture, shouldUseFixture } from "@/lib/fixtures";
 import { BALL_FIXTURE_PROMPT, HINGE_FIXTURE_PROMPT, PIN_FIXTURE_PROMPT, SNAP_FIXTURE_PROMPT } from "@/lib/joints";
 import { CUBE_FILLET_PROMPT, CUBE_STEAMPUNK_PROMPT } from "@/lib/pretty-up";
+import { CUBE_GYROID_PROMPT, CUBE_HONEYCOMB_PROMPT, PHONE_HONEYCOMB_PROMPT } from "@/lib/lattice";
 import {
   CHEST_CHEVRON_PROMPT,
   CUBE_ETCH_PROMPT,
@@ -61,6 +62,9 @@ describe("fixtures + units", () => {
     expect(matchFixture(CHEST_CHEVRON_PROMPT)?.id).toBe("chest-chevron-emboss");
     expect(matchFixture(GAUNTLET_CUFF_PROMPT)?.id).toBe("gauntlet-cuff-etch");
     expect(matchFixture(HELMET_MULTI_RELIEF_PROMPT)?.id).toBe("helmet-multi-relief");
+    expect(matchFixture(PHONE_HONEYCOMB_PROMPT)?.id).toBe("phone-stand-honeycomb");
+    expect(matchFixture(CUBE_HONEYCOMB_PROMPT)?.id).toBe("cube-lattice-honeycomb");
+    expect(matchFixture(CUBE_GYROID_PROMPT)?.id).toBe("cube-lattice-gyroid");
   });
 
   it("matches the three example prompts with sanitizable OpenSCAD", () => {

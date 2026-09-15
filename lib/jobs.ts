@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { MachineDesignation } from "./alternate-machines";
 import { defaultColorRegion, type ColorRegion } from "./color-regions";
 import { printPresetSummary, type PrintPresetSummary } from "./printers";
@@ -81,7 +80,7 @@ export function createJob(input: CreateJobInput): StoredJob {
     imageImport: input.imageImport ?? null,
     machineDesignation: input.machineDesignation ?? null,
     printPreset: input.printPreset ?? printPresetSummary("pla"),
-    id: randomUUID(),
+    id: globalThis.crypto.randomUUID(),
     createdAt: Date.now(),
   };
   jobs.set(job.id, job);

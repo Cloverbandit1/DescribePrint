@@ -9,6 +9,17 @@ export const RESUME_IS_MANUAL = "Resume is manual";
 export const CAD_RESHAPE_INSTRUCTION = "redesign unprinted upper above Z" as const;
 
 /**
+ * Axis-aligned stump footprint on the cut plane, millimeters.
+ * Print Control measures the already-printed top face at current Z (XY only).
+ */
+export type StumpCutPlaneBoundsMm = {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+};
+
+/**
  * Typed handoff for Allos CAD Core (Bella).
  * Allos Print Control emits this; CAD Core consumes it later to generate a
  * new OpenSCAD/mesh for the unprinted region only. Do not rewrite geometry here.
@@ -26,6 +37,12 @@ export type CadReshapeHandoff = {
   totalLayers?: number;
   printerId: PrinterId;
   suggestedNextStep: string;
+  /** Original-part OpenSCAD when Print Control already has it. */
+  previousCode?: string;
+  /** Stump XY bounds at the cut plane (`stumpCutPlaneBoundsMm`, mm). */
+  stumpCutPlaneBoundsMm?: StumpCutPlaneBoundsMm;
+  /** Layer height in mm. CAD still will not invent remainingHeightMm from remainingLayers alone. */
+  layerHeightMm?: number;
 };
 
 /** Reslice stub — printer profile + AMS mapping. Never send gcode. */
@@ -84,6 +101,16 @@ export function suggestedCadNextStep(currentZ: number | null, remainingHeightMm:
   return `CAD Core: generate new OpenSCAD/mesh for the unprinted region only (${hBit} above Z ${zBit}). Do not rewrite already-printed geometry.`;
 }
 
+export function isStumpCutPlaneBoundsMm(value: unknown): value is StumpCutPlaneBoundsMm {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const row = value as Record<string, unknown>;
+  const minX = typeof row.minX === "number" && Number.isFinite(row.minX) ? row.minX : undefined;
+  const minY = typeof row.minY === "number" && Number.isFinite(row.minY) ? row.minY : undefined;
+  const maxX = typeof row.maxX === "number" && Number.isFinite(row.maxX) ? row.maxX : undefined;
+  const maxY = typeof row.maxY === "number" && Number.isFinite(row.maxY) ? row.maxY : undefined;
+  return minX !== undefined && minY !== undefined && maxX !== undefined && maxY !== undefined && maxX > minX && maxY > minY;
+}
+
 export function buildCadReshapeHandoff(input: {
   currentZ: number | null;
   remainingHeightMm: number | null;
@@ -91,8 +118,24 @@ export function buildCadReshapeHandoff(input: {
   layer?: number;
   totalLayers?: number;
   printerId?: PrinterId;
+  previousCode?: string;
+  stumpCutPlaneBoundsMm?: StumpCutPlaneBoundsMm;
+  layerHeightMm?: number;
 }): CadReshapeHandoff {
   const printerId = input.printerId ?? defaultPrinter().id;
+  const previousCode = input.previousCode?.trim() ? input.previousCode : undefined;
+  const stumpCutPlaneBoundsMm = isStumpCutPlaneBoundsMm(input.stumpCutPlaneBoundsMm)
+    ? {
+        minX: input.stumpCutPlaneBoundsMm.minX,
+        minY: input.stumpCutPlaneBoundsMm.minY,
+        maxX: input.stumpCutPlaneBoundsMm.maxX,
+        maxY: input.stumpCutPlaneBoundsMm.maxY,
+      }
+    : undefined;
+  const layerHeightMm =
+    input.layerHeightMm != null && Number.isFinite(input.layerHeightMm) && input.layerHeightMm > 0
+      ? input.layerHeightMm
+      : undefined;
   return {
     owner: "allos-cad-core",
     from: "allos-print-control",
@@ -105,6 +148,9 @@ export function buildCadReshapeHandoff(input: {
     totalLayers: input.totalLayers,
     printerId,
     suggestedNextStep: suggestedCadNextStep(input.currentZ, input.remainingHeightMm),
+    ...(previousCode ? { previousCode } : {}),
+    ...(stumpCutPlaneBoundsMm ? { stumpCutPlaneBoundsMm } : {}),
+    ...(layerHeightMm != null ? { layerHeightMm } : {}),
   };
 }
 

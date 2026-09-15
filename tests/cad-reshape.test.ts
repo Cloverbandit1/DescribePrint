@@ -8,6 +8,7 @@ import {
   reshapeUpperNotes,
   reshapeUpperSystemPrompt,
   runCadReshapeUpper,
+  stumpFootprintFromCutPlaneBounds,
 } from "@/lib/cad-reshape";
 import { compileOpenScad } from "@/lib/compile";
 import { CAD_RESHAPE_INSTRUCTION, buildCadReshapeHandoff, buildReslicePlanStub } from "@/lib/machine/reshape-plan";
@@ -79,12 +80,44 @@ describe("parseCadReshapeHandoff", () => {
       ...exampleHandoff(),
       autoResume: true,
       sendGcode: true,
-      layerHeightMm: 0.2,
     });
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     expect(parsed.handoff).not.toHaveProperty("autoResume");
     expect(parsed.handoff).not.toHaveProperty("sendGcode");
+  });
+
+  it("keeps optional previousCode, stumpCutPlaneBoundsMm, and layerHeightMm", () => {
+    const parsed = parseCadReshapeHandoff({
+      ...exampleHandoff(),
+      previousCode: "size = 30;\nhole_d = 6;\ncube(size);",
+      stumpCutPlaneBoundsMm: { minX: -5, minY: 0, maxX: 35, maxY: 12 },
+      layerHeightMm: 0.2,
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.handoff.previousCode).toContain("size = 30");
+    expect(parsed.handoff.stumpCutPlaneBoundsMm).toEqual({ minX: -5, minY: 0, maxX: 35, maxY: 12 });
+    expect(parsed.handoff.layerHeightMm).toBeCloseTo(0.2);
+  });
+
+  it("rejects invalid stumpCutPlaneBoundsMm or layerHeightMm", () => {
+    expect(
+      parseCadReshapeHandoff({
+        ...exampleHandoff(),
+        stumpCutPlaneBoundsMm: { minX: 10, minY: 0, maxX: 10, maxY: 12 },
+      }).ok,
+    ).toBe(false);
+    expect(parseCadReshapeHandoff({ ...exampleHandoff(), layerHeightMm: 0 }).ok).toBe(false);
+    expect(parseCadReshapeHandoff({ ...exampleHandoff(), previousCode: 12 }).ok).toBe(false);
+  });
+
+  it("omits optional fields when they are absent", () => {
+    const parsed = parseCadReshapeHandoff(exampleHandoff());
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.handoff).not.toHaveProperty("previousCode");
+    expect(parsed.handoff).not.toHaveProperty("stumpCutPlaneBoundsMm");
     expect(parsed.handoff).not.toHaveProperty("layerHeightMm");
   });
 
@@ -135,9 +168,34 @@ describe("reshape-upper fixture", () => {
   it("refuses to invent remaining height when the handoff height is missing", () => {
     expect(() =>
       reshapeUpperFixtureScad({
-        handoff: { ...exampleHandoff(), remainingHeightMm: null },
+        handoff: { ...exampleHandoff(), remainingHeightMm: null, remainingLayers: 28, layerHeightMm: 0.2 },
       }),
-    ).toThrow(/layerHeightMm/i);
+    ).toThrow(/remainingLayers alone/i);
+  });
+
+  it("prefers stumpCutPlaneBoundsMm over last-part XY inference", () => {
+    const footprint = inferStumpFootprintMm({
+      previousCode: "size = 20;\nhole_d = 5;\n",
+      stumpCutPlaneBoundsMm: { minX: 0, minY: 2, maxX: 40, maxY: 14 },
+    });
+    expect(footprint.x).toBeCloseTo(40);
+    expect(footprint.y).toBeCloseTo(12);
+    expect(footprint.holeMm).toBe(5);
+    expect(stumpFootprintFromCutPlaneBounds({ minX: 1, minY: 1, maxX: 9, maxY: 4 })).toEqual({ x: 8, y: 3 });
+  });
+
+  it("uses handoff previousCode and cut-plane bounds in the fixture", () => {
+    const code = reshapeUpperFixtureScad({
+      handoff: {
+        ...exampleHandoff(),
+        previousCode: "size = 30;\nhole_d = 6;\ncube(size);",
+        stumpCutPlaneBoundsMm: { minX: 0, minY: 0, maxX: 40, maxY: 15 },
+      },
+      previousCode: "size = 20;\nhole_d = 5;\ncube(size);",
+    });
+    expect(code).toMatch(/size_x = 40/);
+    expect(code).toMatch(/size_y = 15/);
+    expect(code).toMatch(/hole_d = 6/);
   });
 
   it("states the printed-plastic limit in user notes", () => {
@@ -192,6 +250,40 @@ describe("runCadReshapeUpper + generate pipeline", () => {
     expect(result.resliceFeed.cad.sitOnCutPlane).toBe(true);
     expect(result.resliceFeed.cad.stlUrl).toBe(result.stlUrl);
     expect(mockedCompile).toHaveBeenCalledTimes(1);
+  });
+
+  it("prefers optional handoff fields and still refuses inventing remaining height", async () => {
+    mockedCompile.mockResolvedValue(compileOk());
+    const handoff = buildCadReshapeHandoff({
+      currentZ: 2.4,
+      remainingHeightMm: 5.6,
+      remainingLayers: 28,
+      previousCode: "size = 30;\nhole_d = 6;\ncube(size);",
+      stumpCutPlaneBoundsMm: { minX: 0, minY: 0, maxX: 40, maxY: 15 },
+      layerHeightMm: 0.2,
+    });
+    const result = await runCadReshapeUpper({
+      handoff,
+      prompt: "keep the hole",
+      previousCode: "size = 20;\nhole_d = 5;\ncube(size);",
+      fixture: true,
+    });
+    expect(result.code).toMatch(/size_x = 40/);
+    expect(result.code).toMatch(/size_y = 15/);
+    expect(result.code).toMatch(/hole_d = 6/);
+    expect(result.cadHandoff.previousCode).toContain("size = 30");
+    expect(result.cadHandoff.stumpCutPlaneBoundsMm).toEqual({ minX: 0, minY: 0, maxX: 40, maxY: 15 });
+    expect(result.cadHandoff.layerHeightMm).toBeCloseTo(0.2);
+    expect(result.notes.join(" ")).toMatch(/stumpCutPlaneBoundsMm/);
+    expect(result.notes.join(" ")).toMatch(/previousCode/);
+    expect(result.notes.join(" ")).toMatch(/layerHeightMm/);
+
+    await expect(
+      runCadReshapeUpper({
+        handoff: { ...handoff, remainingHeightMm: null },
+        fixture: true,
+      }),
+    ).rejects.toThrow(/remainingLayers alone/i);
   });
 
   it("routes POST-style generate through the CAD handoff without touching image-import", async () => {

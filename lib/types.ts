@@ -1,9 +1,9 @@
 import type { MachineDesignation } from "./alternate-machines";
 import type { ColorRegion } from "./color-regions";
-import type { CadReshapeHandoff } from "./machine/reshape-plan";
+import type { CadReshapeHandoff, StumpCutPlaneBoundsMm } from "./machine/reshape-plan";
 
 export type { ColorRegion, MachineDesignation };
-export type { CadReshapeHandoff };
+export type { CadReshapeHandoff, StumpCutPlaneBoundsMm };
 
 export type ImageRasterFormat = "png" | "jpeg" | "webp";
 

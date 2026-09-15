@@ -277,4 +277,4 @@ export async function maybeEmergencyReshapeRemaining(opts: {
 }
 
 export { RESUME_IS_MANUAL, LATER_OPTION as RESHAPE_LATER_OPTION };
-export type { CadReshapeHandoff, EmergencyRemainingReshapePlan, ReslicePlanStub } from "./reshape-plan";
+export type { CadReshapeHandoff, EmergencyRemainingReshapePlan, ReslicePlanStub, StumpCutPlaneBoundsMm } from "./reshape-plan";

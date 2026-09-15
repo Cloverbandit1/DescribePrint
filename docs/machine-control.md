@@ -162,6 +162,9 @@ For Bella / CAD Core. Print Control emits this; CAD Core consumes it later.
 | `currentZ` | Already-printed stump height |
 | `remainingHeightMm` / `remainingLayers` | Unprinted remainder |
 | `suggestedNextStep` | New OpenSCAD/mesh for the unprinted region only |
+| `previousCode` | Optional original-part OpenSCAD when Print Control already has it |
+| `stumpCutPlaneBoundsMm` | Optional stump XY bounds at the cut plane (`{ minX, minY, maxX, maxY }` mm) |
+| `layerHeightMm` | Optional layer height (mm). CAD still will not invent `remainingHeightMm` from `remainingLayers` alone |
 
 Do **not** generate that mesh in Print Control.
 
@@ -174,7 +177,7 @@ await runCadReshapeUpper({ handoff, prompt, previousCode, fixture: true });
 
 Or `POST /api/generate` with `{ prompt, cadHandoff, previousCode?, fixture? }`. After an attempted emergency reshape, the next CAD chat turn sends `cadHandoff` from the doctor plan. The result is the remaining upper only (sits on the cut plane). `cadFeedForReslice` attaches `jobId` / STL / 3MF URLs onto the existing reslice stub (`sendGcode: false`). Resume stays manual.
 
-`CadReshapeHandoff` still has no `previousCode`, stump XY, or `layerHeightMm`. CAD infers footprint from the last part when present, and refuses to invent remaining height from `remainingLayers` alone.
+When present, CAD prefers `previousCode`, `stumpCutPlaneBoundsMm`, and `layerHeightMm` from the handoff. XY still falls back to the last part when cut-plane bounds are absent. CAD still refuses to invent `remainingHeightMm` from `remainingLayers` alone, even if `layerHeightMm` is set.
 
 ## Profile facts (P2S)
 

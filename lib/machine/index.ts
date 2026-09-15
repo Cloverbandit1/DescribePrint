@@ -127,9 +127,11 @@ export {
   type CadReshapeHandoff,
   type EmergencyRemainingReshapePlan,
   type ReslicePlanStub,
+  type StumpCutPlaneBoundsMm,
 } from "./reshape";
 export {
   CAD_RESHAPE_INSTRUCTION,
   buildCadReshapeHandoff,
   buildReslicePlanStub,
+  isStumpCutPlaneBoundsMm,
 } from "./reshape-plan";

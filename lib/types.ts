@@ -85,7 +85,10 @@ export type Mesh = {
  *
  * Product roadmap after V0 (README; do not implement here):
  * 1. wearable/cosplay sizing  2. raised etchings/emboss  3. articulated assemblies
+ * 4. print doctor (defect description → diagnose for selected printer/material,
+ *    default P2S → propose/auto-apply settings → still-bad vs perfect feedback)
  * All stay in-app; users never need Blender or another DCC afterward.
+ * V0 stays describe → CAD → STL/3MF.
  *
  * Default printer: Bambu Lab P2S (see lib/printers.ts). In-app printer/settings
  * UI and full Bambu/Orca slice are later; V0 still exports STL/3MF.

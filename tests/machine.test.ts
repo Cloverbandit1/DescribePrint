@@ -155,6 +155,7 @@ describe("remaining-layer reshape planner stub", () => {
     expect(plan.askCad).toBe(true);
     expect(plan.remainingHeightMm).toBeCloseTo(5.6);
     expect(plan.remainingLayers).toBe(28);
+    expect(plan.currentZ).toBeCloseTo(2.4);
     expect(plan.message).toMatch(/Ask CAD/);
   });
 

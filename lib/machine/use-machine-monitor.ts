@@ -15,6 +15,11 @@ import {
   parseCameraStubPref,
   serializeCameraStubPref,
 } from "./camera";
+import {
+  MACHINE_RESHAPE_STORAGE_KEY,
+  parseReshapeRemainingPref,
+  serializeReshapeRemainingPref,
+} from "./reshape";
 import { credentialsComplete } from "./session";
 import type { MidPrintCommand } from "./types";
 
@@ -63,9 +68,28 @@ function writeCameraStubPref(enabled: boolean): void {
   }
 }
 
+function readReshapeRemainingPref(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return parseReshapeRemainingPref(window.localStorage.getItem(MACHINE_RESHAPE_STORAGE_KEY));
+  } catch {
+    return false;
+  }
+}
+
+function writeReshapeRemainingPref(enabled: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(MACHINE_RESHAPE_STORAGE_KEY, serializeReshapeRemainingPref(enabled));
+  } catch {
+    // Private mode / quota — keep in-memory pref only.
+  }
+}
+
 export function useMachineMonitor() {
   const [prefs, setPrefs] = useState<MachineLanPrefs>(defaultMachineLanPrefs);
   const [cameraStubPref, setCameraStubPref] = useState(false);
+  const [reshapeRemainingPref, setReshapeRemainingPref] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [machine, setMachine] = useState<MachineApiResponse | null>(null);
   const [busy, setBusy] = useState(false);
@@ -73,6 +97,8 @@ export function useMachineMonitor() {
   prefsRef.current = prefs;
   const cameraStubPrefRef = useRef(cameraStubPref);
   cameraStubPrefRef.current = cameraStubPref;
+  const reshapeRemainingPrefRef = useRef(reshapeRemainingPref);
+  reshapeRemainingPrefRef.current = reshapeRemainingPref;
 
   useEffect(() => {
     const stored = readStoredPrefs();
@@ -83,6 +109,7 @@ export function useMachineMonitor() {
       return stored;
     });
     setCameraStubPref(readCameraStubPref());
+    setReshapeRemainingPref(readReshapeRemainingPref());
     setHydrated(true);
   }, []);
 
@@ -96,6 +123,11 @@ export function useMachineMonitor() {
     writeCameraStubPref(cameraStubPref);
   }, [hydrated, cameraStubPref]);
 
+  useEffect(() => {
+    if (!hydrated) return;
+    writeReshapeRemainingPref(reshapeRemainingPref);
+  }, [hydrated, reshapeRemainingPref]);
+
   const configure = useCallback(async (next: MachineLanPrefs) => {
     const response = await fetch("/api/machine", {
       method: "POST",
@@ -108,6 +140,7 @@ export function useMachineMonitor() {
           accessCode: next.accessCode,
         },
         cameraStub: cameraStubPrefRef.current,
+        reshapeRemaining: reshapeRemainingPrefRef.current,
       }),
     });
     const data = await readMachineResponse(response);
@@ -120,7 +153,10 @@ export function useMachineMonitor() {
       await configure(current);
       return;
     }
-    const response = await fetch(machineMonitorPollPath(cameraStubPrefRef.current), { cache: "no-store" });
+    const response = await fetch(
+      machineMonitorPollPath(cameraStubPrefRef.current, reshapeRemainingPrefRef.current),
+      { cache: "no-store" },
+    );
     if (!response.ok) return;
     const data = await readMachineResponse(response);
     if (data) setMachine(data);
@@ -139,7 +175,7 @@ export function useMachineMonitor() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [hydrated, prefs, cameraStubPref, configure, poll]);
+  }, [hydrated, prefs, cameraStubPref, reshapeRemainingPref, configure, poll]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -191,5 +227,7 @@ export function useMachineMonitor() {
     sendCommand,
     cameraStubPref,
     setCameraStubPref,
+    reshapeRemainingPref,
+    setReshapeRemainingPref,
   };
 }

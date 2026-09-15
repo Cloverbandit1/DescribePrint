@@ -5,6 +5,8 @@ export type MachineUiSession = {
   credentials: MachineCredentials;
   /** Machine-panel Camera stub checkbox. Independent of LAN. */
   cameraStub: boolean;
+  /** Machine-panel Reshape remaining checkbox. Independent of LAN. */
+  reshapeRemaining: boolean;
 };
 
 function emptyCredentials(): MachineCredentials {
@@ -12,7 +14,7 @@ function emptyCredentials(): MachineCredentials {
 }
 
 function emptySession(): MachineUiSession {
-  return { enabled: false, credentials: emptyCredentials(), cameraStub: false };
+  return { enabled: false, credentials: emptyCredentials(), cameraStub: false, reshapeRemaining: false };
 }
 
 let session: MachineUiSession = emptySession();
@@ -25,6 +27,7 @@ export function getMachineUiSession(): MachineUiSession {
   return {
     enabled: session.enabled,
     cameraStub: session.cameraStub,
+    reshapeRemaining: session.reshapeRemaining,
     credentials: { ...session.credentials },
   };
 }
@@ -33,6 +36,7 @@ export function setMachineUiSession(next: {
   enabled?: boolean;
   credentials?: Partial<MachineCredentials>;
   cameraStub?: boolean;
+  reshapeRemaining?: boolean;
 }): MachineUiSession {
   const credentials = {
     host: next.credentials?.host ?? session.credentials.host,
@@ -42,6 +46,7 @@ export function setMachineUiSession(next: {
   session = {
     enabled: next.enabled ?? session.enabled,
     cameraStub: next.cameraStub ?? session.cameraStub,
+    reshapeRemaining: next.reshapeRemaining ?? session.reshapeRemaining,
     credentials: {
       host: typeof credentials.host === "string" ? credentials.host.trim() : "",
       serial: typeof credentials.serial === "string" ? credentials.serial.trim() : "",

@@ -2,6 +2,8 @@ import type { PrintDoctorResult } from "../print-doctor";
 import type { AmsAutofixResult } from "./ams-autofix";
 import type { CameraDetectReport } from "./camera";
 import { parseCameraStubPref } from "./camera";
+import type { EmergencyRemainingReshapePlan } from "./reshape-plan";
+import { parseReshapeRemainingPref } from "./reshape";
 import type { CommandResult, LiveMachineStatus, MachineCredentials, MidPrintCommand } from "./types";
 import type { MachineLanSource } from "./config";
 
@@ -15,10 +17,12 @@ export type MachineApiResponse = {
   serial?: string;
   cameraStub: boolean;
   amsAutofix: boolean;
+  reshapeRemaining: boolean;
   status: LiveMachineStatus;
   lastCommand?: CommandResult;
   diagnosis?: PrintDoctorResult;
   lastAutofix?: AmsAutofixResult;
+  lastReshape?: EmergencyRemainingReshapePlan;
   /** Present only when the camera stub is on (env or checkbox). One detect per poll. */
   cameraDetect?: CameraDetectReport;
 };
@@ -27,6 +31,7 @@ export type MachineConfigureRequest = {
   lan: boolean;
   credentials: MachineCredentials;
   cameraStub?: boolean;
+  reshapeRemaining?: boolean;
 };
 
 export function parseMidPrintCommand(value: unknown): MidPrintCommand | null {
@@ -58,14 +63,17 @@ export function parseMidPrintCommand(value: unknown): MidPrintCommand | null {
   }
 }
 
-export function parsePrintDoctorBody(value: unknown): { complaint: string; slot?: number } | null {
+export function parsePrintDoctorBody(
+  value: unknown,
+): { complaint: string; slot?: number; reshapeRemaining?: boolean } | null {
   if (!value || typeof value !== "object") return null;
-  const row = value as { complaint?: unknown; slot?: unknown; autofix?: unknown };
+  const row = value as { complaint?: unknown; slot?: unknown; autofix?: unknown; reshapeRemaining?: unknown };
   const complaint = typeof row.complaint === "string" ? row.complaint.trim() : "";
   if (!complaint && row.autofix !== true && row.autofix !== "ams-feed-loop") return null;
   const slotRaw = Number(row.slot);
   const slot = Number.isInteger(slotRaw) && slotRaw >= 1 && slotRaw <= 20 ? slotRaw : undefined;
-  return { complaint, slot };
+  const reshapeRemaining = parseReshapeRemainingFromBody(row);
+  return { complaint, slot, ...(reshapeRemaining !== undefined ? { reshapeRemaining } : {}) };
 }
 
 function readCredentialField(value: unknown): string {
@@ -96,6 +104,7 @@ export function parseMachineConfigure(value: unknown): MachineConfigureRequest |
       ? (body.credentials as Record<string, unknown>)
       : {};
   const cameraStub = parseCameraStubFromBody(body);
+  const reshapeRemaining = parseReshapeRemainingFromBody(body);
   return {
     lan: body.lan,
     credentials: {
@@ -104,7 +113,23 @@ export function parseMachineConfigure(value: unknown): MachineConfigureRequest |
       accessCode: readCredentialField(row.accessCode),
     },
     ...(cameraStub !== undefined ? { cameraStub } : {}),
+    ...(reshapeRemaining !== undefined ? { reshapeRemaining } : {}),
   };
+}
+
+export function parseReshapeRemainingFromBody(value: unknown): boolean | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const row = value as { reshapeRemaining?: unknown };
+  if (typeof row.reshapeRemaining === "boolean") return row.reshapeRemaining;
+  if (typeof row.reshapeRemaining === "string") return parseReshapeRemainingPref(row.reshapeRemaining);
+  return undefined;
+}
+
+export function parseReshapeRemainingFromRequest(request?: Request): boolean | undefined {
+  if (!request) return undefined;
+  const url = new URL(request.url);
+  if (!url.searchParams.has("reshapeRemaining")) return undefined;
+  return parseReshapeRemainingPref(url.searchParams.get("reshapeRemaining"));
 }
 
 export function commandFromBody(body: unknown): MidPrintCommand | null {

@@ -150,6 +150,7 @@ export function isCameraDetectEnabled(
   return isCameraStubEnabled(env) || sessionCameraStub === true;
 }
 
-export function machineMonitorPollPath(cameraStub: boolean): string {
-  return `/api/machine?cameraStub=${cameraStub ? "1" : "0"}`;
+export function machineMonitorPollPath(cameraStub: boolean, reshapeRemaining = false): string {
+  const path = `/api/machine?cameraStub=${cameraStub ? "1" : "0"}`;
+  return reshapeRemaining ? `${path}&reshapeRemaining=1` : path;
 }

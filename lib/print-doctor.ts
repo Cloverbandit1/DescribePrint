@@ -1,3 +1,4 @@
+import type { EmergencyRemainingReshapePlan } from "./machine/reshape-plan";
 import {
   defaultPrinter,
   filamentPreset,
@@ -39,10 +40,36 @@ export type PrintDoctorResult = {
   fixes: PrintDoctorFix[];
   physicalSteps: string[];
   autofix?: PrintDoctorAutofix;
+  reshape?: EmergencyRemainingReshapePlan;
 };
 
 export function withAutofix(result: PrintDoctorResult, autofix: PrintDoctorAutofix): PrintDoctorResult {
   return { ...result, autofix };
+}
+
+export function withReshape(result: PrintDoctorResult, reshape: EmergencyRemainingReshapePlan): PrintDoctorResult {
+  return { ...result, reshape };
+}
+
+const EMERGENCY_RESHAPE_RE =
+  /\breshape\s+the\s+rest\b|\bemergency\s+reshape(?:\s+remaining(?:\s+layers)?)?\b|\breshape\s+remaining(?:\s+layers)?\b/i;
+
+const CAMERA_CONFIRM_RE = /\b(yes|confirm(?:ed)?|go ahead)\b/i;
+const CAMERA_TALK_RE = /\b(camera|suspected(?:\s+failure)?|failure)\b/i;
+
+export function looksLikeEmergencyReshape(text: string): boolean {
+  return EMERGENCY_RESHAPE_RE.test(text.trim());
+}
+
+/** Chat-first confirm of a camera suspected-failure, or an explicit reshape phrase. */
+export function isEmergencyReshapeRequest(text: string, detect?: { kind?: string }): boolean {
+  const cleaned = text.trim();
+  if (!cleaned) return false;
+  if (looksLikeEmergencyReshape(cleaned)) return true;
+  const confirm = CAMERA_CONFIRM_RE.test(cleaned);
+  if (!confirm) return false;
+  if (CAMERA_TALK_RE.test(cleaned)) return true;
+  return detect?.kind === "suspected-failure";
 }
 
 type DefectRule = {
@@ -53,6 +80,12 @@ type DefectRule = {
 };
 
 const DEFECT_RULES: DefectRule[] = [
+  {
+    id: "emergency-reshape",
+    title: "Emergency remaining-layer reshape",
+    re: EMERGENCY_RESHAPE_RE,
+    confidence: "high",
+  },
   {
     id: "ams-feed-loop",
     title: "AMS feed / unfeed loop",
@@ -145,7 +178,11 @@ const DOCTOR_HINT =
 export function looksLikePrintDoctorComplaint(text: string): boolean {
   const cleaned = text.trim();
   if (!cleaned) return false;
-  return DEFECT_RULES.some((rule) => rule.re.test(cleaned)) || DOCTOR_HINT.test(cleaned);
+  return (
+    DEFECT_RULES.some((rule) => rule.re.test(cleaned)) ||
+    DOCTOR_HINT.test(cleaned) ||
+    isEmergencyReshapeRequest(cleaned)
+  );
 }
 
 export function inferMaterial(text: string, fallback: FilamentId = "pla"): FilamentId {
@@ -277,6 +314,7 @@ function buildFixes(defectId: string, material: FilamentId): { fixes: PrintDocto
           "Pause or abort.",
           "Check for a crashed toolhead, loose belt, or a part that popped loose and was hit.",
           "Re-home and reprint; do not keep printing a shifted stack.",
+          "Emergency reshape of remaining layers is a later option (flag off by default).",
         ],
       };
     case "spaghetti":
@@ -285,7 +323,10 @@ function buildFixes(defectId: string, material: FilamentId): { fixes: PrintDocto
           physical("The part has left the plate. Remaining plastic is scrap."),
           setting("Pause or abort immediately.", "pause", "now", false),
         ],
-        steps: ["Pause/abort, clear the spaghetti, clean the plate, and fix first-layer adhesion before reprinting."],
+        steps: [
+          "Pause/abort, clear the spaghetti, clean the plate, and fix first-layer adhesion before reprinting.",
+          "Emergency reshape of remaining layers is a later option (flag off by default).",
+        ],
       };
     case "nozzle-scrape":
       return {
@@ -309,6 +350,19 @@ function buildFixes(defectId: string, material: FilamentId): { fixes: PrintDocto
           "Pause.",
           "Inspect the plate and find the part.",
           "Clean the plate and fix first-layer adhesion before reprinting.",
+        ],
+      };
+    case "emergency-reshape":
+      return {
+        fixes: [
+          physical("Pause, then redesign only the unprinted upper. Resume is manual — CAD Core owns the new mesh."),
+          setting("Pause now if a job is still running.", "pause", "now", false),
+        ],
+        steps: [
+          "Pause the live job.",
+          "Hand remaining height H and current Z to CAD Core — redesign unprinted upper above Z.",
+          "Reslice the new remainder for the P2S. Do not send gcode from this stub.",
+          "Resume is manual.",
         ],
       };
     case "wet-filament":
@@ -362,6 +416,8 @@ function diagnosisFor(defectId: string, material: FilamentId, amsSlot?: number):
       return "Suspected nozzle scrape. Pause and check z-offset / a crashed toolhead before reprinting.";
     case "empty-bed":
       return "The bed looks empty — the part may have come off. Pause and inspect the plate.";
+    case "emergency-reshape":
+      return "You asked to reshape the unprinted remainder. When RESHAPE_REMAINING is on, Print Control pauses and emits a CAD-handoff + reslice plan. Resume is manual. CAD Core owns the new mesh. When the flag is off this stays a later option — no pause and no live plan.";
     case "wet-filament":
       return "Popping or fuzzy walls usually mean moisture. Dry the spool before chasing more temperature changes.";
     default:

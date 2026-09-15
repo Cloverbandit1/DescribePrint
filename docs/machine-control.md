@@ -7,15 +7,15 @@ Default machine remains **Bambu Lab P2S** with one **AMS (4 slots)**.
 ## What this slice ships
 
 1. A richer P2S **profile** (volume, nozzles, AMS 4 slots, temp limits, PLA/PETG/ABS/TPU auto-best tables) in [`lib/printers.ts`](../lib/printers.ts).
-2. A **pluggable machine adapter** interface, a **mock** adapter, and typed stubs for live status, AMS slots, mid-print commands, 3MF→AMS mapping, and a remaining-layer reshape **planner** (ask CAD later — do not rewrite geometry here).
+2. A **pluggable machine adapter** interface, a **mock** adapter, and typed stubs for live status, AMS slots, mid-print commands, 3MF→AMS mapping, and a remaining-layer reshape **stub** (pause → CAD-handoff plan → reslice stub; never auto-resume).
 3. A **Print doctor** keyword/rule stub: plain-language defect or machine complaint → structured diagnosis + proposed setting or physical steps. No LLM and no LAN I/O.
-4. A **camera / failure-detect stub** (flag off by default) and **AMS feed-loop autofix** (flag off by default).
+4. A **camera / failure-detect stub** (flag off by default), **AMS feed-loop autofix** (flag off by default), and **emergency remaining-layer reshape** (flag off by default).
 
 The Print column shows a compact **Machine** panel. Everyday path: toggle **LAN MQTT**, enter IP / serial / LAN access code (saved in the browser). Off stays disconnected / mock. On with incomplete fields stays mock and shows a short hint — no crash. Env `BAMBU_LAN_MQTT=1` plus creds is a headless/dev override. Live P2S/AMS status and tiny pause/resume/speed/temp controls appear when connected. Chat can route a complaint to Print doctor **without** calling the CAD generate path. STL/3MF export still works with no printer.
 
 ## What this slice does not ship
 
-- Bambu Cloud, a real camera stream, send-to-printer FTPS, or remaining-layer CAD reshape
+- Bambu Cloud, a real camera stream, send-to-printer FTPS, or remaining-layer CAD mesh generation (Print Control emits a CAD-handoff plan only)
 - Changes to Ollama host/port or Agent Smith models
 - M1 Desktop Pack files (`Start-DescribePrint.cmd`, `scripts/windows/`, `packaging/windows/`, `/api/health`, OpenSCAD path discovery)
 
@@ -41,10 +41,10 @@ MachineAdapter (interface)
         MidPrintCommand  (pause / resume / speed / temp / AMS stop-feed + retry-load)
                  │
                  ▼
-        remaining-layer reshape planner (stub)
+        remaining-layer reshape stub (RESHAPE_REMAINING, default OFF)
                  │
                  ▼
-        “pause now / remaining height H / ask CAD to restyle”
+        pause → CAD-handoff plan → reslice stub (never resume)
 ```
 
 ### Pluggable adapter
@@ -133,15 +133,37 @@ V0 3MF export is still single-material. The mapper is the hook for multi-filamen
 
 `pause`, `resume`, `set-speed`, `set-nozzle-temp`, `set-bed-temp` are typed commands. **Risky** commands (nozzle/bed temp while printing) must **pause first**. Mock and `bambu-lan` both enforce that. Safe commands do not pause.
 
-### Remaining-layer reshape (planner stub only)
+### Remaining-layer reshape (flagged stub, default OFF)
 
-[`lib/machine/reshape.ts`](../lib/machine/reshape.ts) can say:
+Chat-first: “reshape the rest”, “emergency reshape remaining layers”, or a **confirmed** camera suspected-failure. Off unless `RESHAPE_REMAINING=1` **or** the Machine-panel **Reshape remaining** checkbox is on (also off by default; saved in `localStorage`).
 
-- pause now
-- remaining height H (and remaining layers when known)
-- ask CAD Core to restyle only the unprinted remainder
+When **on**:
 
-It does **not** edit OpenSCAD, STL, or 3MF. Geometry reshape belongs to CAD Core.
+1. Safe **pause** the live adapter (or record pause-needed on a disconnected mock). **Never resume.**
+2. Read live layer / height remaining. The mock can `injectRemainingHeight({ layer, totalLayers, remainingHeightMm })`.
+3. Emit a reshape **plan** (not CAD): remaining height H, current Z, pause confirmed, “redesign unprinted upper above Z”.
+4. Include a typed **CAD Core handoff** ([`lib/machine/reshape-plan.ts`](../lib/machine/reshape-plan.ts) — `CadReshapeHandoff`) and a **reslice stub** (P2S profile, AMS mapping, `sendGcode: false`).
+5. Show the compact plan in chat + Machine panel with **Resume is manual**.
+
+When **off**, Print doctor may still mention reshape as a later option (spaghetti / layer-shift / the reshape phrase). It must **not** pause or emit a live plan (`remainingHeightMm` / `currentZ` / CAD handoff stay empty).
+
+[`lib/machine/reshape.ts`](../lib/machine/reshape.ts) is the orchestrator. Geometry still belongs to Allos CAD Core — this slice does not rewrite OpenSCAD, STL, or 3MF, and does not send gcode.
+
+#### CAD Core handoff (`CadReshapeHandoff`)
+
+For Bella / CAD Core. Print Control emits this; CAD Core consumes it later.
+
+| Field | Meaning |
+| --- | --- |
+| `owner` | `"allos-cad-core"` |
+| `from` | `"allos-print-control"` |
+| `kind` | `"redesign-unprinted-upper"` |
+| `instruction` | `"redesign unprinted upper above Z"` |
+| `currentZ` | Already-printed stump height |
+| `remainingHeightMm` / `remainingLayers` | Unprinted remainder |
+| `suggestedNextStep` | New OpenSCAD/mesh for the unprinted region only |
+
+Do **not** generate that mesh in Print Control.
 
 ## Profile facts (P2S)
 
@@ -159,7 +181,7 @@ Taken from Bambu’s published P2S specs / FAQ (see sources below):
 
 ## Tests
 
-`npm test` must pass **without** a physical printer. Coverage targets: profile tables, doctor diagnoses, AMS mapping, pause-before-risky, mock connection state machine, flag off = mock, UI toggle + incomplete creds = mock + hint, UI toggle + complete creds selects `bambu-lan` without setting the env flag, env override still works, live adapter + fake/unhealthy endpoint fails safe without leaking secrets, camera stub `detectFailure` (stub only), live poll + detect (flag off = no detect; flag on + mock `none` = `camera: ok`; injected spaghetti / scrape / empty-bed surfaces on the panel and doctor without auto-pause), AMS autofix flag off (no commands) vs flag on (pause then autofix or physical steps).
+`npm test` must pass **without** a physical printer. Coverage targets: profile tables, doctor diagnoses, AMS mapping, pause-before-risky, mock connection state machine, flag off = mock, UI toggle + incomplete creds = mock + hint, UI toggle + complete creds selects `bambu-lan` without setting the env flag, env override still works, live adapter + fake/unhealthy endpoint fails safe without leaking secrets, camera stub `detectFailure` (stub only), live poll + detect (flag off = no detect; flag on + mock `none` = `camera: ok`; injected spaghetti / scrape / empty-bed surfaces on the panel and doctor without auto-pause), AMS autofix flag off (no commands) vs flag on (pause then autofix or physical steps), remaining-layer reshape flag off (no pause, no live plan) vs flag on + injected remaining height (pause + plan, no resume, `remainingHeightMm` / `currentZ` present).
 
 ## Sources
 

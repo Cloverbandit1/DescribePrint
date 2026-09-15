@@ -44,6 +44,8 @@ export type LiveMachineStatus = {
   progressPercent?: number;
   currentHeightMm?: number;
   objectHeightMm?: number;
+  /** Injected or derived unprinted height. Mock tests can set this directly. */
+  remainingHeightMm?: number;
   speedPercent?: number;
   amsSlots: AmsSlotStatus[];
   /** Live AMS hopper / feed-loop hint when the report exposes it. */
@@ -98,6 +100,8 @@ export type RemainingLayerReshapePlan = {
   action: ReshapeAction;
   remainingHeightMm: number | null;
   remainingLayers: number | null;
+  /** Already-printed stump height (current Z). */
+  currentZ?: number | null;
   askCad: boolean;
   message: string;
 };

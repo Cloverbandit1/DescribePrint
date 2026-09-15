@@ -219,6 +219,7 @@ Approved. Do **not** implement these in the current V0 / layout work. They come 
 14. **Design exceeds current printer** — If a design cannot print on the current machine: suggest how to accomplish it, list other machines that can handle it, and let the user save/export to a user-designated machine.
 15. **Complex builds** — For large projects (e.g. a home drone): a simple step-by-step how-to, sourcing links on demand, and alternative build paths.
 16. **Continuous knowledge updates** — Keep knowledge current for **new characters** and **real-world tech** (materials, machines, techniques).
+17. **Live print monitor + mid-print adjust** — Watch the **Bambu Lab P2S** (and later any machine) live camera/status during a print. Detect failures (spaghetti, layer shift, AMS feed issues, under-extrusion). Intervene mid-print via machine APIs (pause, slow, temp/flow tweaks when supported, AMS fault clear, abort + queue a corrected reprint). Explain simply what was seen and what changed. Ties to **Print doctor**, **digital twin**, and **pluggable machine control**. Model geometry cannot be reshaped mid-layer; intervention is control, settings, or abort + fix.
 
 ## Extension points (later)
 

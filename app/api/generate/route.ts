@@ -2,7 +2,7 @@ import { runGeneratePipeline } from "@/lib/pipeline";
 import type { GenerateRequest, StatusEvent } from "@/lib/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 function sseLine(event: string, data: unknown): string {

@@ -2,8 +2,17 @@ import { checkMesh, hasHardMeshFailure } from "./mesh-check";
 import { compileOpenScad, withTempDir } from "./compile";
 import { createJob, toGenerateResult } from "./jobs";
 import { defaultFixture, matchConversationFixture, matchFixture, shouldUseFixture } from "./fixtures";
-import { getLlmConfig, isLocalOpenAiBaseUrl } from "./llm-config";
-import { buildUserPrompt, completeChat, systemPrompt, toUserFacingLlmError } from "./llm";
+import { getLlmConfig, getPlanModel, isLocalOpenAiBaseUrl, isSmartPipelineEnabled } from "./llm-config";
+import {
+  buildPlanPrompt,
+  buildUserPrompt,
+  completeChat,
+  parseCadPlan,
+  planSystemPrompt,
+  systemPrompt,
+  toUserFacingLlmError,
+  type CadPlan,
+} from "./llm";
 import { sanitizeOpenScad } from "./sanitize";
 import { parseStl } from "./stl";
 import { meshTo3mf } from "./threemf";
@@ -12,12 +21,48 @@ import type { GenerateRequest, GenerateResult, StatusEvent } from "./types";
 
 export type StatusSink = (event: StatusEvent) => void;
 
+/** First compile plus this many smart repair attempts. */
+export const MAX_COMPILE_RETRIES = 2;
+export const MAX_COMPILE_ATTEMPTS = 1 + MAX_COMPILE_RETRIES;
+
 function emit(sink: StatusSink | undefined, event: StatusEvent) {
   sink?.(event);
 }
 
-async function codeFromLlm(request: GenerateRequest, previous?: { code: string; error: string }): Promise<string> {
-  const sizeNote = describeSizeHint(request.sizeHint, request.units ?? "mm");
+function requestSizeNote(request: GenerateRequest): string {
+  return describeSizeHint(request.sizeHint, request.units ?? "mm");
+}
+
+async function planFromLlm(request: GenerateRequest): Promise<CadPlan | null> {
+  const sizeNote = requestSizeNote(request);
+  try {
+    const raw = await completeChat(
+      [
+        { role: "system", content: planSystemPrompt() },
+        {
+          role: "user",
+          content: buildPlanPrompt({
+            prompt: request.prompt,
+            sizeNote,
+            previousCode: request.previousCode ?? undefined,
+            previousPrompt: request.previousPrompt ?? undefined,
+          }),
+        },
+      ],
+      { model: getPlanModel(), temperature: 0.1 },
+    );
+    return parseCadPlan(raw);
+  } catch (err) {
+    throw toUserFacingLlmError(err);
+  }
+}
+
+async function codeFromLlm(
+  request: GenerateRequest,
+  previous?: { code: string; error: string },
+  plan?: CadPlan | null,
+): Promise<string> {
+  const sizeNote = requestSizeNote(request);
   try {
     return await completeChat([
       { role: "system", content: systemPrompt() },
@@ -29,6 +74,7 @@ async function codeFromLlm(request: GenerateRequest, previous?: { code: string; 
           previousCode: previous?.code ?? request.previousCode ?? undefined,
           previousError: previous?.error,
           previousPrompt: request.previousPrompt ?? undefined,
+          plan,
         }),
       },
     ]);
@@ -85,6 +131,7 @@ export async function runGeneratePipeline(
   const usedFixture = useFixture;
   let retried = false;
   let code = "";
+  let plan: CadPlan | null = null;
 
   emit(sink, { step: "planning", message: "Understanding your description…" });
 
@@ -93,11 +140,25 @@ export async function runGeneratePipeline(
     code = codeFromFixture(request).code;
   } else {
     const local = isLocalOpenAiBaseUrl(getLlmConfig().baseUrl);
-    emit(sink, {
-      step: "codegen",
-      message: local ? "Asking local AI for OpenSCAD…" : "Asking the model for OpenSCAD…",
-    });
-    code = await codeFromLlm(request);
+    if (isSmartPipelineEnabled()) {
+      emit(sink, {
+        step: "planning",
+        message: "Planning printable features and dimensions…",
+      });
+      plan = await planFromLlm(request);
+      emit(sink, {
+        step: "codegen",
+        message: local
+          ? "Asking local AI for OpenSCAD from the plan…"
+          : "Asking the model for OpenSCAD from the plan…",
+      });
+    } else {
+      emit(sink, {
+        step: "codegen",
+        message: local ? "Asking local AI for OpenSCAD…" : "Asking the model for OpenSCAD…",
+      });
+    }
+    code = await codeFromLlm(request, undefined, plan);
   }
 
   const attempt = async (source: string, attemptNo: number) => {
@@ -114,22 +175,29 @@ export async function runGeneratePipeline(
     return { code: sanitized.code, ...artifacts };
   };
 
-  let artifacts: Awaited<ReturnType<typeof attempt>>;
-  try {
-    artifacts = await attempt(code, 1);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (useFixture) {
-      throw err;
+  let artifacts: Awaited<ReturnType<typeof attempt>> | undefined;
+  let lastCode = code;
+  for (let attemptNo = 1; attemptNo <= MAX_COMPILE_ATTEMPTS; attemptNo++) {
+    try {
+      artifacts = await attempt(lastCode, attemptNo);
+      break;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (useFixture || attemptNo === MAX_COMPILE_ATTEMPTS) {
+        throw err;
+      }
+      retried = true;
+      emit(sink, {
+        step: "retry",
+        message: `Compile failed — retrying with compiler feedback (${attemptNo + 1}/${MAX_COMPILE_ATTEMPTS})…`,
+        attempt: attemptNo + 1,
+      });
+      lastCode = await codeFromLlm(request, { code: lastCode, error: message }, plan);
     }
-    retried = true;
-    emit(sink, {
-      step: "retry",
-      message: "First attempt failed — retrying once with compiler feedback…",
-      attempt: 2,
-    });
-    const retryCode = await codeFromLlm(request, { code, error: message });
-    artifacts = await attempt(retryCode, 2);
+  }
+
+  if (!artifacts) {
+    throw new Error("Generation failed");
   }
 
   const job = createJob({

@@ -1,5 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildUserPrompt, completeChat, LOCAL_AI_START_MESSAGE, toUserFacingLlmError } from "@/lib/llm";
+import {
+  buildPlanPrompt,
+  buildRepairPrompt,
+  buildUserPrompt,
+  classifyCompileIssue,
+  completeChat,
+  LOCAL_AI_START_MESSAGE,
+  parseCadPlan,
+  planSystemPrompt,
+  REPAIR_INSTRUCTIONS,
+  systemPrompt,
+  toUserFacingLlmError,
+} from "@/lib/llm";
 import { DEFAULT_MODEL, DEFAULT_OPENAI_BASE_URL, getLlmConfig } from "@/lib/llm-config";
 
 const TRACKED = ["OPENAI_API_KEY", "OPENAI_BASE_URL", "MODEL"] as const;
@@ -45,6 +57,92 @@ describe("LLM prompt", () => {
     expect(prompt).toContain("cube(20);");
     expect(prompt).toContain("20mm cube with 5mm hole");
   });
+
+  it("strengthens the CAD system prompt for printable engineering", () => {
+    const prompt = systemPrompt();
+    expect(prompt).toMatch(/1 unit = 1 mm/i);
+    expect(prompt).toMatch(/manifold/i);
+    expect(prompt).toMatch(/wall thickness/i);
+    expect(prompt).toMatch(/clearance/i);
+    expect(prompt).toMatch(/one piece/i);
+    expect(prompt).toMatch(/import\(\)/i);
+    expect(prompt).toMatch(/safe/i);
+    expect(planSystemPrompt()).toMatch(/ONLY compact JSON/i);
+    expect(planSystemPrompt()).toMatch(/min_wall_mm/i);
+  });
+
+  it("embeds a design plan in the codegen prompt", () => {
+    const prompt = buildUserPrompt({
+      prompt: "phone stand",
+      sizeNote: "",
+      plan: {
+        object: "phone stand",
+        one_piece: true,
+        units: "mm",
+        features: [{ name: "base", dims_mm: { w: 76, d: 78, h: 4 } }],
+        holes: [{ d: 14, purpose: "cable" }],
+        min_wall_mm: 1.6,
+        clearance_mm: 0.3,
+        sit_on_z0: true,
+      },
+    });
+    expect(prompt).toContain("Design plan");
+    expect(prompt).toContain("phone stand");
+    expect(prompt).toContain("76");
+  });
+
+  it("feeds compiler errors back with structured repair instructions", () => {
+    const prompt = buildUserPrompt({
+      prompt: "20mm cube",
+      sizeNote: "",
+      previousError: "ERROR: Parser error in file model.scad, line 3: syntax error",
+      previousCode: "cube(20)",
+    });
+    expect(prompt).toContain(REPAIR_INSTRUCTIONS);
+    expect(prompt).toContain("ERROR: Parser error");
+    expect(prompt).toContain("cube(20)");
+    expect(prompt).toMatch(/semicolons and braces/i);
+    expect(prompt).toContain("User request:");
+  });
+
+  it("classifies mesh and timeout failures into repair hints", () => {
+    expect(classifyCompileIssue("Mesh check failed: non-manifold")).toEqual(
+      expect.arrayContaining([expect.stringMatching(/closed solid/i)]),
+    );
+    expect(classifyCompileIssue("OpenSCAD timed out after 45000ms")).toEqual(
+      expect.arrayContaining([expect.stringMatching(/Simplify geometry/i)]),
+    );
+    const repair = buildRepairPrompt({
+      error: "unknown variable 'hole_d'",
+      previousCode: "cube(20);",
+    });
+    expect(repair).toMatch(/Define every variable/i);
+  });
+
+  it("builds a short planning prompt for follow-up edits", () => {
+    const prompt = buildPlanPrompt({
+      prompt: "make the hole 8mm",
+      sizeNote: "",
+      previousPrompt: "20mm cube with 5mm hole",
+      previousCode: "cube(20);",
+    });
+    expect(prompt).toContain("compact JSON");
+    expect(prompt).toContain("follow-up");
+    expect(prompt).toContain("cube(20);");
+  });
+
+  it("parses a CAD plan from raw or fenced JSON and rejects junk", () => {
+    const raw = parseCadPlan(`\`\`\`json
+{"object":"knob","one_piece":true,"features":[{"name":"cap","kind":"sphere","dims_mm":{"d":40}}],"holes":[{"d":5}],"min_wall_mm":1.6,"clearance_mm":0.3}
+\`\`\``);
+    expect(raw?.object).toBe("knob");
+    expect(raw?.units).toBe("mm");
+    expect(raw?.features[0]?.dims_mm?.d).toBe(40);
+    expect(raw?.holes[0]?.d).toBe(5);
+    expect(raw?.sit_on_z0).toBe(true);
+    expect(parseCadPlan("not json at all")).toBeNull();
+    expect(parseCadPlan('{"hello":true}')).toBeNull();
+  });
 });
 
 describe("LLM client (Ollama / OpenAI-compatible)", () => {
@@ -80,7 +178,28 @@ describe("LLM client (Ollama / OpenAI-compatible)", () => {
 
         const body = JSON.parse(String(init.body)) as { model: string; messages: unknown };
         expect(body.model).toBe(DEFAULT_MODEL);
+        expect(body.model).toBe("qwen2.5-coder:32b");
         expect(body.model).not.toMatch(/minicpm5|smith-/i);
+      },
+    );
+  });
+
+  it("honors a per-call model override (PLAN_MODEL / lighter coder)", async () => {
+    await withEnv(
+      { OPENAI_API_KEY: undefined, OPENAI_BASE_URL: undefined, MODEL: undefined },
+      async () => {
+        const fetchMock = vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ choices: [{ message: { content: "{}" } }] }),
+        });
+        vi.stubGlobal("fetch", fetchMock);
+        await completeChat([{ role: "user", content: "plan" }], { model: "qwen2.5-coder:14b", temperature: 0.1 });
+        const body = JSON.parse(String((fetchMock.mock.calls[0] as [string, RequestInit])[1].body)) as {
+          model: string;
+          temperature: number;
+        };
+        expect(body.model).toBe("qwen2.5-coder:14b");
+        expect(body.temperature).toBe(0.1);
       },
     );
   });

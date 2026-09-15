@@ -27,7 +27,9 @@ DescribePrint defaults to a **local** OpenAI-compatible API:
 | --- | --- |
 | `OPENAI_BASE_URL` | `http://127.0.0.1:11434/v1` |
 | `OPENAI_API_KEY` | `ollama` (Ollama accepts any non-empty key) |
-| `MODEL` | `qwen2.5-coder:14b` (DescribePrint’s dedicated model; pushed default for capable machines — RTX-class + 32GB RAM. Override with `MODEL=qwen2.5-coder:7b` on lighter machines) |
+| `MODEL` | `qwen2.5-coder:32b` (smartest default; higher RAM). Lighter overrides: `qwen2.5-coder:14b`, `qwen2.5-coder:7b` |
+| `SMART_PIPELINE` | `1` (default on): plan JSON then OpenSCAD. Set `0` for a single codegen pass |
+| `PLAN_MODEL` | optional; defaults to the same `MODEL` |
 
 When this path is active, the header shows a **Local AI** badge.
 
@@ -36,12 +38,16 @@ When this path is active, the header shows a **Local AI** badge.
 Ollama on this machine may already be used by **Agent Smith**. DescribePrint **shares that server safely** and must not interfere:
 
 - Use the **default** Ollama endpoint only (`127.0.0.1:11434`). Do not change Ollama’s port, host, or global server config for this app.
-- Isolation is a **dedicated model name**. Default `MODEL` is `qwen2.5-coder:14b` — never `smith-minicpm5`, `openbmb/minicpm5-*`, or any other Agent Smith model.
+- Isolation is a **dedicated model name**. Default `MODEL` is `qwen2.5-coder:32b` — never `smith-minicpm5`, `openbmb/minicpm5-*`, or any other Agent Smith model.
 - **Leave Smith models untouched.** Do not delete, replace, or retarget existing models.
-- Pull DescribePrint’s model *alongside* whatever is already installed. `14b` is the pushed default for capable machines (RTX-class + 32GB RAM). On a lighter machine, pull `qwen2.5-coder:7b` and set `MODEL=qwen2.5-coder:7b`.
+- The 32b default needs a capable machine (roughly **32GB RAM**). If generation is slow or Ollama is swapping, override `MODEL` to `qwen2.5-coder:14b` or `qwen2.5-coder:7b`.
+- Pull DescribePrint’s model *alongside* whatever is already installed:
 
 ```bash
-ollama pull qwen2.5-coder:14b
+ollama pull qwen2.5-coder:32b
+# lighter machines:
+# ollama pull qwen2.5-coder:14b
+# ollama pull qwen2.5-coder:7b
 ```
 
 If Ollama is not running, generation fails with a simple **Start local AI (Ollama)** message (not a stack trace).
@@ -93,9 +99,8 @@ brew install openscad                     # macOS
 # 2) Local AI — pull DescribePrint’s model only (leave other Ollama models alone)
 #    Install Ollama from https://ollama.com if it is not already running.
 #    Do not change Ollama’s port or replace Agent Smith models.
-#    14b is the pushed default for capable machines (RTX-class + 32GB RAM).
-#    Lighter option: ollama pull qwen2.5-coder:7b && MODEL=qwen2.5-coder:7b
-ollama pull qwen2.5-coder:14b
+#    32b is the smartest default (higher RAM). Use 14b or 7b if needed.
+ollama pull qwen2.5-coder:32b
 
 # 3) App
 cp .env.example .env.local                # defaults already point at local Ollama
@@ -119,7 +124,10 @@ xvfb-run -a npm run dev
 | --- | --- | --- |
 | `OPENAI_BASE_URL` | no | Default `http://127.0.0.1:11434/v1` (local Ollama). Cloud example: `https://api.openai.com/v1`. |
 | `OPENAI_API_KEY` | no | Default `ollama`. Any non-empty value works with Ollama. Set a real key only for cloud. |
-| `MODEL` | no | Default `qwen2.5-coder:14b` (DescribePrint’s dedicated model; pushed default for capable machines — RTX-class + 32GB RAM). Lighter override: `qwen2.5-coder:7b`. Do not point this at Agent Smith models. |
+| `MODEL` | no | Default `qwen2.5-coder:32b` (DescribePrint’s dedicated model; highest local quality, more RAM). Lighter: `qwen2.5-coder:14b` or `qwen2.5-coder:7b`. Do not point this at Agent Smith models. |
+| `SMART_PIPELINE` | no | Default `1`: Pass A plans features/dims as short JSON; Pass B writes OpenSCAD from that plan (same `MODEL`, or `PLAN_MODEL`). Set `0`/`false` for a single stronger prompt. |
+| `PLAN_MODEL` | no | Optional planning-model override. Defaults to the same `MODEL`. |
+| `LLM_TIMEOUT_MS` | no | Local completion timeout (default `180000`) |
 | `USE_FIXTURE` | no | `true` forces the mock path even when local AI is configured |
 | `FORCE_LLM` | no | `true` always calls the LLM unless `USE_FIXTURE` is also set |
 | `OPENSCAD_BIN` | no | OpenSCAD executable (default `openscad`) |
@@ -133,12 +141,12 @@ Secrets stay in the environment only. Do not commit `.env.local`.
 - `phone stand for iPhone 15, 60 degree tilt`
 - `parametric drawer knob diameter 40mm`
 
-These three match built-in fixtures (used when `USE_FIXTURE` is on, or in tests). With local AI running, the same UI asks the dedicated Ollama model for OpenSCAD, sanitizes it, compiles, and retries once if the compiler or mesh check fails.
+These three match built-in fixtures (used when `USE_FIXTURE` is on, or in tests). With local AI running, the same UI asks the dedicated Ollama model for OpenSCAD (optional two-pass plan → code when `SMART_PIPELINE=1`), sanitizes it, compiles, and retries up to twice with structured compiler feedback if OpenSCAD or the mesh check fails.
 
 ## What V0 does
 
 1. Studio-style UI with a first-class **chat**: describe in Prepare, keep talking to iterate, then **Print** / **Update** (size/units and CAD details stay under More options / Details). The center plate previews the latest part; STL and 3MF download from the Print panel.
-2. Local AI (or fixture / optional cloud LLM) → OpenSCAD text.
+2. Local AI (or fixture / optional cloud LLM) → optional plan JSON → OpenSCAD text.
 3. Sanitize / validate (no network, no filesystem escapes); run OpenSCAD in a subprocess with a timeout.
 4. Parse the STL; check non-empty, volume, triangle count, edge-manifold / watertight-ish.
 5. Preview in Three.js (`react-three-fiber`).
@@ -148,7 +156,7 @@ Printability report: bounding box (mm), volume, triangle count, manifold flag, a
 
 ## Success paths
 
-- **Local AI (default):** Ollama on `127.0.0.1:11434` with DescribePrint’s model (`qwen2.5-coder:14b`, the pushed default for capable machines — RTX-class + 32GB RAM; override with `MODEL=qwen2.5-coder:7b` on lighter machines) → describe → OpenSCAD → STL → viewer → download. No cloud key.
+- **Local AI (default):** Ollama on `127.0.0.1:11434` with DescribePrint’s model (`qwen2.5-coder:32b`) → describe → (optional plan JSON) → OpenSCAD → STL → viewer → download. No cloud key. Use `MODEL=qwen2.5-coder:14b` or `7b` on smaller machines.
 - **Ollama not running:** the UI shows **Start local AI (Ollama)**.
 - **Fixture / mock:** `USE_FIXTURE=true` (or `fixture: true`) compiles example/heuristic OpenSCAD without calling a model.
 - **Optional cloud:** set `OPENAI_BASE_URL` + a real `OPENAI_API_KEY` to use a hosted model.
@@ -187,7 +195,7 @@ Owner-approved. **Do not treat this list as V0 scope.** The current Bambu-inspir
 12. **Compliance / safety checks for wearables and props** — flag sharp edges, occlusion, skin-contact, and similar risks before export.
 13. **Multi-machine farm mode** — send jobs across more than one printer, with queue and status in-app.
 
-V0 stays **describe → CAD → STL/3MF**. Image import, Print doctor, items 6–13, and the extras below are after V0. Local AI (`qwen2.5-coder:14b` on the default Ollama server; `qwen2.5-coder:7b` remains a lighter `MODEL` override) remains the generate path; do not retarget Agent Smith models.
+V0 stays **describe → CAD → STL/3MF**. Image import, Print doctor, items 6–13, and the extras below are after V0. Local AI (`qwen2.5-coder:32b` on the default Ollama server) remains the generate path; do not retarget Agent Smith models.
 
 All of the above ship **inside the web UI** (preview + printable export). None of them assume Blender or another DCC after the fact.
 

@@ -1,5 +1,14 @@
 import type { FilamentId, PrinterId } from "../printers";
 
+export type AmsHintKind = "none" | "feed-loop" | "hopper-error";
+
+export type AmsHint = {
+  kind: AmsHintKind;
+  slot?: number;
+  amsStatus?: number;
+  message?: string;
+};
+
 export type ConnectionState = "disconnected" | "connecting" | "connected" | "error";
 
 export type PrintState = "idle" | "printing" | "paused" | "finished";
@@ -37,6 +46,8 @@ export type LiveMachineStatus = {
   objectHeightMm?: number;
   speedPercent?: number;
   amsSlots: AmsSlotStatus[];
+  /** Live AMS hopper / feed-loop hint when the report exposes it. */
+  amsHint?: AmsHint;
 };
 
 export type MidPrintCommand =
@@ -44,7 +55,9 @@ export type MidPrintCommand =
   | { type: "resume" }
   | { type: "set-speed"; percent: number }
   | { type: "set-nozzle-temp"; celsius: number }
-  | { type: "set-bed-temp"; celsius: number };
+  | { type: "set-bed-temp"; celsius: number }
+  | { type: "ams-stop-feed"; slot: number }
+  | { type: "ams-retry-load"; slot: number };
 
 export type CommandRisk = "safe" | "risky";
 

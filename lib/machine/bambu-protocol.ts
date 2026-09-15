@@ -1,4 +1,5 @@
 import { emptyAmsSlots } from "./adapter";
+import { amsFeedLoopPhysicalSteps, amsHintFromReport } from "./ams-autofix";
 import type {
   AmsSlotStatus,
   LiveMachineStatus,
@@ -101,6 +102,20 @@ export function buildBambuCommandPayload(command: MidPrintCommand, sequenceId: s
           param: `M140 S${Math.round(command.celsius)}\n`,
         },
       };
+    case "ams-stop-feed":
+      // OpenBambuAPI: print.ams_control param pause | reset | resume
+      return { print: { sequence_id: sequenceId, command: "ams_control", param: "pause" } };
+    case "ams-retry-load":
+      // OpenBambuAPI: print.ams_change_filament target is 0-based tray id
+      return {
+        print: {
+          sequence_id: sequenceId,
+          command: "ams_change_filament",
+          target: command.slot - 1,
+          curr_temp: 0,
+          tar_temp: 0,
+        },
+      };
   }
 }
 
@@ -116,6 +131,9 @@ export function physicalStepsForCommand(command: MidPrintCommand): string[] {
       return [`On the P2S screen, set nozzle target to ${Math.round(command.celsius)} °C.`];
     case "set-bed-temp":
       return [`On the P2S screen, set bed target to ${Math.round(command.celsius)} °C.`];
+    case "ams-stop-feed":
+    case "ams-retry-load":
+      return amsFeedLoopPhysicalSteps(command.slot);
   }
 }
 
@@ -214,6 +232,7 @@ export function parseBambuPrintReport(
   const spdMag = asNumber(print.spd_mag);
   const spdLvl = asNumber(print.spd_lvl);
   const gcodeState = asString(print.gcode_state);
+  const amsRoot = asRecord(print.ams);
 
   return {
     print,
@@ -228,6 +247,12 @@ export function parseBambuPrintReport(
       progressPercent: progress,
       speedPercent: spdMag ?? bambuSpeedLevelToPercent(spdLvl),
       amsSlots: parseAmsSlots(print),
+      amsHint: amsHintFromReport({
+        amsStatus: asNumber(print.ams_status),
+        printError: asNumber(print.print_error),
+        trayNow: asNumber(amsRoot?.tray_now),
+        trayTar: asNumber(amsRoot?.tray_tar),
+      }),
     },
   };
 }

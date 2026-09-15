@@ -163,7 +163,20 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
     const categoryForRequest = options?.wearableCategory ?? wearableCategory;
 
     if (looksLikePrintDoctorComplaint(cleaned)) {
-      const diagnosis = diagnosePrintComplaint({ complaint: cleaned, printerId: printer.id });
+      let diagnosis = diagnosePrintComplaint({ complaint: cleaned, printerId: printer.id });
+      try {
+        const response = await fetch("/api/machine", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ complaint: cleaned }),
+        });
+        if (response.ok) {
+          const data = (await response.json()) as { diagnosis?: typeof diagnosis };
+          if (data.diagnosis) diagnosis = data.diagnosis;
+        }
+      } catch {
+        // Keep the local diagnosis if the machine API is down.
+      }
       setPrompt("");
       setDoctorResult(diagnosis);
       setItems((prev) => [
@@ -751,6 +764,9 @@ function ChatBubble({ item }: { item: ChatItem }) {
             <li key={`${fix.kind}-${fix.summary}`}>{fix.summary}</li>
           ))}
         </ul>
+        {result.autofix?.attempted ? (
+          <div className="mt-2 text-[13px] text-muted">{result.autofix.message}</div>
+        ) : null}
       </div>
     );
   }
@@ -774,8 +790,18 @@ function MachinePanel({ printer, doctor }: { printer: PrinterProfile; doctor: Pr
   const [plateW, plateD, plateH] = printer.buildVolumeMm;
   const preset = filamentPreset(printer.defaultFilament, printer);
   const fallbackSlots = Array.from({ length: printer.ams.slotsPerUnit }, (_, i) => i + 1);
-  const { prefs, setLanEnabled, setHost, setSerial, setAccessCode, machine, busy, sendCommand } =
-    useMachineMonitor();
+  const {
+    prefs,
+    setLanEnabled,
+    setHost,
+    setSerial,
+    setAccessCode,
+    machine,
+    busy,
+    sendCommand,
+    cameraStubPref,
+    setCameraStubPref,
+  } = useMachineMonitor();
   const [nozzleInput, setNozzleInput] = useState("");
   const [bedInput, setBedInput] = useState("");
 
@@ -798,6 +824,8 @@ function MachinePanel({ printer, doctor }: { printer: PrinterProfile; doctor: Pr
             ? `Disconnected · ${status.message}`
             : "Disconnected";
   const amsSlots = live && status ? status.amsSlots : [];
+  const cameraOn = machine?.cameraStub === true || cameraStubPref;
+  const cameraEnvLocked = machine?.cameraStub === true;
 
   return (
     <div className="rounded-md border border-line bg-panel-2 p-2.5 text-[11px] leading-relaxed text-muted">
@@ -871,6 +899,17 @@ function MachinePanel({ printer, doctor }: { printer: PrinterProfile; doctor: Pr
         />
         {connectionLabel}
       </div>
+      <label className="mt-2 flex items-center gap-1.5 text-ink">
+        <input
+          type="checkbox"
+          checked={cameraOn}
+          disabled={cameraEnvLocked}
+          onChange={(event) => setCameraStubPref(event.target.checked)}
+        />
+        Camera stub
+        {cameraEnvLocked ? <span className="font-normal text-muted">· .env</span> : null}
+      </label>
+      {cameraOn ? <div className="mt-1">camera: stub</div> : null}
       {connected ? (
         <div className="mt-2 space-y-0.5">
           <div>
@@ -1005,6 +1044,7 @@ function MachinePanel({ printer, doctor }: { printer: PrinterProfile; doctor: Pr
         <div className="mt-2 border-t border-line pt-2">
           <div className="font-medium text-ink">{doctor.title}</div>
           <div className="mt-0.5">{doctor.diagnosis}</div>
+          {doctor.autofix?.attempted ? <div className="mt-0.5">{doctor.autofix.message}</div> : null}
         </div>
       ) : (
         <p className="mt-2">Describe a print problem in chat — CAD export still works disconnected.</p>

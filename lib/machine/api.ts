@@ -1,3 +1,5 @@
+import type { PrintDoctorResult } from "../print-doctor";
+import type { AmsAutofixResult } from "./ams-autofix";
 import type { CommandResult, LiveMachineStatus, MachineCredentials, MidPrintCommand } from "./types";
 import type { MachineLanSource } from "./config";
 
@@ -9,8 +11,12 @@ export type MachineApiResponse = {
   hint?: string;
   host?: string;
   serial?: string;
+  cameraStub: boolean;
+  amsAutofix: boolean;
   status: LiveMachineStatus;
   lastCommand?: CommandResult;
+  diagnosis?: PrintDoctorResult;
+  lastAutofix?: AmsAutofixResult;
 };
 
 export type MachineConfigureRequest = {
@@ -20,7 +26,7 @@ export type MachineConfigureRequest = {
 
 export function parseMidPrintCommand(value: unknown): MidPrintCommand | null {
   if (!value || typeof value !== "object") return null;
-  const command = value as { type?: unknown; percent?: unknown; celsius?: unknown };
+  const command = value as { type?: unknown; percent?: unknown; celsius?: unknown; slot?: unknown };
   switch (command.type) {
     case "pause":
     case "resume":
@@ -36,9 +42,25 @@ export function parseMidPrintCommand(value: unknown): MidPrintCommand | null {
       if (!Number.isFinite(celsius)) return null;
       return { type: command.type, celsius };
     }
+    case "ams-stop-feed":
+    case "ams-retry-load": {
+      const slot = Number(command.slot);
+      if (!Number.isInteger(slot) || slot < 1 || slot > 20) return null;
+      return { type: command.type, slot };
+    }
     default:
       return null;
   }
+}
+
+export function parsePrintDoctorBody(value: unknown): { complaint: string; slot?: number } | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as { complaint?: unknown; slot?: unknown; autofix?: unknown };
+  const complaint = typeof row.complaint === "string" ? row.complaint.trim() : "";
+  if (!complaint && row.autofix !== true && row.autofix !== "ams-feed-loop") return null;
+  const slotRaw = Number(row.slot);
+  const slot = Number.isInteger(slotRaw) && slotRaw >= 1 && slotRaw <= 20 ? slotRaw : undefined;
+  return { complaint, slot };
 }
 
 function readCredentialField(value: unknown): string {

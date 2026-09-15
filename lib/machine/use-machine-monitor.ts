@@ -9,6 +9,11 @@ import {
   serializeMachineLanPrefs,
   type MachineLanPrefs,
 } from "./prefs";
+import {
+  MACHINE_CAMERA_STORAGE_KEY,
+  parseCameraStubPref,
+  serializeCameraStubPref,
+} from "./camera";
 import { credentialsComplete } from "./session";
 import type { MidPrintCommand } from "./types";
 
@@ -39,8 +44,27 @@ async function readMachineResponse(response: Response): Promise<MachineApiRespon
   return data;
 }
 
+function readCameraStubPref(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return parseCameraStubPref(window.localStorage.getItem(MACHINE_CAMERA_STORAGE_KEY));
+  } catch {
+    return false;
+  }
+}
+
+function writeCameraStubPref(enabled: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(MACHINE_CAMERA_STORAGE_KEY, serializeCameraStubPref(enabled));
+  } catch {
+    // Private mode / quota — keep in-memory pref only.
+  }
+}
+
 export function useMachineMonitor() {
   const [prefs, setPrefs] = useState<MachineLanPrefs>(defaultMachineLanPrefs);
+  const [cameraStubPref, setCameraStubPref] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [machine, setMachine] = useState<MachineApiResponse | null>(null);
   const [busy, setBusy] = useState(false);
@@ -55,6 +79,7 @@ export function useMachineMonitor() {
       }
       return stored;
     });
+    setCameraStubPref(readCameraStubPref());
     setHydrated(true);
   }, []);
 
@@ -62,6 +87,11 @@ export function useMachineMonitor() {
     if (!hydrated) return;
     writeStoredPrefs(prefs);
   }, [hydrated, prefs]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    writeCameraStubPref(cameraStubPref);
+  }, [hydrated, cameraStubPref]);
 
   const configure = useCallback(async (next: MachineLanPrefs) => {
     const response = await fetch("/api/machine", {
@@ -155,5 +185,7 @@ export function useMachineMonitor() {
     machine,
     busy,
     sendCommand,
+    cameraStubPref,
+    setCameraStubPref,
   };
 }

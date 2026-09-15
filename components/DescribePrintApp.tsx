@@ -4,7 +4,8 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EXAMPLE_PROMPTS } from "@/lib/fixtures";
 import type { HealthReport, HealthTone } from "@/lib/health-types";
-import { defaultPrinter } from "@/lib/printers";
+import { diagnosePrintComplaint, looksLikePrintDoctorComplaint, type PrintDoctorResult } from "@/lib/print-doctor";
+import { defaultPrinter, filamentPreset, type PrinterProfile } from "@/lib/printers";
 import { formatMm } from "@/lib/units";
 import type { GenerateResult, PipelineStep, StatusEvent, Unit } from "@/lib/types";
 import type { CameraView, ViewerTheme } from "./Viewer";
@@ -20,6 +21,7 @@ type ChatItem =
   | { id: string; kind: "user"; text: string }
   | { id: string; kind: "status"; steps: StatusEvent[]; active: boolean }
   | { id: string; kind: "result"; result: GenerateResult }
+  | { id: string; kind: "doctor"; result: PrintDoctorResult }
   | { id: string; kind: "error"; text: string };
 
 type WorkspaceTab = "prepare" | "preview";
@@ -78,6 +80,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
   const [items, setItems] = useState<ChatItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<GenerateResult | null>(null);
+  const [doctorResult, setDoctorResult] = useState<PrintDoctorResult | null>(null);
   const [designPrompt, setDesignPrompt] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
@@ -123,6 +126,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
   function resetConversation() {
     setItems([]);
     setResult(null);
+    setDoctorResult(null);
     setDesignPrompt(null);
     setPrompt("");
     setShowDetails(false);
@@ -132,6 +136,19 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
   async function printPart(text: string) {
     const cleaned = text.trim();
     if (!cleaned || busy) return;
+
+    if (looksLikePrintDoctorComplaint(cleaned)) {
+      const diagnosis = diagnosePrintComplaint({ complaint: cleaned, printerId: printer.id });
+      setPrompt("");
+      setDoctorResult(diagnosis);
+      setItems((prev) => [
+        ...prev,
+        { id: nid(), kind: "user", text: cleaned },
+        { id: nid(), kind: "doctor", result: diagnosis },
+      ]);
+      scrollToEnd();
+      return;
+    }
 
     const startFresh = /\b(new part|start over|something else|different part|forget that|scratch)\b/i.test(cleaned);
     const previousPrompt = startFresh ? null : designPrompt;
@@ -391,12 +408,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
           </div>
 
           <div className="scrollbar-thin min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
-            <div className="rounded-md border border-line bg-panel-2 p-2.5 text-[11px] leading-relaxed text-muted">
-              <div className="text-sm font-medium text-ink">{printer.name}</div>
-              <div className="mt-1">
-                Default printer · {plateW} × {plateD} × {plateH} mm · {printer.nozzleMm} mm nozzle
-              </div>
-            </div>
+            <MachinePanel printer={printer} doctor={doctorResult} />
 
             <button
               type="button"
@@ -588,6 +600,20 @@ function ChatBubble({ item }: { item: ChatItem }) {
       <div className="rounded-md border border-danger/40 bg-danger/10 px-2.5 py-2 text-sm text-danger">{item.text}</div>
     );
   }
+  if (item.kind === "doctor") {
+    const { result } = item;
+    return (
+      <div className="mr-4 rounded-md border border-accent/35 bg-accent/5 px-2.5 py-2 text-sm">
+        <div className="font-medium">Print doctor — {result.title}</div>
+        <div className="mt-1 text-muted">{result.diagnosis}</div>
+        <ul className="mt-2 list-disc space-y-1 pl-4 text-[13px] text-muted">
+          {result.fixes.slice(0, 3).map((fix) => (
+            <li key={`${fix.kind}-${fix.summary}`}>{fix.summary}</li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
   const { report } = item.result;
   return (
     <div className="mr-4 rounded-md border border-ok/35 bg-ok/5 px-2.5 py-2 text-sm">
@@ -596,6 +622,49 @@ function ChatBubble({ item }: { item: ChatItem }) {
         {formatMm(report.boundingBoxMm.size[0])} × {formatMm(report.boundingBoxMm.size[1])} ×{" "}
         {formatMm(report.boundingBoxMm.size[2])} mm
       </div>
+    </div>
+  );
+}
+
+function MachinePanel({ printer, doctor }: { printer: PrinterProfile; doctor: PrintDoctorResult | null }) {
+  const [plateW, plateD, plateH] = printer.buildVolumeMm;
+  const preset = filamentPreset(printer.defaultFilament, printer);
+  const slots = Array.from({ length: printer.ams.slotsPerUnit }, (_, i) => i + 1);
+
+  return (
+    <div className="rounded-md border border-line bg-panel-2 p-2.5 text-[11px] leading-relaxed text-muted">
+      <div className="studio-label">Machine</div>
+      <div className="mt-1 text-sm font-medium text-ink">{printer.name}</div>
+      <div className="mt-1">
+        Default printer · {plateW} × {plateD} × {plateH} mm · {printer.nozzleMm} mm nozzle
+      </div>
+      <div className="mt-2 flex items-center gap-1.5" role="status" aria-label="Printer disconnected, LAN later">
+        <span className="h-1.5 w-1.5 rounded-full bg-muted" aria-hidden="true" />
+        Disconnected · LAN later
+      </div>
+      <div className="mt-2">AMS {printer.ams.slotsPerUnit} slots</div>
+      <div className="mt-1 flex gap-1" aria-label="AMS slots unloaded">
+        {slots.map((slot) => (
+          <div
+            key={slot}
+            className="flex h-7 w-7 items-center justify-center rounded border border-dashed border-line text-[10px]"
+            title={`AMS ${slot} empty`}
+          >
+            {slot}
+          </div>
+        ))}
+      </div>
+      <div className="mt-2">
+        Auto {preset.name}: {preset.nozzleC} °C / {preset.bedC} °C bed
+      </div>
+      {doctor ? (
+        <div className="mt-2 border-t border-line pt-2">
+          <div className="font-medium text-ink">{doctor.title}</div>
+          <div className="mt-0.5">{doctor.diagnosis}</div>
+        </div>
+      ) : (
+        <p className="mt-2">Describe a print problem in chat — CAD export still works disconnected.</p>
+      )}
     </div>
   );
 }
@@ -665,7 +734,8 @@ function EmptyState({ onPick }: { onPick: (value: string) => void }) {
     <div className="space-y-3">
       <p className="text-sm leading-relaxed text-muted">
         Describe a part in plain language. Open <span className="text-ink">More options</span> only if you need a size.
-        Then <span className="text-ink">Print</span> — the plate is a Bambu Lab P2S (256 × 256 × 256 mm) by default.
+        Then <span className="text-ink">Print</span> — the plate is a Bambu Lab P2S (256 × 256 × 256 mm) by default. A
+        print defect (stringing, AMS loop) goes to Print doctor instead of CAD.
       </p>
       <div className="studio-label">Try saying</div>
       <div className="space-y-1.5">

@@ -20,12 +20,12 @@ Cross-links (do not copy stale numbers into the JSON when a live module already 
 - Wearable S–XL charts → [`lib/wearable-sizes.ts`](../lib/wearable-sizes.ts)
 - Oversize designation → [`lib/alternate-machines.ts`](../lib/alternate-machines.ts)
 
-## Schema (v1)
+## Schema (v1.1)
 
 ```json
 {
   "meta": {
-    "version": "1.0.0",
+    "version": "1.1.0",
     "kind": "describeprint-knowledge-pack",
     "updated": "YYYY-MM-DD",
     "curated": true,
@@ -97,5 +97,12 @@ npm test -- tests/knowledge-pack.test.ts tests/pipeline.test.ts tests/llm.test.t
 Prompts that should hit the pack:
 
 - `stormtrooper helmet` → display 165×195×200 mm + dome/visor/neck_ring features
+- `mandalorian helmet` → display 170×200×195 mm + dome/t_visor/cheek/rangefinder
+- `wearable mandalorian helmet` → 1:1 reference 235×280×270 mm (exceeds P2S)
+- `captain america shield` → display 200 mm disc; 1:1 is ~610 mm (not a licensed spec)
 - `20mm cube with 5mm hole in PETG` → PETG tech notes (dry spool, 0.2 mm layer, P2S auto-best)
+- `20mm cube with a 0.6 mm nozzle` → 0.6 mm nozzle + 2.4 mm wall hint (printers.ts supported set)
+- `clip with a cantilever snap` → snap-fit notes from joints.ts (0.3 mm/side, 1.6 mm beam)
 - `xyzzy warrior helmet` → no character hit, no crash
+
+v1.1 is still a **curated stub**: typical fan-print bands and print-tech cross-links, not official licensed measurements, not a live crawl. Remaining gaps: more characters, more materials than the five FilamentIds, no RAG.

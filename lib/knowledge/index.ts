@@ -281,10 +281,11 @@ export function cadKnowledgeFromPrompt(
 export function formatKnowledgeConstraints(): string {
   const pack = loadKnowledgePack();
   const characters = pack.characters.map((entry) => entry.name).join(" / ") || "(none)";
+  const tech = pack.tech.map((entry) => entry.name).join(" / ") || "(none)";
   return [
     `Knowledge pack v${pack.meta.version} (curated in-repo stub — not a live web crawl, not official licensed measurements):`,
     `- Characters / props: ${characters}.`,
-    `- Tech: materials (PLA/PETG/PA/ABS/TPU via printers.ts), 0.4 mm nozzle / 0.2 mm layer, joint clearances (joints.ts), P2S 256³, print-in-place, split-for-bed.`,
+    `- Tech: ${tech}. Cross-links printers.ts / joints.ts — do not invent tighter gaps or different auto-best temps.`,
     `- Use pack millimeters only when the prompt names a known entry. Unknown names: omit knowledge and plan from the description alone.`,
   ].join("\n");
 }
@@ -325,5 +326,9 @@ export function formatKnowledgeCodegenHint(knowledge?: CadKnowledge | null): str
 }
 
 export const STORMTROOPER_HELMET_PROMPT = "stormtrooper helmet";
+export const MANDALORIAN_HELMET_PROMPT = "mandalorian helmet";
+export const CAPTAIN_AMERICA_SHIELD_PROMPT = "captain america shield";
 export const UNKNOWN_CHARACTER_PROMPT = "xyzzy warrior helmet for the gandalf-adjacent oc";
 export const PETG_TECH_PROMPT = "20mm cube with 5mm hole in PETG";
+export const NOZZLE_06_PROMPT = "20mm cube with a 0.6 mm nozzle";
+export const SNAP_FIT_PROMPT = "clip with a cantilever snap";

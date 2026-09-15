@@ -92,9 +92,14 @@ export function detectFailure(frame: CameraFrame = mockCameraFrame("none")): Fai
   };
 }
 
+export type CameraSeverity = "ok" | "suspected";
+
 /** API / panel view of a detect — no JPEG bytes. */
 export type CameraDetectReport = Omit<FailureDetection, "frame"> & {
   line: string;
+  severity: CameraSeverity;
+  /** Stronger Machine-panel cue. */
+  cue: string;
 };
 
 let stubScene: CameraFailureKind = "none";
@@ -125,9 +130,29 @@ export function cameraStatusLine(detect: Pick<FailureDetection, "kind" | "failur
   return "suspected empty bed";
 }
 
+export function cameraSeverity(detect: Pick<FailureDetection, "kind">): CameraSeverity {
+  return detect.kind === "suspected-failure" ? "suspected" : "ok";
+}
+
+export function cameraCue(detect: Pick<FailureDetection, "kind" | "failure">): string {
+  if (detect.kind === "none" || !detect.failure) return "Camera stub: bed looks ok.";
+  if (detect.failure === "spaghetti") {
+    return "Severity suspected — spaghetti. Pause recommended. Doctor will not auto-stop.";
+  }
+  if (detect.failure === "nozzle-scrape") {
+    return "Severity suspected — nozzle scrape. Pause recommended. Doctor will not auto-stop.";
+  }
+  return "Severity suspected — empty bed. Pause recommended. Doctor will not auto-stop.";
+}
+
 export function toCameraDetectReport(detect: FailureDetection): CameraDetectReport {
   const { frame: _frame, ...rest } = detect;
-  return { ...rest, line: cameraStatusLine(detect) };
+  return {
+    ...rest,
+    line: cameraStatusLine(detect),
+    severity: cameraSeverity(detect),
+    cue: cameraCue(detect),
+  };
 }
 
 /**

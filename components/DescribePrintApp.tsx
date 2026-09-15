@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   applyDesignChoiceToPrompt,
   resolveDesignOptions,
@@ -25,6 +25,12 @@ import {
   reassignAmsSlot,
 } from "@/lib/machine/ams";
 import { selectAmsHelpGuide, type AmsHelpGuide } from "@/lib/machine/ams-help";
+import {
+  CAMERA_PAUSE_NOW_PHRASE,
+  offersCameraPauseChip,
+  takeCameraDoctorAnnouncement,
+  type CameraDoctorHeld,
+} from "@/lib/machine/camera-doctor-bridge";
 import type { AmsSlotPlan, AmsSlotStatus } from "@/lib/machine/types";
 import { MACHINE_RESHAPE_STORAGE_KEY, parseReshapeRemainingPref } from "@/lib/machine/reshape-pref";
 import { FARM_QUEUE_NOTE, nextFarmStubName } from "@/lib/machine/farm";
@@ -334,6 +340,29 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
     ]);
     scrollToEnd();
   }
+
+  const appendCameraDoctor = useCallback((diagnosis: PrintDoctorResult) => {
+    const tagged = applyStoredDoctorMemory(
+      parsePrintDoctorMemory(
+        typeof window !== "undefined" ? window.localStorage.getItem(PRINT_DOCTOR_MEMORY_KEY) : null,
+      ),
+      diagnosis,
+    );
+    setDoctorResult(tagged);
+    setItems((prev) => {
+      const last = prev[prev.length - 1];
+      if (
+        last?.kind === "doctor" &&
+        last.result.defectId === tagged.defectId &&
+        last.result.cameraGuide &&
+        !last.feedback
+      ) {
+        return prev;
+      }
+      return [...prev, { id: nid(), kind: "doctor", result: tagged }];
+    });
+    scrollToEnd();
+  }, []);
 
   function applyProfileSession(profile: UserProfile) {
     const defaults = sessionDefaultsFromProfile(profile);
@@ -896,6 +925,13 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
                       ? applyDoctorFeedback
                       : undefined
                   }
+                  onPauseNow={
+                    item.kind === "doctor" &&
+                    index === items.length - 1 &&
+                    offersCameraPauseChip(item.result)
+                      ? () => void printPart(CAMERA_PAUSE_NOW_PHRASE)
+                      : undefined
+                  }
                 />
               ))
             )}
@@ -1012,6 +1048,7 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
               onMaterialChange={setMaterial}
               result={result}
               packPlan={packPlan}
+              onCameraDoctor={appendCameraDoctor}
               onPacked={(plan, outlines) => {
                 setPackPlan(plan);
                 setPackOutlines(outlines);
@@ -1324,11 +1361,13 @@ function ChatBubble({
   onPickOption,
   disabled,
   onDoctorFeedback,
+  onPauseNow,
 }: {
   item: ChatItem;
   onPickOption?: (group: DesignOptionGroup, option: DesignOption) => void;
   disabled?: boolean;
   onDoctorFeedback?: (kind: DoctorFeedbackKind, spoken: string) => void;
+  onPauseNow?: () => void;
 }) {
   if (item.kind === "user") {
     return (
@@ -1382,6 +1421,9 @@ function ChatBubble({
         {result.amsGuide?.whenToRetrySoftware ? (
           <div className="mt-2 text-[13px] text-muted">{result.amsGuide.whenToRetrySoftware}</div>
         ) : null}
+        {result.cameraGuide?.whenToRetrySoftware ? (
+          <div className="mt-2 text-[13px] text-muted">{result.cameraGuide.whenToRetrySoftware}</div>
+        ) : null}
         {result.autofix?.attempted ? (
           <div className="mt-2 text-[13px] text-muted">{result.autofix.message}</div>
         ) : null}
@@ -1414,26 +1456,41 @@ function ChatBubble({
         {result.learned ? (
           <div className="mt-1 text-[11px] text-muted">Remembered for this printer + filament.</div>
         ) : null}
-        {onDoctorFeedback && result.defectId !== "mid-print-control" ? (
+        {(onDoctorFeedback && result.defectId !== "mid-print-control") || onPauseNow ? (
           <div className="mt-2 flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              disabled={disabled}
-              onClick={() => onDoctorFeedback("perfect", "perfect")}
-              className="studio-btn studio-btn-ghost h-6 px-2 text-[11px]"
-              aria-label="Perfect — remember this fix"
-            >
-              Perfect
-            </button>
-            <button
-              type="button"
-              disabled={disabled}
-              onClick={() => onDoctorFeedback("still-bad", "still bad")}
-              className="studio-btn studio-btn-ghost h-6 px-2 text-[11px]"
-              aria-label="Still bad — try the next cause"
-            >
-              Still bad
-            </button>
+            {onDoctorFeedback && result.defectId !== "mid-print-control" ? (
+              <>
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => onDoctorFeedback("perfect", "perfect")}
+                  className="studio-btn studio-btn-ghost h-6 px-2 text-[11px]"
+                  aria-label="Perfect — remember this fix"
+                >
+                  Perfect
+                </button>
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => onDoctorFeedback("still-bad", "still bad")}
+                  className="studio-btn studio-btn-ghost h-6 px-2 text-[11px]"
+                  aria-label="Still bad — try the next cause"
+                >
+                  Still bad
+                </button>
+              </>
+            ) : null}
+            {onPauseNow ? (
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={onPauseNow}
+                className="studio-btn studio-btn-ghost h-6 px-2 text-[11px]"
+                aria-label="Pause now — mid-print pause if connected"
+              >
+                Pause now
+              </button>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -1764,6 +1821,7 @@ function MachinePanel({
   result,
   packPlan,
   onPacked,
+  onCameraDoctor,
 }: {
   printer: PrinterProfile;
   doctor: PrintDoctorResult | null;
@@ -1772,6 +1830,7 @@ function MachinePanel({
   result: GenerateResult | null;
   packPlan: PackPlan | null;
   onPacked: (plan: PackPlan | null, outlines: PackOutline[]) => void;
+  onCameraDoctor?: (result: PrintDoctorResult) => void;
 }) {
   const [plateW, plateD, plateH] = printer.buildVolumeMm;
   const preset = filamentPreset(material, printer);
@@ -1797,6 +1856,7 @@ function MachinePanel({
   const [bedInput, setBedInput] = useState("");
   const [manualPlan, setManualPlan] = useState<AmsSlotPlan | null>(null);
   const appliedDoctorKey = useRef("");
+  const cameraAnnounceRef = useRef<CameraDoctorHeld>(null);
 
   const envLocked = machine?.source === "env";
   const lanOn = envLocked || prefs.enabled;
@@ -1854,6 +1914,19 @@ function MachinePanel({
 
   const cameraOn = machine?.cameraStub === true || cameraStubPref;
   const cameraEnvLocked = machine?.cameraStub === true;
+  const cameraDetect = machine?.cameraDetect;
+  const cameraSeverity = cameraDetect?.severity ?? (cameraDetect?.kind === "suspected-failure" ? "suspected" : "ok");
+
+  useEffect(() => {
+    if (!onCameraDoctor) return;
+    const next = takeCameraDoctorAnnouncement(
+      cameraAnnounceRef.current,
+      cameraOn ? cameraDetect : undefined,
+      machine?.diagnosis,
+    );
+    cameraAnnounceRef.current = next.held;
+    if (next.announce) onCameraDoctor(next.announce);
+  }, [cameraOn, cameraDetect, machine?.diagnosis, onCameraDoctor]);
   const reshapeOn = machine?.reshapeRemaining === true || reshapeRemainingPref;
   const reshapeEnvLocked = machine?.reshapeRemaining === true;
   const reshapePlan = doctor?.reshape ?? machine?.lastReshape;
@@ -2021,7 +2094,23 @@ function MachinePanel({
         Camera stub
         {cameraEnvLocked ? <span className="font-normal text-muted">· .env</span> : null}
       </label>
-      {cameraOn ? <div className="mt-1">camera: {machine?.cameraDetect?.line ?? "ok"}</div> : null}
+      {cameraOn ? (
+        <div
+          className={`mt-1 ${cameraSeverity === "suspected" ? "text-warn" : ""}`}
+          role="status"
+          aria-label={
+            cameraSeverity === "suspected"
+              ? `Camera ${cameraDetect?.line ?? "suspected"} · ${cameraSeverity}`
+              : "Camera ok"
+          }
+        >
+          <div>
+            camera: {cameraDetect?.line ?? "ok"}
+            {cameraDetect ? ` · ${cameraSeverity}` : ""}
+          </div>
+          {cameraSeverity === "suspected" && cameraDetect?.cue ? <div>{cameraDetect.cue}</div> : null}
+        </div>
+      ) : null}
       <label className="mt-2 flex items-center gap-1.5 text-ink">
         <input
           type="checkbox"

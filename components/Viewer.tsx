@@ -3,8 +3,10 @@
 import { Center, ContactShadows, GizmoHelper, GizmoViewport, OrbitControls } from "@react-three/drei";
 import { Canvas, useLoader, useThree } from "@react-three/fiber";
 import { Suspense, useLayoutEffect, useMemo } from "react";
-import { BoxGeometry, CanvasTexture, Color, RepeatWrapping, SRGBColorSpace } from "three";
+import { BoxGeometry, BufferAttribute, CanvasTexture, Color, RepeatWrapping, SRGBColorSpace } from "three";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
+import { heatmapLegendStops, heatmapRgb, previewStrength } from "@/lib/strength-preview";
+import type { Mesh } from "@/lib/types";
 
 export type CameraView = "iso" | "top" | "front" | "left";
 export type ViewerTheme = "dark" | "light";
@@ -25,18 +27,73 @@ const VIEW_PRESETS: Record<CameraView, { position: [number, number, number]; tar
   left: { position: [-330, 95, 0], target: [0, 24, 0] },
 };
 
-function LoadedModel({ url }: { url: string }) {
-  const geometry = useLoader(STLLoader, url);
+function meshFromPositions(positions: ArrayLike<number>, index?: ArrayLike<number> | null): Mesh {
+  const triangles: Mesh["triangles"] = [];
+  const read = (i: number): [number, number, number] => [
+    positions[i * 3] ?? 0,
+    positions[i * 3 + 1] ?? 0,
+    positions[i * 3 + 2] ?? 0,
+  ];
+  if (index && index.length >= 3) {
+    for (let i = 0; i + 2 < index.length; i += 3) {
+      triangles.push({
+        normal: [0, 0, 1],
+        vertices: [read(index[i] ?? 0), read(index[i + 1] ?? 0), read(index[i + 2] ?? 0)],
+      });
+    }
+    return { triangles };
+  }
+  const count = Math.floor(positions.length / 9);
+  for (let i = 0; i < count; i++) {
+    triangles.push({
+      normal: [0, 0, 1],
+      vertices: [read(i * 3), read(i * 3 + 1), read(i * 3 + 2)],
+    });
+  }
+  return { triangles };
+}
 
-  useLayoutEffect(() => {
-    geometry.computeVertexNormals();
-    geometry.computeBoundingBox();
-  }, [geometry]);
+function LoadedModel({ url, heatmap, triangleScores }: { url: string; heatmap: boolean; triangleScores?: number[] }) {
+  const loaded = useLoader(STLLoader, url);
+  const geometry = useMemo(() => {
+    const geo = loaded.index ? loaded.toNonIndexed() : loaded.clone();
+    geo.computeVertexNormals();
+    geo.computeBoundingBox();
+    if (!heatmap) {
+      geo.deleteAttribute("color");
+      return geo;
+    }
+    const pos = geo.getAttribute("position");
+    const triCount = Math.floor((pos?.count ?? 0) / 3);
+    let scores = triangleScores && triangleScores.length === triCount ? triangleScores : null;
+    if (!scores && pos) {
+      const mesh = meshFromPositions(pos.array, null);
+      scores = previewStrength(mesh).triangleScores;
+    }
+    if (pos && scores) {
+      const colors = new Float32Array(pos.count * 3);
+      for (let i = 0; i < triCount; i++) {
+        const [r, g, b] = heatmapRgb(scores[i] ?? 0);
+        for (let v = 0; v < 3; v++) {
+          const o = (i * 3 + v) * 3;
+          colors[o] = r;
+          colors[o + 1] = g;
+          colors[o + 2] = b;
+        }
+      }
+      geo.setAttribute("color", new BufferAttribute(colors, 3));
+    }
+    return geo;
+  }, [loaded, heatmap, triangleScores]);
 
   return (
     <Center top>
       <mesh geometry={geometry} castShadow receiveShadow>
-        <meshStandardMaterial color="#c9c9c9" metalness={0.18} roughness={0.42} />
+        {heatmap ? (
+          <meshStandardMaterial vertexColors metalness={0.12} roughness={0.46} />
+        ) : (
+          <meshStandardMaterial color="#c9c9c9" metalness={0.18} roughness={0.42} />
+        )}
       </mesh>
     </Center>
   );
@@ -208,6 +265,24 @@ function CameraRig({ view }: { view: CameraView }) {
   return null;
 }
 
+function StrengthLegend({ theme }: { theme: ViewerTheme }) {
+  const stops = heatmapLegendStops();
+  const gradient = `linear-gradient(90deg, ${stops.map((stop) => stop.hex).join(", ")})`;
+  return (
+    <div className="pointer-events-none absolute bottom-3 left-3 z-10 w-44 rounded-md border border-line bg-panel/90 px-2 py-1.5 shadow-sm backdrop-blur">
+      <div className={`text-[10px] font-medium ${theme === "dark" ? "text-ink" : "text-ink"}`}>
+        Heuristic strength
+      </div>
+      <div className="mt-1 h-2 rounded-sm" style={{ background: gradient }} />
+      <div className="mt-0.5 flex justify-between text-[9px] text-muted">
+        <span>cool</span>
+        <span>hot / weak</span>
+      </div>
+      <p className="mt-1 text-[9px] leading-snug text-muted">Not FEA — thickness, corners, overhangs.</p>
+    </div>
+  );
+}
+
 export function Viewer({
   stlUrl,
   view = "iso",
@@ -216,6 +291,8 @@ export function Viewer({
   theme = "dark",
   showGizmo = true,
   packOutlines = [],
+  heatmap = false,
+  triangleScores,
 }: {
   stlUrl: string | null;
   view?: CameraView;
@@ -224,6 +301,8 @@ export function Viewer({
   theme?: ViewerTheme;
   showGizmo?: boolean;
   packOutlines?: PackOutline[];
+  heatmap?: boolean;
+  triangleScores?: number[];
 }) {
   const background = theme === "dark" ? "#242424" : "#d2d2d2";
 
@@ -251,7 +330,14 @@ export function Viewer({
         />
         <Suspense fallback={null}>
           <BuildPlate sizeMm={plateMm} heightMm={heightMm} theme={theme} />
-          {stlUrl ? <LoadedModel url={stlUrl} /> : null}
+          {stlUrl ? (
+            <LoadedModel
+              key={`${stlUrl}-${heatmap ? "heat" : "plain"}`}
+              url={stlUrl}
+              heatmap={heatmap}
+              triangleScores={triangleScores}
+            />
+          ) : null}
           <PackOutlines plateMm={plateMm} outlines={packOutlines} theme={theme} />
         </Suspense>
         <ContactShadows opacity={theme === "dark" ? 0.32 : 0.2} scale={plateMm} blur={2.1} far={50} />
@@ -266,6 +352,7 @@ export function Viewer({
           </GizmoHelper>
         ) : null}
       </Canvas>
+      {stlUrl && heatmap ? <StrengthLegend theme={theme} /> : null}
       {!stlUrl ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-12 flex justify-center px-4">
           <p className="rounded-md bg-bg/70 px-3 py-1.5 text-xs text-muted backdrop-blur-sm">

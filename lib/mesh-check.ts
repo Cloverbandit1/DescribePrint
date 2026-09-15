@@ -1,5 +1,6 @@
 import { bedMaxMm, printRules, type PrintRules } from "./printability";
 import { defaultPrinter, type PrinterProfile } from "./printers";
+import { previewStrength } from "./strength-preview";
 import type { BoundingBoxMm, Mesh, MeshIssue, PrintabilityReport } from "./types";
 
 const VOLUME_EPS = 1e-6;
@@ -256,6 +257,7 @@ export function checkMeshWithRules(mesh: Mesh, rules: PrintRules): PrintabilityR
     watertight: manifold && Math.abs(volumeMm3) >= VOLUME_EPS,
     issues,
     units: "mm",
+    strengthPreview: previewStrength(mesh, rules),
   };
 }
 

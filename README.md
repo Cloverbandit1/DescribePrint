@@ -310,6 +310,19 @@ When the planner hits a **known fork** — not every prompt — the Prepare/chat
 
 `20mm cube with 5mm hole` does **not** show chips. Advanced size/units stay under **More options**. Model: `lib/design-options.ts` (`id`, `label`, `value`, optional `description`). Generate/plan set `needs_user_choice` + `options` only when a fork is still open.
 
+### Strength preview heatmap (honest heuristic stub)
+
+After mesh-check, the plate can show a **cool→hot** overlay of likely weak regions so print/strength risk is visible before download. Toggle **Strength** on the preview. In-app only — **not FEA**.
+
+| Signal | What it approximates | Notes |
+| --- | --- | --- |
+| Local thickness | Inward ray to the opposite face | Falls back to slice width on huge meshes |
+| Sharp concave edges | Hole rims / notches | Stress-concentration heuristic |
+| Overhang vs plate | Faces steeper than **45°** from vertical, not on z=0 | Build direction is +Z |
+| Tiny cross-section | Occupancy runs on X/Y/Z slices | Necks and slivers |
+
+A 20 mm cube with a hole heats the bore (concave rims). A ~1.2 mm wall next to a large hole notes `thin wall ~1.2 mm near hole`. The printability report and chat notes list the top hits and say **not FEA**. Later: material-aware / real FEA. Pack growth is deferred — this is engineering visualization, not more `pack.json` content.
+
 ### Joint clearances (Bambu Lab P2S, 0.4 mm nozzle)
 
 Radial values are **per side**: `bore_d = pin_d + 2 × radial`. Print-in-place is preferred when the user wants movement. Removable kits use the larger gaps. Hinge, pin, ball, and snap emit real OpenSCAD (one printable fixture each — not a full gimbal / living-hinge library).
@@ -381,7 +394,7 @@ Run as a Node process (`next dev` / `next start`). V0 is not aimed at serverless
 npm test
 ```
 
-Covers local LLM config defaults, OpenSCAD path resolution, launch health (Ollama + MODEL + OpenSCAD), Start preflight exit codes (0 = pass, 2 = warn/soft fail and continue), code sanitization, mesh-check / STL / 3MF (including multi-object color / AMS-slot encoding), import, photo → solid (upload validation, luminance-depth backside, fragment identify, match-and-complete head/helmet/bust, repair-by-default, oversize → machine designation), wearable measurement charts + size application, imported-mesh describe-edit (hole difference / placement / wrap repair / emboss-etch wrap / pretty-up wrap / complete-the-body), joint clearance helpers + plan parsing + hinge/pin/ball/snap fixtures, raised etchings / emboss plan fields + fixtures, pretty-up / restyle plan fields + functional-preserve / refuse + cube fixtures, the curated knowledge pack (known character dims, unknown-name fallback, tech keyword notes), mid-design option chips (character scale fork, cube does not ask), the P2S profile, Print doctor, print-estimate stub (cube grams / material cost / no mesh → null), project-pack stub (3MF + steps + shopping links; empty plate fails cleanly), and machine adapters (mock + flagged LAN MQTT, no physical printer). If OpenSCAD is installed, an integration test compiles the default fixture, an imported-mesh hole wrap, the two-color plaque regions, the print-in-place hinge / pin / ball / snap fixtures, the helmet-emboss / cube-etch fixtures, and the pretty-up fillet / steampunk fixtures (skipped if the binary is missing).
+Covers local LLM config defaults, OpenSCAD path resolution, launch health (Ollama + MODEL + OpenSCAD), Start preflight exit codes (0 = pass, 2 = warn/soft fail and continue), code sanitization, mesh-check / STL / 3MF (including multi-object color / AMS-slot encoding), import, photo → solid (upload validation, luminance-depth backside, fragment identify, match-and-complete head/helmet/bust, repair-by-default, oversize → machine designation), wearable measurement charts + size application, imported-mesh describe-edit (hole difference / placement / wrap repair / emboss-etch wrap / pretty-up wrap / complete-the-body), joint clearance helpers + plan parsing + hinge/pin/ball/snap fixtures, raised etchings / emboss plan fields + fixtures, pretty-up / restyle plan fields + functional-preserve / refuse + cube fixtures, the curated knowledge pack (known character dims, unknown-name fallback, tech keyword notes), mid-design option chips (character scale fork, cube does not ask), heuristic strength-preview scoring (cube-with-hole / thin-wall fixture), the P2S profile, Print doctor, print-estimate stub (cube grams / material cost / no mesh → null), project-pack stub (3MF + steps + shopping links; empty plate fails cleanly), and machine adapters (mock + flagged LAN MQTT, no physical printer). If OpenSCAD is installed, an integration test compiles the default fixture, an imported-mesh hole wrap, the two-color plaque regions, the print-in-place hinge / pin / ball / snap fixtures, the helmet-emboss / cube-etch fixtures, and the pretty-up fillet / steampunk fixtures (skipped if the binary is missing).
 
 `npm run knowledge:validate` checks `lib/knowledge/pack.json` against the in-repo schema. See [docs/knowledge-pack.md](docs/knowledge-pack.md) to add a character or tech entry.
 
@@ -389,7 +402,7 @@ Covers local LLM config defaults, OpenSCAD path resolution, launch health (Ollam
 
 ## Out of V0
 
-Neural Style2Fab / image style transfer, neural organic mesh, FEA / MechStyle, multi-agent CAD, full Bambu Studio / Orca slicer embedding, and the owner-approved extras below (profile, AMS-aware design, live P2S control, and the rest). Heuristic CSG pretty-up is a shipped stub. Those extras are **approved**, not V0 work, and they must **not** block the Bambu-layout + chat-first PR.
+Neural Style2Fab / image style transfer, neural organic mesh, FEA / MechStyle, multi-agent CAD, full Bambu Studio / Orca slicer embedding, and the owner-approved extras below (profile, AMS-aware design, live P2S control, and the rest). Heuristic CSG pretty-up and the heuristic strength-preview heatmap are shipped stubs (not neural style, not FEA). Those extras are **approved**, not V0 work, and they must **not** block the Bambu-layout + chat-first PR.
 
 ## Roadmap
 
@@ -428,7 +441,7 @@ All approved. None of these block the Bambu-layout + chat-first PR.
 5. **Learn from Print doctor** — remember fixes per machine and filament so later diagnoses get better.
 6. **Project pack export** — **Stub shipped:** one zip (`lib/machine/project-pack.ts`) with the current 3MF/STL, template build steps, and vendor-agnostic shopping search terms. Print column **Download pack**; empty plate → disabled. Not a slicer; no LAN.
 7. **Smart plate packing** — **Stub shipped:** largest-first shelf pack of the current job AABB (or N copies) on the P2S 256×256 mm plate (`lib/machine/plate-pack.ts`). Won't-fit returns rotate-90 / split advice — no invented geometry, no LAN. Later: multi-body plates and a real packer.
-8. **Strength preview heatmap** — show likely weak regions on the preview.
+8. **Strength preview heatmap** — **Stub shipped:** per-triangle heuristic weakness (thickness proxy, concave stress, overhang vs plate, tiny slices) as a cool→hot overlay with a legend + report/chat notes. Toggle on the preview. Not FEA. Later: material-aware / real FEA.
 9. **Assembly / explode mode** — inspect multi-part designs as assembled or exploded.
 10. **Optional voice describe** — talk instead of (or as well as) typing, same chat-first path.
 

@@ -19,7 +19,7 @@ import {
   MACHINE_RESHAPE_STORAGE_KEY,
   parseReshapeRemainingPref,
   serializeReshapeRemainingPref,
-} from "./reshape";
+} from "./reshape-pref";
 import { credentialsComplete } from "./session";
 import type { MidPrintCommand } from "./types";
 

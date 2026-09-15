@@ -129,11 +129,23 @@ export {
   serializeFarmSnapshot,
   type FarmAdapterId,
   type FarmAdapterOptions,
+  type FarmEnqueueAssign,
+  type FarmEnqueueInput,
   type FarmJob,
   type FarmJobStatus,
   type FarmMachine,
   type FarmSnapshot,
 } from "./farm";
+export {
+  advanceFarmJobs,
+  clearDoneFarmJobs,
+  createFarmJob,
+  firstFreeFarmMachineId,
+  listFarmJobsByMachine,
+  nextFarmJobId,
+  resolveFarmEnqueueMachineId,
+  tickFarmJobs,
+} from "./farm-queue";
 export { mapDesignFilamentsToAms } from "./ams";
 export {
   MACHINE_RESHAPE_STORAGE_KEY,

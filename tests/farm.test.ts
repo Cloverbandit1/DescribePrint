@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GET, POST } from "@/app/api/machine/route";
 import {
@@ -85,13 +86,50 @@ describe("farm registry stub", () => {
     expect(parseFarmMachine({ name: "no-id" })).toBeNull();
   });
 
-  it("keeps FarmJob as a typed queue stub with no worker", () => {
+  it("enqueues onto the selected machine as queued, then ticks to active and done", () => {
     const registry = new FarmRegistry();
     expect(registry.queue()).toEqual([]);
-    const job = registry.enqueueStub({ machineId: DEFAULT_FARM_MACHINE_ID, status: "queued" });
-    expect(job).toEqual({ machineId: DEFAULT_FARM_MACHINE_ID, status: "queued" });
+    const job = registry.enqueue();
+    expect(job).toEqual({ id: "job-1", machineId: DEFAULT_FARM_MACHINE_ID, status: "queued" });
+    expect(registry.listByMachine(DEFAULT_FARM_MACHINE_ID)).toEqual([job]);
     expect(registry.queue()).toEqual([job]);
+
+    expect(registry.tick()).toEqual([{ ...job, status: "active" }]);
+    expect(registry.advance()).toEqual([{ ...job, status: "done" }]);
+    expect(registry.clearDone()).toEqual([]);
     expect(FARM_QUEUE_NOTE).toMatch(/send-across-farm later/);
+  });
+
+  it("promotes one queued job per machine per tick", () => {
+    const registry = new FarmRegistry();
+    registry.enqueue();
+    registry.enqueue();
+    expect(registry.tick().map((job) => job.status)).toEqual(["active", "queued"]);
+    expect(registry.tick().map((job) => job.status)).toEqual(["done", "queued"]);
+    expect(registry.tick().map((job) => job.status)).toEqual(["done", "active"]);
+  });
+
+  it("assigns first-free to a machine with no active job", () => {
+    const registry = new FarmRegistry();
+    const second = registry.add();
+    const first = registry.enqueue();
+    expect(first.machineId).toBe(DEFAULT_FARM_MACHINE_ID);
+    registry.tick();
+    const free = registry.enqueue({ assign: "first-free" });
+    expect(free.machineId).toBe(second.id);
+    expect(free.status).toBe("queued");
+    expect(registry.listByMachine(second.id)).toEqual([free]);
+  });
+
+  it("persists job ids in the farm snapshot", () => {
+    const registry = new FarmRegistry();
+    registry.enqueue();
+    const raw = serializeFarmSnapshot(registry.snapshot());
+    expect(JSON.parse(raw).jobs).toEqual([
+      { id: "job-1", machineId: DEFAULT_FARM_MACHINE_ID, status: "queued" },
+    ]);
+    expect(parseFarmSnapshot(raw).jobs[0]?.id).toBe("job-1");
+    expect(parseFarmSnapshot('{"machines":[{"id":"p2s-1","name":"P2S"}],"jobs":[{"machineId":"p2s-1","status":"queued"}]}').jobs[0]?.id).toBe("job-1");
   });
 });
 
@@ -150,6 +188,43 @@ describe("farm registry does not write LAN", () => {
     registry.remove("p2s-3");
     expect(connect).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it("enqueue and tick never select bambu-lan or call connect/send", async () => {
+    const registry = getFarmRegistry();
+    registry.add({
+      name: "P2S-2",
+      adapterId: "bambu-lan",
+      host: "192.168.1.40",
+      serial: "01S00A999",
+    });
+
+    expect(defaultAdapterId()).toBe("mock");
+    expect(resolveActiveAdapterId()).toBe("mock");
+    const adapter = createMachineAdapter();
+    expect(adapter.id).toBe("mock");
+    const connect = vi.spyOn(adapter, "connect");
+    const send = vi.spyOn(adapter, "send");
+
+    const job = registry.enqueue();
+    expect(job.status).toBe("queued");
+    expect(job.machineId).toBe(DEFAULT_FARM_MACHINE_ID);
+    registry.enqueue({ assign: "first-free" });
+    registry.tick();
+    registry.tick();
+    registry.clearDone();
+
+    expect(defaultAdapterId()).toBe("mock");
+    expect(resolveActiveAdapterId()).toBe("mock");
+    expect(createMachineAdapter().id).toBe("mock");
+    expect(connect).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("queue worker source never imports LAN send or MQTT", () => {
+    const src = readFileSync(new URL("../lib/machine/farm-queue.ts", import.meta.url), "utf8");
+    expect(src).not.toMatch(/from ["'].*(adapter|bambu|mqtt)/);
+    expect(src).not.toMatch(/\.send\(|\.connect\(/);
   });
 
   it("POST farm selection stays mock and never echoes secrets", async () => {

@@ -1,4 +1,10 @@
 import {
+  applyMaskCompletion,
+  noneCompletion,
+  planMatchAndComplete,
+  standCompletedFigure,
+} from "./image-complete";
+import {
   identifyFragment,
   restoreFragmentMask,
   withRestoredFragment,
@@ -12,8 +18,9 @@ import {
   type BinaryMask,
 } from "./image-mask";
 import type { ImageRaster } from "./image-raster";
+import { identifyPartialSubject } from "./image-subject";
 import { sitMeshOnBed } from "./mesh-transform";
-import type { ImageFragmentIdentify, Mesh, Triangle } from "./types";
+import type { ImageCompletion, ImageFragmentIdentify, ImageSubjectIdentify, Mesh, Triangle } from "./types";
 
 export const DEFAULT_IMAGE_TARGET_MAX_MM = 80;
 export const MIN_SOLID_THICKNESS_MM = 12;
@@ -156,7 +163,13 @@ export function heightFieldToSolid(field: HeightField): Mesh {
 
 export function buildImageSolidMesh(
   raster: ImageRaster,
-  opts: { targetMaxMm?: number; thicknessMm?: number; repair?: boolean; prompt?: string | null },
+  opts: {
+    targetMaxMm?: number;
+    thicknessMm?: number;
+    repair?: boolean;
+    prompt?: string | null;
+    fileName?: string | null;
+  },
 ): {
   mesh: Mesh;
   mask: BinaryMask;
@@ -165,6 +178,8 @@ export function buildImageSolidMesh(
   thicknessMm: number;
   targetMaxMm: number;
   fragment: ImageFragmentIdentify;
+  subject: ImageSubjectIdentify;
+  completion: ImageCompletion;
 } {
   const targetMaxMm =
     opts.targetMaxMm && opts.targetMaxMm > 0 ? opts.targetMaxMm : DEFAULT_IMAGE_TARGET_MAX_MM;
@@ -174,18 +189,56 @@ export function buildImageSolidMesh(
   const repaired = opts.repair !== false;
   const mask = repaired ? restoreFragmentMask(rawMask, fragmentSeen) : rawMask;
   const fragment = withRestoredFragment(fragmentSeen, mask, repaired);
+  const subject = identifyPartialSubject(mask, {
+    prompt: opts.prompt,
+    fileName: opts.fileName,
+    fragment,
+  });
+  const planned = planMatchAndComplete(mask, subject, {
+    prompt: opts.prompt,
+    fragment,
+  });
   const longest = Math.max(mask.width, mask.height);
   const cellMm = targetMaxMm / longest;
+  let workMask = mask;
+  let workRaster: ImageRaster | null = scaled;
+  let completion = planned.completion;
+  if (planned.apply && planned.layout) {
+    const extended = applyMaskCompletion(mask, scaled, planned.layout);
+    workMask = extended.mask;
+    workRaster = extended.raster;
+  } else {
+    completion = noneCompletion(subject);
+  }
+  if (planned.apply && planned.layout) {
+    completion = {
+      ...completion,
+      proportions: completion.proportions
+        ? {
+            ...completion.proportions,
+            headHeightMm: Math.max(1, planned.layout.headY1 - planned.layout.headY0 + 1) * cellMm,
+            neckHeightMm: Math.max(1, planned.layout.neckY1 - planned.layout.neckY0 + 1) * cellMm,
+            torsoHeightMm: Math.max(1, planned.layout.torsoY1 - planned.layout.torsoY0 + 1) * cellMm,
+            shoulderWidthMm: planned.layout.shoulderWidth * cellMm,
+            waistWidthMm: planned.layout.waistWidth * cellMm,
+          }
+        : completion.proportions,
+    };
+  }
   const thicknessMm = opts.thicknessMm ?? inferredSolidThicknessMm(targetMaxMm);
-  const field = inferBacksideHeightField(mask, scaled, cellMm, thicknessMm);
+  const field = inferBacksideHeightField(workMask, workRaster, cellMm, thicknessMm);
+  let mesh = sitMeshOnBed(heightFieldToSolid(field));
+  if (completion.applied) mesh = standCompletedFigure(mesh);
   return {
-    mesh: sitMeshOnBed(heightFieldToSolid(field)),
-    mask,
+    mesh,
+    mask: workMask,
     repaired,
     cellMm,
     thicknessMm,
     targetMaxMm,
     fragment,
+    subject,
+    completion,
   };
 }
 

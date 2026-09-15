@@ -232,6 +232,8 @@ describe("photo → printable solid pipeline", () => {
       neuralReconstruction: false,
     });
     expect(result.imageImport?.fragment.looksLikeFragment).toBe(false);
+    expect(result.imageImport?.completion.applied).toBe(false);
+    expect(result.imageImport?.subject.class).toBe("none");
     expect(result.code).toMatch(/not photogrammetry \/ NeRF/i);
     expect(result.code).toMatch(/luminance-depth-backside/i);
     expect(result.code).not.toMatch(/neural reconstruction is (done|complete|implemented)/i);

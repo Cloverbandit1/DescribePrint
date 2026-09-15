@@ -23,6 +23,49 @@ export type ImageFragmentIdentify = {
   note: string;
 };
 
+/** Partial subject seen in a photo or described in chat. */
+export type ImageSubjectClass = "none" | "head" | "helmet" | "bust" | "fragment";
+
+export type ImageSubjectSource = "heuristic" | "chat" | "filename" | "mixed";
+
+export type ImageSubjectIdentify = {
+  class: ImageSubjectClass;
+  confidence: number;
+  source: ImageSubjectSource;
+  note: string;
+};
+
+export type ImageCompletionRegionId = "head" | "helmet" | "bust" | "neck" | "torso";
+
+export type ImageCompletionRegion = {
+  id: ImageCompletionRegionId;
+  label: string;
+  origin: "matched" | "invented";
+  note: string;
+};
+
+export type ImageCompletionProportions = {
+  headHeightMm: number;
+  neckHeightMm: number;
+  torsoHeightMm: number;
+  shoulderWidthMm: number;
+  waistWidthMm: number;
+  chestToHeadCirc: number;
+};
+
+export type ImageCompletion = {
+  applied: boolean;
+  kind: "match-and-complete" | "none";
+  subjectClass: ImageSubjectClass;
+  matched: ImageCompletionRegionId[];
+  invented: ImageCompletionRegionId[];
+  regions: ImageCompletionRegion[];
+  proportions: ImageCompletionProportions | null;
+  note: string;
+  identityAccurate: false;
+  photogrammetry: false;
+};
+
 export type ImageImportMeta = {
   kind: "image-solid";
   format: ImageRasterFormat;
@@ -34,6 +77,8 @@ export type ImageImportMeta = {
   neuralReconstruction: false;
   pixelsInferred: boolean;
   fragment: ImageFragmentIdentify;
+  subject: ImageSubjectIdentify;
+  completion: ImageCompletion;
 };
 
 export type Unit = "mm" | "in";
@@ -164,8 +209,9 @@ export type Mesh = {
  * Shipped M2 foundations (in-app, no DCC):
  * - STL/3MF import onto the plate
  * - Photo → printable solid (silhouette + luminance-depth backside + fragment
- *   identify / restore-missing-volume; repair-by-default; oversize designates
- *   a stub alternate machine). Not photogrammetry / NeRF.
+ *   identify / restore-missing-volume; match-and-complete for head/helmet/bust
+ *   partials; repair-by-default; oversize designates a stub alternate machine).
+ *   Not photogrammetry / NeRF / identity-accurate.
  * - Wearable S/M/L/XL measurement charts that scale the current mesh
  * - Describe-to-edit on imported meshes: real triangle scale/rotate/sit-on-bed;
  *   generative adds (holes, tabs, emboss/etch) wrap import("imported.stl") in

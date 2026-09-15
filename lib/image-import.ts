@@ -1,10 +1,19 @@
 import { designateMachineForSize, type MachineDesignation } from "./alternate-machines";
+import { completionNote, noneCompletion, regionLabelsNote } from "./image-complete";
 import { noneFragmentIdentify } from "./image-fragment";
+import { noneSubjectIdentify } from "./image-subject";
 import { detectImportFormat } from "./import-mesh";
 import { decodeImageRaster, detectImageFormat, type ImageRaster } from "./image-raster";
 import { buildImageSolidMesh, DEFAULT_IMAGE_TARGET_MAX_MM } from "./image-solid";
 import { checkMesh } from "./mesh-check";
-import type { ImageFragmentIdentify, ImageImportMeta, ImageRasterFormat, Mesh } from "./types";
+import type {
+  ImageCompletion,
+  ImageFragmentIdentify,
+  ImageImportMeta,
+  ImageRasterFormat,
+  ImageSubjectIdentify,
+  Mesh,
+} from "./types";
 
 export const MAX_IMAGE_IMPORT_BYTES = 12 * 1024 * 1024;
 export const IMAGE_IMPORT_ACCEPT =
@@ -30,6 +39,8 @@ export type ImageSolidBuild = {
   notes: string[];
   meta: ImageImportMeta;
   fragment: ImageFragmentIdentify;
+  subject: ImageSubjectIdentify;
+  completion: ImageCompletion;
 };
 
 const KEEP_WEAR =
@@ -112,12 +123,17 @@ export function imageSolidStubScad(input: {
   keepWear: boolean;
   designation: MachineDesignation;
   fragment?: ImageFragmentIdentify;
+  subject?: ImageSubjectIdentify;
+  completion?: ImageCompletion;
 }): string {
   const [x, y, z] = input.sizeMm;
   const machine = input.designation.designatedMachine
     ? `${input.designation.designatedMachine.name} (${input.designation.designatedMachine.buildVolumeMm.join(" × ")} mm)`
     : input.designation.currentPrinterName;
   const fragment = input.fragment ?? noneFragmentIdentify();
+  const subject = input.subject ?? noneSubjectIdentify();
+  const completion = input.completion ?? noneCompletion(subject);
+  const regions = completion.regions.map((r) => `${r.id}:${r.origin}`).join(",") || "none";
   return `// DescribePrint image → solid (not photogrammetry / NeRF)
 // file: ${input.fileName}
 // format: ${input.format}
@@ -127,10 +143,13 @@ export function imageSolidStubScad(input: {
 // repair_applied: ${input.repairApplied}
 // keep_wear: ${input.keepWear}
 // fragment: ${fragment.kind}${fragment.looksLikeFragment ? ` restored=${fragment.restoredMissingVolume}` : ""}
+// subject_class: ${subject.class} (${subject.source}, ${subject.confidence.toFixed(2)})
+// match_and_complete: ${completion.applied ? "yes" : "no"} regions=${regions}
 // designated_machine: ${machine}
 //
 // Unseen / backside geometry is a luminance-depth heuristic, not a neural reconstruction.
-// Chat follow-ups can scale this mesh or wrap it with import("imported.stl").
+// Match-and-complete invents a parametric neck/torso when the photo is a head/helmet/bust partial.
+// Not identity-accurate. Chat follow-ups can scale this mesh or wrap it with import("imported.stl").
 `;
 }
 
@@ -142,15 +161,22 @@ export function imageImportNotes(build: {
   thicknessMm: number;
   designation: MachineDesignation;
   fragment?: ImageFragmentIdentify;
+  subject?: ImageSubjectIdentify;
+  completion?: ImageCompletion;
 }): string[] {
   const fragment = build.fragment ?? noneFragmentIdentify();
+  const subject = build.subject ?? noneSubjectIdentify();
+  const completion = build.completion ?? noneCompletion(subject);
   const notes = [
     `Photo became a full 3D printable solid (silhouette + luminance depth + ${build.thicknessMm.toFixed(1)} mm tapered/rounded backside, sit-on-bed). Not a front-only relief. Photogrammetry / NeRF is not implemented.`,
     fragment.note,
+    subject.note,
+    completionNote({ ...completion, note: completion.note || completionNote(completion) }),
+    regionLabelsNote(completion),
     build.repairApplied
       ? "Repair-by-default filled cracks and interior holes in the silhouette. Say “keep the wear” or turn on Keep damage to preserve chips and cracks."
       : "Keep damage / wear is on — cracks and missing chunks in the photo were left in the silhouette.",
-  ];
+  ].filter(Boolean);
   if (build.pixelsInferred) {
     notes.push(
       `${build.format.toUpperCase()} pixel silhouette is stubbed from the file header (rounded subject of the photo’s aspect ratio). PNG and JPG decode the real silhouette.`,
@@ -162,6 +188,11 @@ export function imageImportNotes(build: {
 }
 
 export function photoPlateHeadline(meta?: ImageImportMeta | null): string {
+  if (meta?.completion?.applied) {
+    const cls = meta.completion.subjectClass;
+    const matched = cls === "helmet" ? "helmet" : cls === "bust" ? "bust" : "head";
+    return `Photo solid on the plate — ${matched} matched, body completed`;
+  }
   const fragment = meta?.fragment;
   if (fragment?.looksLikeFragment) {
     return fragment.restoredMissingVolume
@@ -182,6 +213,7 @@ export function buildImageSolidFromUpload(
     targetMaxMm: options.targetMaxMm ?? DEFAULT_IMAGE_TARGET_MAX_MM,
     repair: options.repair,
     prompt: options.prompt,
+    fileName,
   });
   const report = checkMesh(built.mesh);
   const designation = designateMachineForSize(report.boundingBoxMm.size);
@@ -198,6 +230,8 @@ export function buildImageSolidFromUpload(
     neuralReconstruction: false,
     pixelsInferred: raster.pixelsInferred,
     fragment: built.fragment,
+    subject: built.subject,
+    completion: built.completion,
   };
   return {
     mesh: built.mesh,
@@ -210,6 +244,8 @@ export function buildImageSolidFromUpload(
     thicknessMm: built.thicknessMm,
     designation,
     fragment: built.fragment,
+    subject: built.subject,
+    completion: built.completion,
     notes: imageImportNotes({
       repairApplied: built.repaired,
       keepWear,
@@ -218,6 +254,8 @@ export function buildImageSolidFromUpload(
       thicknessMm: built.thicknessMm,
       designation,
       fragment: built.fragment,
+      subject: built.subject,
+      completion: built.completion,
     }),
     meta,
   };

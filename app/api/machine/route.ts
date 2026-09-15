@@ -4,10 +4,19 @@ import {
   parseCameraStubFromRequest,
   parseMachineConfigure,
   parsePrintDoctorBody,
+  parseReshapeRemainingFromBody,
+  parseReshapeRemainingFromRequest,
   type MachineApiResponse,
 } from "@/lib/machine/api";
 import { isAmsAutofixEnabled, maybeAutofixAmsFeedLoop } from "@/lib/machine/ams-autofix";
-import { isCameraDetectEnabled, isCameraStubEnabled, maybeDetectFailure } from "@/lib/machine/camera";
+import {
+  currentStubCameraFrame,
+  detectFailure,
+  isCameraDetectEnabled,
+  isCameraStubEnabled,
+  maybeDetectFailure,
+  toCameraDetectReport,
+} from "@/lib/machine/camera";
 import {
   BAMBU_LAN_ADAPTER_ID,
   machineLanHint,
@@ -15,9 +24,15 @@ import {
   readLiveCredentials,
 } from "@/lib/machine/config";
 import { defaultAdapterId } from "@/lib/machine/adapter";
+import {
+  isReshapeRemainingActive,
+  isReshapeRemainingEnabled,
+  maybeEmergencyReshapeRemaining,
+  peekLastReshapePlan,
+} from "@/lib/machine/reshape";
 import { getSharedMachine } from "@/lib/machine/runtime";
 import { getMachineUiSession, setMachineUiSession } from "@/lib/machine/session";
-import { diagnosisFromCameraDetect, diagnosePrintComplaint, withAutofix } from "@/lib/print-doctor";
+import { diagnosisFromCameraDetect, diagnosePrintComplaint, withAutofix, withReshape } from "@/lib/print-doctor";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,10 +43,16 @@ function applyCameraStubPref(cameraStub?: boolean): void {
   }
 }
 
+function applyReshapeRemainingPref(reshapeRemaining?: boolean): void {
+  if (reshapeRemaining !== undefined) {
+    setMachineUiSession({ reshapeRemaining });
+  }
+}
+
 function payload(
   status: MachineApiResponse["status"],
   lastCommand?: MachineApiResponse["lastCommand"],
-  extras?: Pick<MachineApiResponse, "diagnosis" | "lastAutofix">,
+  extras?: Pick<MachineApiResponse, "diagnosis" | "lastAutofix" | "lastReshape">,
 ): MachineApiResponse {
   const adapterId = defaultAdapterId();
   const live = adapterId === BAMBU_LAN_ADAPTER_ID;
@@ -51,10 +72,12 @@ function payload(
     serial,
     cameraStub: isCameraStubEnabled(),
     amsAutofix: isAmsAutofixEnabled(),
+    reshapeRemaining: isReshapeRemainingEnabled(),
     status,
     lastCommand,
     cameraDetect,
     ...extras,
+    lastReshape: extras?.lastReshape ?? peekLastReshapePlan(),
     diagnosis: extras?.diagnosis ?? diagnosisFromCameraDetect(cameraDetect),
   };
 }
@@ -71,6 +94,7 @@ async function snapshot(lastCommand?: MachineApiResponse["lastCommand"]): Promis
 
 export async function GET(request?: Request) {
   applyCameraStubPref(parseCameraStubFromRequest(request));
+  applyReshapeRemainingPref(parseReshapeRemainingFromRequest(request));
   return snapshot();
 }
 
@@ -88,9 +112,11 @@ export async function POST(request: Request) {
       enabled: configure.lan,
       credentials: configure.credentials,
       cameraStub: configure.cameraStub,
+      reshapeRemaining: configure.reshapeRemaining,
     });
   } else {
     applyCameraStubPref(parseCameraStubFromBody(body));
+    applyReshapeRemainingPref(parseReshapeRemainingFromBody(body));
   }
 
   const command = commandFromBody(body);
@@ -116,21 +142,40 @@ export async function POST(request: Request) {
 
   const doctor = parsePrintDoctorBody(body);
   if (doctor) {
+    applyReshapeRemainingPref(doctor.reshapeRemaining);
     const machine = getSharedMachine();
     const diagnosis = doctor.complaint ? diagnosePrintComplaint({ complaint: doctor.complaint }) : undefined;
     const patched = diagnosis && doctor.slot != null ? { ...diagnosis, amsSlot: doctor.slot } : diagnosis;
     const status = await machine.status();
+    const session = getMachineUiSession();
+    const cameraDetect = isCameraDetectEnabled(process.env, session.cameraStub)
+      ? toCameraDetectReport(detectFailure(currentStubCameraFrame()))
+      : undefined;
     const lastAutofix = await maybeAutofixAmsFeedLoop({
       adapter: machine,
       diagnosis: patched,
       complaint: doctor.complaint || undefined,
       status,
     });
+    const reshapeEnabled = isReshapeRemainingActive(process.env, session.reshapeRemaining);
+    const lastReshape = await maybeEmergencyReshapeRemaining({
+      adapter: machine,
+      complaint: doctor.complaint || undefined,
+      defectId: patched?.defectId,
+      cameraDetect,
+      status: await machine.status(),
+      enabled: reshapeEnabled,
+    });
     const nextStatus = await machine.status();
+    let nextDiagnosis = patched ? withAutofix(patched, lastAutofix) : undefined;
+    if (nextDiagnosis && lastReshape.requested) {
+      nextDiagnosis = withReshape(nextDiagnosis, lastReshape);
+    }
     return Response.json(
-      payload(nextStatus, lastAutofix.commands.at(-1), {
-        diagnosis: patched ? withAutofix(patched, lastAutofix) : undefined,
+      payload(nextStatus, lastAutofix.commands.at(-1) ?? lastReshape.commands.at(-1), {
+        diagnosis: nextDiagnosis,
         lastAutofix,
+        lastReshape: lastReshape.requested ? lastReshape : undefined,
       }),
       { headers: { "Cache-Control": "no-store" } },
     );

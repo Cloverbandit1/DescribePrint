@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EXAMPLE_PROMPTS } from "@/lib/fixtures";
 import type { HealthReport, HealthTone } from "@/lib/health-types";
+import { MACHINE_RESHAPE_STORAGE_KEY, parseReshapeRemainingPref } from "@/lib/machine/reshape";
 import { useMachineMonitor } from "@/lib/machine/use-machine-monitor";
 import { diagnosePrintComplaint, looksLikePrintDoctorComplaint, type PrintDoctorResult } from "@/lib/print-doctor";
 import { defaultPrinter, filamentPreset, type PrinterProfile } from "@/lib/printers";
@@ -168,7 +169,12 @@ export function DescribePrintApp({ localAi = false }: { localAi?: boolean }) {
         const response = await fetch("/api/machine", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ complaint: cleaned }),
+          body: JSON.stringify({
+            complaint: cleaned,
+            reshapeRemaining: parseReshapeRemainingPref(
+              typeof window !== "undefined" ? window.localStorage.getItem(MACHINE_RESHAPE_STORAGE_KEY) : null,
+            ),
+          }),
         });
         if (response.ok) {
           const data = (await response.json()) as { diagnosis?: typeof diagnosis };
@@ -767,6 +773,20 @@ function ChatBubble({ item }: { item: ChatItem }) {
         {result.autofix?.attempted ? (
           <div className="mt-2 text-[13px] text-muted">{result.autofix.message}</div>
         ) : null}
+        {result.reshape ? (
+          <div className="mt-2 text-[13px] text-muted">
+            {result.reshape.message}
+            {result.reshape.attempted ? (
+              <div>
+                {result.reshape.remainingHeightMm != null
+                  ? `Remaining ${result.reshape.remainingHeightMm.toFixed(2)} mm`
+                  : "Remaining height unknown"}
+                {result.reshape.currentZ != null ? ` above Z ${result.reshape.currentZ.toFixed(2)}` : ""}. Resume is
+                manual.
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -801,6 +821,8 @@ function MachinePanel({ printer, doctor }: { printer: PrinterProfile; doctor: Pr
     sendCommand,
     cameraStubPref,
     setCameraStubPref,
+    reshapeRemainingPref,
+    setReshapeRemainingPref,
   } = useMachineMonitor();
   const [nozzleInput, setNozzleInput] = useState("");
   const [bedInput, setBedInput] = useState("");
@@ -826,6 +848,9 @@ function MachinePanel({ printer, doctor }: { printer: PrinterProfile; doctor: Pr
   const amsSlots = live && status ? status.amsSlots : [];
   const cameraOn = machine?.cameraStub === true || cameraStubPref;
   const cameraEnvLocked = machine?.cameraStub === true;
+  const reshapeOn = machine?.reshapeRemaining === true || reshapeRemainingPref;
+  const reshapeEnvLocked = machine?.reshapeRemaining === true;
+  const reshapePlan = doctor?.reshape ?? machine?.lastReshape;
   const doctorHint = doctor ?? machine?.diagnosis ?? null;
 
   return (
@@ -911,6 +936,27 @@ function MachinePanel({ printer, doctor }: { printer: PrinterProfile; doctor: Pr
         {cameraEnvLocked ? <span className="font-normal text-muted">· .env</span> : null}
       </label>
       {cameraOn ? <div className="mt-1">camera: {machine?.cameraDetect?.line ?? "ok"}</div> : null}
+      <label className="mt-2 flex items-center gap-1.5 text-ink">
+        <input
+          type="checkbox"
+          checked={reshapeOn}
+          disabled={reshapeEnvLocked}
+          onChange={(event) => setReshapeRemainingPref(event.target.checked)}
+        />
+        Reshape remaining
+        {reshapeEnvLocked ? <span className="font-normal text-muted">· .env</span> : null}
+      </label>
+      {reshapePlan?.attempted ? (
+        <div className="mt-1">
+          {reshapePlan.paused || reshapePlan.pauseConfirmed ? "Paused · " : ""}
+          {reshapePlan.remainingHeightMm != null
+            ? `remaining ${reshapePlan.remainingHeightMm.toFixed(2)} mm`
+            : "remaining height unknown"}
+          {reshapePlan.currentZ != null ? ` above Z ${reshapePlan.currentZ.toFixed(2)}` : ""}. Resume is manual.
+        </div>
+      ) : reshapeOn ? (
+        <div className="mt-1">reshape: stub · resume is manual</div>
+      ) : null}
       {connected ? (
         <div className="mt-2 space-y-0.5">
           <div>
@@ -1046,6 +1092,7 @@ function MachinePanel({ printer, doctor }: { printer: PrinterProfile; doctor: Pr
           <div className="font-medium text-ink">{doctorHint.title}</div>
           <div className="mt-0.5">{doctorHint.diagnosis}</div>
           {doctorHint.autofix?.attempted ? <div className="mt-0.5">{doctorHint.autofix.message}</div> : null}
+          {doctorHint.reshape ? <div className="mt-0.5">{doctorHint.reshape.message}</div> : null}
         </div>
       ) : (
         <p className="mt-2">Describe a print problem in chat — CAD export still works disconnected.</p>

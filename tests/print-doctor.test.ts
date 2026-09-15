@@ -11,6 +11,7 @@ describe("print-doctor NLP stub", () => {
     expect(looksLikePrintDoctorComplaint("20mm cube with 5mm hole")).toBe(false);
     expect(looksLikePrintDoctorComplaint("phone stand for iPhone 15, 60 degree tilt")).toBe(false);
     expect(looksLikePrintDoctorComplaint("parametric drawer knob diameter 40mm")).toBe(false);
+    expect(looksLikePrintDoctorComplaint("reshape this cube to 20mm")).toBe(false);
   });
 
   it("diagnoses PETG stringing with a cooler P2S setting", () => {
@@ -51,6 +52,13 @@ describe("print-doctor NLP stub", () => {
     expect(result.diagnosis).toMatch(/chamber/i);
     const bed = result.fixes.find((fix) => fix.key === "bedC");
     expect(bed?.value).toBe(95);
+  });
+
+  it("routes emergency remaining-layer reshape phrases to the doctor", () => {
+    expect(looksLikePrintDoctorComplaint("reshape the rest")).toBe(true);
+    const result = diagnosePrintComplaint({ complaint: "emergency reshape remaining layers" });
+    expect(result.defectId).toBe("emergency-reshape");
+    expect(result.diagnosis).toMatch(/Resume is manual|CAD Core/i);
   });
 
   it("returns a low-confidence fallback when the complaint is vague", () => {

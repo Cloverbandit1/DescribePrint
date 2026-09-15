@@ -3,6 +3,7 @@ import "./bambu-lan";
 import { createMachineAdapter, defaultAdapterId, type MachineAdapter } from "./adapter";
 import { resetCameraDetectState } from "./camera";
 import { BAMBU_LAN_ADAPTER_ID, readLiveCredentials } from "./config";
+import { resetReshapeState } from "./reshape";
 import { resetMachineUiSession } from "./session";
 
 let shared: MachineAdapter | null = null;
@@ -37,4 +38,5 @@ export function resetSharedMachine(): void {
   sharedKey = "";
   resetMachineUiSession();
   resetCameraDetectState();
+  resetReshapeState();
 }

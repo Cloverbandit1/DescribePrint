@@ -58,7 +58,13 @@ export {
   parseMachineLanPrefs,
   serializeMachineLanPrefs,
 } from "./prefs";
-export { parseMachineConfigure, parsePrintDoctorBody, commandFromBody } from "./api";
+export {
+  commandFromBody,
+  parseMachineConfigure,
+  parsePrintDoctorBody,
+  parseReshapeRemainingFromBody,
+  parseReshapeRemainingFromRequest,
+} from "./api";
 export {
   AMS_FEED_LOOP_SENTINEL,
   amsFeedLoopPhysicalSteps,
@@ -103,4 +109,27 @@ export {
 export { redactSecrets, safeErrorMessage } from "./redact";
 export { getSharedMachine, isLiveMachineSelected, resetSharedMachine } from "./runtime";
 export { mapDesignFilamentsToAms } from "./ams";
-export { planRemainingLayerReshape, type ReshapePlannerInput } from "./reshape";
+export {
+  MACHINE_RESHAPE_STORAGE_KEY,
+  isReshapeRemainingActive,
+  isReshapeRemainingEnabled,
+  maybeEmergencyReshapeRemaining,
+  parseReshapeRemainingPref,
+  peekLastReshapePlan,
+  planRemainingLayerReshape,
+  rememberReshapePlan,
+  resetReshapeState,
+  resolveCurrentZ,
+  serializeReshapeRemainingPref,
+  RESUME_IS_MANUAL,
+  RESHAPE_LATER_OPTION,
+  type ReshapePlannerInput,
+  type CadReshapeHandoff,
+  type EmergencyRemainingReshapePlan,
+  type ReslicePlanStub,
+} from "./reshape";
+export {
+  CAD_RESHAPE_INSTRUCTION,
+  buildCadReshapeHandoff,
+  buildReslicePlanStub,
+} from "./reshape-plan";

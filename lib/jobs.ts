@@ -1,5 +1,7 @@
 import type { MachineDesignation } from "./alternate-machines";
-import { defaultColorRegion, type ColorRegion } from "./color-regions";
+import { defaultColorRegion, regionsToDesignFilaments, type ColorRegion } from "./color-regions";
+import { buildAmsSlotPlan, normalizeAmsSlotPlan } from "./machine/ams";
+import type { AmsSlotPlan } from "./machine/types";
 import { printPresetSummary, type PrintPresetSummary } from "./printers";
 import { formatStrengthPreviewNote } from "./strength-preview";
 import type {
@@ -32,9 +34,10 @@ export type StoredJob = {
   imageImport?: ImageImportMeta | null;
   machineDesignation?: MachineDesignation | null;
   printPreset: PrintPresetSummary;
+  amsSlotPlan: AmsSlotPlan;
 };
 
-export type CreateJobInput = Omit<StoredJob, "id" | "createdAt" | "printPreset"> & {
+export type CreateJobInput = Omit<StoredJob, "id" | "createdAt" | "printPreset" | "amsSlotPlan"> & {
   source?: PartSource;
   fileName?: string | null;
   wearableSize?: WearableSizeId | null;
@@ -46,6 +49,7 @@ export type CreateJobInput = Omit<StoredJob, "id" | "createdAt" | "printPreset">
   imageImport?: ImageImportMeta | null;
   machineDesignation?: MachineDesignation | null;
   printPreset?: PrintPresetSummary | null;
+  amsSlotPlan?: AmsSlotPlan | null;
 };
 
 const TTL_MS = 60 * 60 * 1000;
@@ -80,6 +84,12 @@ export function createJob(input: CreateJobInput): StoredJob {
     imageImport: input.imageImport ?? null,
     machineDesignation: input.machineDesignation ?? null,
     printPreset: input.printPreset ?? printPresetSummary("pla"),
+    amsSlotPlan:
+      input.amsSlotPlan ??
+      buildAmsSlotPlan({
+        material: (input.printPreset ?? printPresetSummary("pla")).material,
+        design: regionsToDesignFilaments(input.colorRegions?.length ? input.colorRegions : [defaultColorRegion()]),
+      }),
     id: globalThis.crypto.randomUUID(),
     createdAt: Date.now(),
   };
@@ -90,6 +100,13 @@ export function createJob(input: CreateJobInput): StoredJob {
 export function getJob(id: string): StoredJob | undefined {
   sweep();
   return jobs.get(id);
+}
+
+export function updateJobAmsSlotPlan(id: string, plan: AmsSlotPlan): StoredJob | undefined {
+  const job = getJob(id);
+  if (!job) return undefined;
+  job.amsSlotPlan = normalizeAmsSlotPlan(plan);
+  return job;
 }
 
 /** Most recently created in-memory generate result, if any. */
@@ -132,5 +149,6 @@ export function toGenerateResult(job: StoredJob): GenerateResult {
     printPreset: job.printPreset,
     printPresetUrl: `/api/jobs/${job.id}/model.print.json`,
     projectPackUrl: `/api/jobs/${job.id}/model.pack.zip`,
+    amsSlotPlan: job.amsSlotPlan,
   };
 }

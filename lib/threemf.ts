@@ -7,6 +7,13 @@ import {
   slugifyRegionName,
   type ColorRegion,
 } from "./color-regions";
+import {
+  amsSlotPlanSidecarJson,
+  buildAmsSlotPlan,
+  declaredDesignFilaments,
+  parseAmsSlotPlan,
+} from "./machine/ams";
+import type { AmsSlotPlan } from "./machine/types";
 import { normalizeFilamentId, printPresetSummary, type FilamentId, type PrintPresetSummary } from "./printers";
 import type { Mesh, Triangle } from "./types";
 
@@ -40,6 +47,14 @@ function xmlEscape(value: string): string {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+function xmlUnescape(value: string): string {
+  return value
+    .replaceAll("&quot;", '"')
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&amp;", "&");
 }
 
 function weldVertices(mesh: Mesh): { vertices: [number, number, number][]; triangles: [number, number, number][] } {
@@ -170,16 +185,102 @@ function printPresetMetadataXml(preset: PrintPresetSummary): string {
   return rows.map(([key, value]) => `  <metadata name="${xmlEscape(key)}">${xmlEscape(value)}</metadata>`).join("\n");
 }
 
+export function planFromThreeMfObjects(
+  objects: ThreeMfObject[],
+  material: string,
+  explicit?: AmsSlotPlan | null,
+): AmsSlotPlan {
+  if (explicit?.slots.length) return explicit;
+  return buildAmsSlotPlan({
+    material,
+    design: declaredDesignFilaments(
+      objects.map((object, index) => ({
+        id: object.name || `object-${index + 1}`,
+        name: object.name,
+        type: object.filament,
+        colorHex: object.colorHex,
+        colorName: object.colorName,
+      })),
+    ),
+  });
+}
+
+export function amsSlotPlanMetadataXml(plan: AmsSlotPlan): string {
+  const rows: Array<[string, string]> = [["DescribePrint:ams_plan", JSON.stringify(plan)]];
+  for (const slot of plan.slots) {
+    rows.push([`DescribePrint:ams_tray_${slot.index}`, slot.material]);
+    if (slot.color) rows.push([`DescribePrint:ams_tray_${slot.index}_color`, slot.color]);
+    rows.push([`DescribePrint:ams_tray_${slot.index}_source`, slot.source]);
+    if (slot.designId) rows.push([`DescribePrint:ams_tray_${slot.index}_design`, slot.designId]);
+  }
+  return rows.map(([key, value]) => `  <metadata name="${xmlEscape(key)}">${xmlEscape(value)}</metadata>`).join("\n");
+}
+
+function stripAmsPlanMetadata(xml: string): string {
+  return xml.replace(/\s*<metadata name="DescribePrint:ams_[^"]*">[\s\S]*?<\/metadata>/g, "");
+}
+
+export function upsertAmsPlanMetadata(xml: string, plan: AmsSlotPlan): string {
+  const cleaned = stripAmsPlanMetadata(xml);
+  const block = amsSlotPlanMetadataXml(plan);
+  if (/DescribePrint:preset_advisory/.test(cleaned)) {
+    return cleaned.replace(
+      /(<metadata name="DescribePrint:preset_advisory">[\s\S]*?<\/metadata>)/,
+      `$1\n${block}`,
+    );
+  }
+  if (/<metadata name="Title">/.test(cleaned)) {
+    return cleaned.replace(/(<metadata name="Title">[\s\S]*?<\/metadata>)/, `$1\n${block}`);
+  }
+  return cleaned.replace(/(<model\b[^>]*>)/i, `$1\n${block}`);
+}
+
+function parseModelAmsSlotPlan(xml: string): AmsSlotPlan | undefined {
+  for (const meta of xml.matchAll(/<[\w.:]*metadata\b([^>]*)>([\s\S]*?)<\/[\w.:]*metadata>/gi)) {
+    const key = (attr(meta[1] ?? "", "name") ?? "").toLowerCase();
+    const value = xmlUnescape((meta[2] ?? "").trim());
+    if (key === "describeprint:ams_plan" && value) {
+      const parsed = parseAmsSlotPlan(value);
+      if (parsed?.slots.length) return parsed;
+    }
+  }
+  const slots: AmsSlotPlan["slots"] = [];
+  for (const meta of xml.matchAll(/<[\w.:]*metadata\b([^>]*)>([\s\S]*?)<\/[\w.:]*metadata>/gi)) {
+    const key = (attr(meta[1] ?? "", "name") ?? "").toLowerCase();
+    const value = (meta[2] ?? "").trim();
+    const tray = key.match(/^describeprint:ams_tray_(\d+)$/);
+    if (tray && value) {
+      const index = Number(tray[1]);
+      slots.push({ index, material: value, source: "preset" });
+    }
+    const color = key.match(/^describeprint:ams_tray_(\d+)_color$/);
+    if (color) {
+      const index = Number(color[1]);
+      const existing = slots.find((slot) => slot.index === index);
+      if (existing && value) existing.color = value;
+    }
+    const source = key.match(/^describeprint:ams_tray_(\d+)_source$/);
+    if (source) {
+      const index = Number(source[1]);
+      const existing = slots.find((slot) => slot.index === index);
+      if (existing && (value === "live" || value === "preset" || value === "manual")) existing.source = value;
+    }
+  }
+  return slots.length ? { slots } : undefined;
+}
+
 export async function meshesTo3mf(
   objects: ThreeMfObject[],
   name = "DescribePrint",
   printPreset?: PrintPresetSummary | null,
+  amsSlotPlan?: AmsSlotPlan | null,
 ): Promise<Buffer> {
   const preset = printPreset ?? printPresetSummary("pla");
   const list = (objects.length ? objects : [defaultObject({ triangles: [] }, name, preset.material)]).map((object, index) => ({
     ...object,
     id: object.id ?? index + 2,
   }));
+  const slotPlan = planFromThreeMfObjects(list, preset.material, amsSlotPlan);
 
   const materials = list
     .map((object, index) => {
@@ -218,6 +319,7 @@ ${triangleXml}
   <metadata name="Application">DescribePrint</metadata>
   <metadata name="Title">${xmlEscape(name)}</metadata>
 ${printPresetMetadataXml(preset)}
+${amsSlotPlanMetadataXml(slotPlan)}
   <resources>
     <basematerials id="1">
 ${materials}
@@ -237,6 +339,7 @@ ${buildItems}
   const metadata = zip.folder("Metadata");
   metadata?.file("model_settings.config", modelSettingsXml(list));
   metadata?.file("print_preset.json", `${JSON.stringify(preset)}\n`);
+  metadata?.file("ams_slot_plan.json", amsSlotPlanSidecarJson(slotPlan));
   const bytes = await zip.generateAsync({
     type: "uint8array",
     compression: "DEFLATE",
@@ -249,8 +352,28 @@ export async function meshTo3mf(
   mesh: Mesh,
   name = "DescribePrint",
   printPreset?: PrintPresetSummary | null,
+  amsSlotPlan?: AmsSlotPlan | null,
 ): Promise<Buffer> {
-  return meshesTo3mf([defaultObject(mesh, name, printPreset?.material ?? "pla")], name, printPreset);
+  return meshesTo3mf([defaultObject(mesh, name, printPreset?.material ?? "pla")], name, printPreset, amsSlotPlan);
+}
+
+/** Rewrite AMS plan metadata in an existing 3MF without remeshing. */
+export async function stampAmsSlotPlan(buffer: Buffer, plan: AmsSlotPlan): Promise<Buffer> {
+  const zip = await JSZip.loadAsync(buffer);
+  const modelFiles = Object.keys(zip.files).filter((name) => /\.model$/i.test(name) && !zip.files[name]?.dir);
+  for (const name of modelFiles) {
+    const xml = await zip.files[name]!.async("string");
+    zip.file(name, upsertAmsPlanMetadata(xml, plan));
+  }
+  const sidecarName =
+    Object.keys(zip.files).find((name) => /ams_slot_plan\.json$/i.test(name)) ?? "Metadata/ams_slot_plan.json";
+  zip.file(sidecarName, amsSlotPlanSidecarJson(plan));
+  const bytes = await zip.generateAsync({
+    type: "uint8array",
+    compression: "DEFLATE",
+    compressionOptions: { level: 6 },
+  });
+  return Buffer.from(bytes);
 }
 
 const UNIT_TO_MM: Record<string, number> = {
@@ -380,6 +503,7 @@ export type Parsed3mf = {
   mesh: Mesh;
   objects: ThreeMfObject[];
   printPreset?: PrintPresetSummary;
+  amsSlotPlan?: AmsSlotPlan;
 };
 
 function parseModelPrintPreset(xml: string): PrintPresetSummary | undefined {
@@ -431,6 +555,16 @@ export async function parse3mfDocument(buffer: Buffer): Promise<Parsed3mf> {
   const objects: ThreeMfObject[] = [];
   const triangles: Triangle[] = [];
   let printPreset: PrintPresetSummary | undefined;
+  let amsSlotPlan: AmsSlotPlan | undefined;
+  const planFile = Object.keys(zip.files).find((name) => /ams_slot_plan\.json$/i.test(name));
+  if (planFile) {
+    try {
+      const parsed = parseAmsSlotPlan(JSON.parse(await zip.files[planFile]!.async("string")));
+      if (parsed?.slots.length) amsSlotPlan = parsed;
+    } catch {
+      // ignore malformed sidecar
+    }
+  }
   const presetFile = Object.keys(zip.files).find((name) => /print_preset\.json$/i.test(name));
   if (presetFile) {
     try {
@@ -444,6 +578,7 @@ export async function parse3mfDocument(buffer: Buffer): Promise<Parsed3mf> {
   for (const name of modelFiles) {
     const xml = await zip.files[name]!.async("string");
     printPreset ??= parseModelPrintPreset(xml);
+    amsSlotPlan ??= parseModelAmsSlotPlan(xml);
     const scale = unitScale(xml);
     const materials = parseBaseMaterials(xml);
     const objectBlocks = xml.match(/<[\w.:]*object\b[\s\S]*?<\/[\w.:]*object>/gi) ?? [];
@@ -491,7 +626,7 @@ export async function parse3mfDocument(buffer: Buffer): Promise<Parsed3mf> {
   if (triangles.length === 0) {
     throw new Error("3MF mesh has no triangles");
   }
-  return { mesh: { triangles }, objects, printPreset };
+  return { mesh: { triangles }, objects, printPreset, amsSlotPlan };
 }
 
 /**

@@ -98,6 +98,28 @@ export type FilamentPlan = {
   unmapped: DesignFilament[];
 };
 
+/** How an AMS tray assignment was chosen. */
+export type AmsSlotPlanSource = "live" | "preset" | "manual";
+
+/** One occupied AMS tray (0–3). Empty trays are omitted, not faked. */
+export type AmsSlotAssignment = {
+  /** 0-based tray index (AMS 1–4). */
+  index: number;
+  material: string;
+  color?: string;
+  source: AmsSlotPlanSource;
+  /** Optional design object / region this tray serves. */
+  designId?: string;
+};
+
+/**
+ * Compact 3MF → AMS handoff. Extends the existing FilamentPlan mapper;
+ * this is the export / UI shape (omit unused trays).
+ */
+export type AmsSlotPlan = {
+  slots: AmsSlotAssignment[];
+};
+
 export type ReshapeAction = "pause-now" | "insufficient-data" | "nothing-remaining";
 
 export type RemainingLayerReshapePlan = {

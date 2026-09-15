@@ -1,6 +1,8 @@
-import { getJob } from "@/lib/jobs";
+import { getJob, updateJobAmsSlotPlan } from "@/lib/jobs";
+import { amsSlotPlanSidecarJson, parseAmsSlotPlan } from "@/lib/machine/ams";
 import { buildProjectPack, ProjectPackError } from "@/lib/machine/project-pack";
 import { printPresetSidecarJson } from "@/lib/printers";
+import { stampAmsSlotPlan } from "@/lib/threemf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,14 +24,18 @@ async function serveProjectPack(id: string): Promise<Response> {
     return Response.json({ error: "Job expired or not found" }, { status: 404 });
   }
   try {
+    const threemf = job.amsSlotPlan?.slots.length
+      ? await stampAmsSlotPlan(job.threemf, job.amsSlotPlan)
+      : job.threemf;
     const body = await buildProjectPack({
-      threemf: job.threemf,
+      threemf,
       stl: job.stl,
       printPreset: job.printPreset,
       report: job.report,
       notes: job.notes,
       colorRegions: job.colorRegions,
       fileName: job.fileName,
+      amsSlotPlan: job.amsSlotPlan,
     });
     return new Response(new Uint8Array(body), {
       headers: {
@@ -54,14 +60,25 @@ export async function GET(
   if (file === "model.pack.zip") {
     return serveProjectPack(id);
   }
-  const spec = FILES[file as keyof typeof FILES];
-  if (!spec) {
-    return Response.json({ error: "Unknown file" }, { status: 404 });
-  }
 
   const job = getJob(id);
   if (!job) {
     return Response.json({ error: "Job expired or not found" }, { status: 404 });
+  }
+
+  if (file === "ams-plan.json") {
+    return new Response(amsSlotPlanSidecarJson(job.amsSlotPlan), {
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Disposition": 'attachment; filename="describeprint.ams-plan.json"',
+        "Cache-Control": "no-store",
+      },
+    });
+  }
+
+  const spec = FILES[file as keyof typeof FILES];
+  if (!spec) {
+    return Response.json({ error: "Unknown file" }, { status: 404 });
   }
 
   const body =
@@ -69,7 +86,9 @@ export async function GET(
       ? job.scad
       : spec.field === "printPreset"
         ? printPresetSidecarJson(job.printPreset)
-        : new Uint8Array(job[spec.field]);
+        : spec.field === "threemf" && job.amsSlotPlan?.slots.length
+          ? new Uint8Array(await stampAmsSlotPlan(job.threemf, job.amsSlotPlan))
+          : new Uint8Array(job[spec.field]);
   return new Response(body, {
     headers: {
       "Content-Type": spec.type,
@@ -77,4 +96,29 @@ export async function GET(
       "Cache-Control": "no-store",
     },
   });
+}
+
+export async function POST(
+  req: Request,
+  context: { params: Promise<{ id: string; file: string }> },
+) {
+  const { id, file } = await context.params;
+  if (file !== "ams-plan.json") {
+    return Response.json({ error: "Unknown file" }, { status: 404 });
+  }
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+  const plan = parseAmsSlotPlan(body);
+  if (!plan || !plan.slots.length) {
+    return Response.json({ error: "Invalid AMS slot plan" }, { status: 400 });
+  }
+  const job = updateJobAmsSlotPlan(id, plan);
+  if (!job) {
+    return Response.json({ error: "Job expired or not found" }, { status: 404 });
+  }
+  return Response.json(job.amsSlotPlan);
 }

@@ -12,6 +12,13 @@ import {
 } from "@/lib/design-options";
 import { EXAMPLE_PROMPTS } from "@/lib/fixtures";
 import type { HealthReport, HealthTone } from "@/lib/health-types";
+import {
+  applyChatAmsSlotAssignment,
+  buildAmsSlotPlan,
+  declaredDesignFilaments,
+  reassignAmsSlot,
+} from "@/lib/machine/ams";
+import type { AmsSlotPlan, AmsSlotStatus } from "@/lib/machine/types";
 import { MACHINE_RESHAPE_STORAGE_KEY, parseReshapeRemainingPref } from "@/lib/machine/reshape-pref";
 import { FARM_QUEUE_NOTE, nextFarmStubName } from "@/lib/machine/farm";
 import {
@@ -68,6 +75,8 @@ import {
 } from "@/lib/wearable-sizes";
 import type { GenerateResult, ImageImportMeta, PipelineStep, StatusEvent, Unit, WearableCategoryId, WearableSizeId } from "@/lib/types";
 import type { CameraView, PackOutline, ViewerTheme } from "./Viewer";
+
+const EMPTY_AMS_SLOTS: AmsSlotStatus[] = [];
 
 const Viewer = dynamic(() => import("./Viewer").then((m) => m.Viewer), {
   ssr: false,
@@ -1263,6 +1272,69 @@ function PlatePackControls({
   );
 }
 
+function persistAmsSlotPlan(jobId: string | undefined, plan: AmsSlotPlan) {
+  if (!jobId) return;
+  void fetch(`/api/jobs/${jobId}/ams-plan.json`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(plan),
+  }).catch(() => {
+    // Download still has the generate-time plan if persist fails.
+  });
+}
+
+function AmsPlanBlock({
+  plan,
+  onReassign,
+}: {
+  plan: AmsSlotPlan;
+  onReassign: (fromIndex: number, toIndex: number) => void;
+}) {
+  return (
+    <div className="mt-2 border-t border-line pt-1.5">
+      <div className="studio-label">AMS plan</div>
+      {plan.slots.length === 0 ? (
+        <div className="mt-0.5">No trays assigned</div>
+      ) : (
+        <ul className="mt-1 space-y-0.5" aria-label="AMS slot plan">
+          {plan.slots.map((slot) => (
+            <li key={`${slot.index}-${slot.designId ?? slot.material}`} className="flex items-center gap-1.5">
+              <label className="sr-only" htmlFor={`ams-plan-tray-${slot.index}`}>
+                Tray for {slot.designId ?? slot.material}
+              </label>
+              <select
+                id={`ams-plan-tray-${slot.index}`}
+                aria-label={`AMS tray for ${slot.designId ?? slot.material}`}
+                className="studio-field h-6 w-[4.5rem] px-1 text-[11px]"
+                value={slot.index}
+                onChange={(event) => onReassign(slot.index, Number(event.target.value))}
+              >
+                {[0, 1, 2, 3].map((index) => (
+                  <option key={index} value={index}>
+                    AMS {index + 1}
+                  </option>
+                ))}
+              </select>
+              <span className="text-ink">{slot.material.toUpperCase()}</span>
+              {slot.color ? (
+                <span className="inline-flex items-center gap-1">
+                  <span
+                    className="inline-block h-2.5 w-2.5 rounded-full border border-line"
+                    style={{ background: slot.color }}
+                  />
+                  {slot.color}
+                </span>
+              ) : null}
+              {slot.designId ? <span className="text-muted">{slot.designId}</span> : null}
+              <span className="text-muted">{slot.source}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function MachinePanel({
   printer,
   doctor,
@@ -1302,6 +1374,8 @@ function MachinePanel({
   const farm = useFarmRegistry();
   const [nozzleInput, setNozzleInput] = useState("");
   const [bedInput, setBedInput] = useState("");
+  const [manualPlan, setManualPlan] = useState<AmsSlotPlan | null>(null);
+  const appliedDoctorKey = useRef("");
 
   const envLocked = machine?.source === "env";
   const lanOn = envLocked || prefs.enabled;
@@ -1321,7 +1395,42 @@ function MachinePanel({
           : status?.message
             ? `Disconnected · ${status.message}`
             : "Disconnected";
-  const amsSlots = live && status ? status.amsSlots : [];
+  const amsSlots = live && status ? status.amsSlots : EMPTY_AMS_SLOTS;
+  const autoPlan = useMemo(
+    () =>
+      buildAmsSlotPlan({
+        material,
+        design: declaredDesignFilaments(result?.colorRegions ?? []),
+        liveSlots: connected ? amsSlots : undefined,
+        connected,
+      }),
+    [material, result?.colorRegions, result?.jobId, connected, amsSlots],
+  );
+  const [plan, setPlan] = useState<AmsSlotPlan>(autoPlan);
+
+  useEffect(() => {
+    appliedDoctorKey.current = "";
+    setManualPlan(null);
+    setPlan(autoPlan);
+  }, [result?.jobId]);
+
+  useEffect(() => {
+    const assignment = doctor?.appliedSlotPlan ? doctor.slotPlanAssignment : undefined;
+    const doctorKey = assignment ? `${assignment.index}:${assignment.role ?? ""}` : "";
+    if (assignment && doctorKey !== appliedDoctorKey.current) {
+      const next = applyChatAmsSlotAssignment(autoPlan, assignment, material);
+      appliedDoctorKey.current = doctorKey;
+      setManualPlan(next);
+      setPlan(next);
+      return;
+    }
+    if (!manualPlan) setPlan(autoPlan);
+  }, [autoPlan, doctor, material, manualPlan]);
+
+  useEffect(() => {
+    persistAmsSlotPlan(result?.jobId, plan);
+  }, [result?.jobId, plan]);
+
   const cameraOn = machine?.cameraStub === true || cameraStubPref;
   const cameraEnvLocked = machine?.cameraStub === true;
   const reshapeOn = machine?.reshapeRemaining === true || reshapeRemainingPref;
@@ -1555,6 +1664,14 @@ function MachinePanel({
           );
         })}
       </div>
+      <AmsPlanBlock
+        plan={plan}
+        onReassign={(fromIndex, toIndex) => {
+          const next = reassignAmsSlot(plan, fromIndex, toIndex);
+          setManualPlan(next);
+          setPlan(next);
+        }}
+      />
       <label className="mt-2 grid grid-cols-[4.5rem_1fr] items-center gap-x-1.5 text-ink" htmlFor="machine-material">
         <span>Material</span>
         <select
